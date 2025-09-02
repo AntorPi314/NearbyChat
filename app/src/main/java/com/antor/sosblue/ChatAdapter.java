@@ -5,8 +5,10 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
+
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
+
 import java.util.List;
 
 public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder> {
@@ -36,6 +38,7 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
         MessageModel msg = messageList.get(position);
         holder.senderId.setText(msg.getSenderId());
         holder.message.setText(msg.getMessage());
+        holder.timestamp.setText(msg.getTimestamp()); // ✅ timestamp show করবে
     }
 
     @Override
@@ -49,12 +52,13 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
     }
 
     static class ChatViewHolder extends RecyclerView.ViewHolder {
-        TextView senderId, message;
+        TextView senderId, message, timestamp;
 
         public ChatViewHolder(@NonNull View itemView) {
             super(itemView);
             senderId = itemView.findViewById(R.id.textUserId);
             message = itemView.findViewById(R.id.textMessage);
+            timestamp = itemView.findViewById(R.id.textTimestamp); // ✅ নতুন field
         }
     }
 }

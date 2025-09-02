@@ -19,6 +19,7 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import java.nio.charset.StandardCharsets;
+import java.text.SimpleDateFormat;
 import java.util.*;
 
 public class MainActivity extends Activity {
@@ -39,12 +40,15 @@ public class MainActivity extends Activity {
     private AdvertiseCallback advertiseCallback;
     private ScanCallback scanCallback;
 
-    // userId storage
+    // UserId storage
     private static final String PREFS_NAME = "SOSBluePrefs";
-    private static final String KEY_USER_ID = "userId";
-    private String userId;
+    private static final String KEY_USER_ID_BITS = "userIdBits";
+    private static final char[] ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ123456".toCharArray();
 
-    // duplicate filter
+    private long userIdBits;   // 40-bit unique ID
+    private String userId;     // 8-character 5-bit display string
+
+    // Duplicate filter
     private Set<String> receivedMessages = new HashSet<>();
 
     @Override
@@ -80,13 +84,16 @@ public class MainActivity extends Activity {
 
         requestPermissions();
 
+        // ---------- Send Button ----------
         sendButton.setOnClickListener(v -> {
             String msg = inputMessage.getText().toString().trim();
             if (!msg.isEmpty()) {
-                String fullMsg = userId + ":" + msg; // attach userId
+                // BLE message = ASCII ID + message
+                String fullMsg = toAscii(userIdBits) + ":" + msg;
                 startAdvertising(fullMsg);
 
-                messageList.add(new MessageModel(userId, msg, true));
+                String timestamp = getCurrentTimestamp();
+                messageList.add(new MessageModel(userId, msg, true, timestamp));
                 chatAdapter.notifyItemInserted(messageList.size() - 1);
                 recyclerView.scrollToPosition(messageList.size() - 1);
 
@@ -95,25 +102,55 @@ public class MainActivity extends Activity {
         });
     }
 
+    // ---------- Timestamp Utility ----------
+    private String getCurrentTimestamp() {
+        SimpleDateFormat sdf = new SimpleDateFormat("HH:mm | dd-MM-yyyy", Locale.getDefault());
+        return sdf.format(new Date());
+    }
+
     // ---------- UserId Generate ----------
     private void initUserId() {
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        userId = prefs.getString(KEY_USER_ID, null);
-
-        if (userId == null) {
-            userId = generateRandomId(5);
-            prefs.edit().putString(KEY_USER_ID, userId).apply();
+        userIdBits = prefs.getLong(KEY_USER_ID_BITS, -1);
+        if (userIdBits == -1) {
+            userIdBits = System.currentTimeMillis() & ((1L << 40) - 1);
+            prefs.edit().putLong(KEY_USER_ID_BITS, userIdBits).apply();
         }
+        userId = getUserIdString(userIdBits); // 8-character 5-bit string
     }
 
-    private String generateRandomId(int length) {
-        String chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    // Convert 40-bit long -> 8-character 5-bit model string
+    private String getUserIdString(long bits40) {
         StringBuilder sb = new StringBuilder();
-        Random random = new Random();
-        for (int i = 0; i < length; i++) {
-            sb.append(chars.charAt(random.nextInt(chars.length())));
+        long temp = bits40;
+        for (int i = 0; i < 8; i++) {
+            int index = (int) (temp & 0b11111);
+            sb.append(ALPHABET[index]);
+            temp >>= 5;
         }
-        return sb.toString();
+        return sb.reverse().toString();
+    }
+
+    // Convert 40-bit ID -> 5-byte ASCII string
+    private String toAscii(long bits40) {
+        byte[] bytes = new byte[5];
+        long temp = bits40;
+        for (int i = 4; i >= 0; i--) {
+            bytes[i] = (byte) (temp & 0xFF);
+            temp >>= 8;
+        }
+        return new String(bytes, StandardCharsets.ISO_8859_1);
+    }
+
+    // ASCII string -> 40-bit long
+    private long fromAscii(String asciiId) {
+        if (asciiId.length() != 5) throw new IllegalArgumentException("Invalid ASCII ID");
+        byte[] bytes = asciiId.getBytes(StandardCharsets.ISO_8859_1);
+        long value = 0;
+        for (byte b : bytes) {
+            value = (value << 8) | (b & 0xFF);
+        }
+        return value;
     }
 
     // ---------- Permissions ----------
@@ -159,7 +196,7 @@ public class MainActivity extends Activity {
                 .addServiceData(new ParcelUuid(SERVICE_UUID), message.getBytes(StandardCharsets.UTF_8))
                 .build();
 
-        stopAdvertising(); // stop previous
+        stopAdvertising();
         advertiseCallback = new AdvertiseCallback() {
             @Override
             public void onStartSuccess(AdvertiseSettings settingsInEffect) {
@@ -192,18 +229,22 @@ public class MainActivity extends Activity {
                     if (data != null) {
                         final String received = new String(data, StandardCharsets.UTF_8);
 
-                        // Duplicate filter
                         if (!receivedMessages.contains(received)) {
                             receivedMessages.add(received);
 
                             runOnUiThread(() -> {
                                 if (received.contains(":")) {
                                     String[] parts = received.split(":", 2);
-                                    String senderId = parts[0];
+                                    String asciiId = parts[0];      // 5-byte ASCII ID
                                     String message = parts[1];
 
-                                    boolean isSelf = senderId.equals(userId);
-                                    messageList.add(new MessageModel(senderId, message, isSelf));
+                                    long bits = fromAscii(asciiId);
+                                    String displayId = getUserIdString(bits); // 8-char 5-bit ID
+
+                                    boolean isSelf = displayId.equals(userId);
+                                    String timestamp = getCurrentTimestamp();
+
+                                    messageList.add(new MessageModel(displayId, message, isSelf, timestamp));
                                     chatAdapter.notifyItemInserted(messageList.size() - 1);
                                     recyclerView.scrollToPosition(messageList.size() - 1);
                                 }
