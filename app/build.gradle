@@ -29,6 +29,6 @@ android {
 }
 
 dependencies {
-
-implementation libs.core
+    implementation libs.recyclerview
+    implementation libs.core
 }

@@ -4,19 +4,22 @@ import android.Manifest;
 import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.le.*;
+import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.ParcelUuid;
 import android.util.Log;
-import android.view.View;
 import android.widget.*;
 import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 
 import java.nio.charset.StandardCharsets;
-import java.util.UUID;
+import java.util.*;
 
 public class MainActivity extends Activity {
 
@@ -26,33 +29,49 @@ public class MainActivity extends Activity {
 
     private BluetoothLeAdvertiser advertiser;
     private BluetoothLeScanner scanner;
-    private TextView chatText;
+
     private EditText inputMessage;
     private Button sendButton;
+    private RecyclerView recyclerView;
+    private ChatAdapter chatAdapter;
+    private List<MessageModel> messageList = new ArrayList<>();
 
     private AdvertiseCallback advertiseCallback;
     private ScanCallback scanCallback;
+
+    // userId storage
+    private static final String PREFS_NAME = "SOSBluePrefs";
+    private static final String KEY_USER_ID = "userId";
+    private String userId;
+
+    // duplicate filter
+    private Set<String> receivedMessages = new HashSet<>();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        chatText = findViewById(R.id.chatText);
+        recyclerView = findViewById(R.id.chatRecyclerView);
         inputMessage = findViewById(R.id.inputMessage);
         sendButton = findViewById(R.id.sendButton);
+
+        chatAdapter = new ChatAdapter(messageList, this);
+        recyclerView.setLayoutManager(new LinearLayoutManager(this));
+        recyclerView.setAdapter(chatAdapter);
+
+        initUserId(); // generate/load userId
 
         BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
 
         if (adapter == null || !adapter.isEnabled()) {
             Toast.makeText(this, "Bluetooth not available or not enabled", Toast.LENGTH_LONG).show();
-            finish();
+            startActivity(new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE));
             return;
         }
 
         if (!adapter.isMultipleAdvertisementSupported()) {
             Toast.makeText(this, "BLE Advertising not supported on this device", Toast.LENGTH_LONG).show();
-            finish();
             return;
         }
 
@@ -64,13 +83,40 @@ public class MainActivity extends Activity {
         sendButton.setOnClickListener(v -> {
             String msg = inputMessage.getText().toString().trim();
             if (!msg.isEmpty()) {
-                startAdvertising(msg);
-                chatText.append("\nYou: " + msg);
+                String fullMsg = userId + ":" + msg; // attach userId
+                startAdvertising(fullMsg);
+
+                messageList.add(new MessageModel(userId, msg, true));
+                chatAdapter.notifyItemInserted(messageList.size() - 1);
+                recyclerView.scrollToPosition(messageList.size() - 1);
+
                 inputMessage.setText("");
             }
         });
     }
 
+    // ---------- UserId Generate ----------
+    private void initUserId() {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        userId = prefs.getString(KEY_USER_ID, null);
+
+        if (userId == null) {
+            userId = generateRandomId(5);
+            prefs.edit().putString(KEY_USER_ID, userId).apply();
+        }
+    }
+
+    private String generateRandomId(int length) {
+        String chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        StringBuilder sb = new StringBuilder();
+        Random random = new Random();
+        for (int i = 0; i < length; i++) {
+            sb.append(chars.charAt(random.nextInt(chars.length())));
+        }
+        return sb.toString();
+    }
+
+    // ---------- Permissions ----------
     private void requestPermissions() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED ||
@@ -87,7 +133,6 @@ public class MainActivity extends Activity {
                 return;
             }
         }
-
         startScanning();
     }
 
@@ -100,6 +145,7 @@ public class MainActivity extends Activity {
         }
     }
 
+    // ---------- Advertising ----------
     private void startAdvertising(String message) {
         if (advertiser == null) return;
 
@@ -135,6 +181,7 @@ public class MainActivity extends Activity {
         }
     }
 
+    // ---------- Scanning ----------
     private void startScanning() {
         scanCallback = new ScanCallback() {
             @Override
@@ -144,7 +191,24 @@ public class MainActivity extends Activity {
                     byte[] data = record.getServiceData().get(new ParcelUuid(SERVICE_UUID));
                     if (data != null) {
                         final String received = new String(data, StandardCharsets.UTF_8);
-                        runOnUiThread(() -> chatText.append("\nNearby: " + received));
+
+                        // Duplicate filter
+                        if (!receivedMessages.contains(received)) {
+                            receivedMessages.add(received);
+
+                            runOnUiThread(() -> {
+                                if (received.contains(":")) {
+                                    String[] parts = received.split(":", 2);
+                                    String senderId = parts[0];
+                                    String message = parts[1];
+
+                                    boolean isSelf = senderId.equals(userId);
+                                    messageList.add(new MessageModel(senderId, message, isSelf));
+                                    chatAdapter.notifyItemInserted(messageList.size() - 1);
+                                    recyclerView.scrollToPosition(messageList.size() - 1);
+                                }
+                            });
+                        }
                     }
                 }
             }
