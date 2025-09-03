@@ -15,14 +15,15 @@ import android.bluetooth.le.ScanResult;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
-import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.ParcelUuid;
-import android.text.InputType;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.util.Log;
 import android.view.View;
 import android.widget.EditText;
@@ -72,13 +73,49 @@ public class MainActivity extends Activity {
     private Set<String> receivedMessages = new HashSet<>();
     private Gson gson = new Gson();
     private Map<String, String> nameMap = new HashMap<>(); // ID -> custom name
+    private static final int REQUEST_ENABLE_BT = 101;
+    private static final int REQUEST_ENABLE_LOCATION = 102;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        final View rootView = findViewById(android.R.id.content);
+        rootView.getViewTreeObserver().addOnGlobalLayoutListener(() -> {
+            int heightDiff = rootView.getRootView().getHeight() - rootView.getHeight();
+            boolean keyboardVisible = heightDiff > dpToPx(this, 200); // keyboard approx height
+            if (!keyboardVisible) {
+                UiUtils.setLightSystemBars(this);
+            }
+        });
+        checkBluetoothAndLocation();
+
         inputMessage = findViewById(R.id.inputMessage);
+
+        int maxBits = 176;
+        int maxChars = maxBits / 8; // 22 characters
+        inputMessage.addTextChangedListener(new TextWatcher() {
+            boolean toastShown = false; // avoid repeated toast spam
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) { }
+            @Override
+            public void afterTextChanged(Editable s) {
+                if (s.length() > maxChars) {
+                    inputMessage.setTextColor(Color.parseColor("#FF0000"));
+                    if (!toastShown) {
+                        Toast.makeText(MainActivity.this, "Maximum 176 bits allowed!", Toast.LENGTH_SHORT).show();
+                        toastShown = true;
+                    }
+                } else {
+                    inputMessage.setTextColor(Color.parseColor("#000000"));
+                    toastShown = false;
+                }
+            }
+        });
+
         recyclerView = findViewById(R.id.chatRecyclerView);
         chatAdapter = new ChatAdapter(messageList, this, this::onMessageClick, this::onMessageLongClick);
         recyclerView.setLayoutManager(new LinearLayoutManager(this));
@@ -91,22 +128,6 @@ public class MainActivity extends Activity {
         // show loaded history
         chatAdapter.notifyDataSetChanged();
         if (!messageList.isEmpty()) recyclerView.scrollToPosition(messageList.size() - 1);
-
-        // BLE setup
-        BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
-        if (adapter == null || !adapter.isEnabled()) {
-            Toast.makeText(this, "Bluetooth not available or not enabled", Toast.LENGTH_LONG).show();
-            startActivity(new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE));
-            return;
-        }
-        if (!adapter.isMultipleAdvertisementSupported()) {
-            Toast.makeText(this, "BLE Advertising not supported on this device", Toast.LENGTH_LONG).show();
-            return;
-        }
-
-        advertiser = adapter.getBluetoothLeAdvertiser();
-        scanner = adapter.getBluetoothLeScanner();
-        requestPermissions();
 
         findViewById(R.id.sendButton).setOnClickListener(v -> {
             String msg = inputMessage.getText().toString().trim();
@@ -123,9 +144,93 @@ public class MainActivity extends Activity {
         });
     }
 
+
+    private int dpToPx(Context context, int dp) {
+        float density = context.getResources().getDisplayMetrics().density;
+        return Math.round(dp * density);
+    }
+
+    private void initBLE(BluetoothAdapter adapter) {
+        if (!adapter.isMultipleAdvertisementSupported()) {
+            Toast.makeText(this, "BLE Advertising not supported on this device", Toast.LENGTH_LONG).show();
+            return;
+        }
+        advertiser = adapter.getBluetoothLeAdvertiser();
+        scanner = adapter.getBluetoothLeScanner();
+        requestPermissions();
+    }
+
+    private void checkBluetoothAndLocation() {
+        BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+        if (adapter == null) {
+            Toast.makeText(this, "Bluetooth not available", Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (!adapter.isEnabled()) {
+            Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
+            startActivityForResult(enableBtIntent, REQUEST_ENABLE_BT);
+        } else if (!isLocationEnabled()) {
+            promptEnableLocation();
+        } else {
+            initBLE(adapter);
+        }
+    }
+
+    private boolean isLocationEnabled() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            android.location.LocationManager lm = (android.location.LocationManager) getSystemService(Context.LOCATION_SERVICE);
+            return lm.isLocationEnabled();
+        } else {
+            int mode = android.provider.Settings.Secure.getInt(
+                    getContentResolver(),
+                    android.provider.Settings.Secure.LOCATION_MODE,
+                    android.provider.Settings.Secure.LOCATION_MODE_OFF);
+            return mode != android.provider.Settings.Secure.LOCATION_MODE_OFF;
+        }
+    }
+
+    private void promptEnableLocation() {
+        new AlertDialog.Builder(this)
+                .setTitle("Enable Location")
+                .setMessage("Location is required for BLE scanning. Please turn it on.")
+                .setPositiveButton("Enable", (dialog, which) -> {
+                    Intent intent = new Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS);
+                    startActivityForResult(intent, REQUEST_ENABLE_LOCATION);
+                })
+                .setNegativeButton("Cancel", (dialog, which) -> {
+                    Toast.makeText(this, "Location required to use BLE", Toast.LENGTH_LONG).show();
+                })
+                .setCancelable(false)
+                .show();
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+
+        if (requestCode == REQUEST_ENABLE_BT) {
+            if (adapter != null && adapter.isEnabled()) {
+                if (!isLocationEnabled()) {
+                    promptEnableLocation();
+                } else {
+                    initBLE(adapter);
+                }
+            } else {
+                Toast.makeText(this, "Bluetooth is required", Toast.LENGTH_LONG).show();
+            }
+        } else if (requestCode == REQUEST_ENABLE_LOCATION) {
+            if (adapter != null && adapter.isEnabled() && isLocationEnabled()) {
+                initBLE(adapter);
+            } else {
+                Toast.makeText(this, "Both Bluetooth and Location are required", Toast.LENGTH_LONG).show();
+            }
+        }
+    }
+
     // ---------- Timestamp ----------
     private String getCurrentTimestamp() {
-        SimpleDateFormat sdf = new SimpleDateFormat("HH:mm a | dd-MM-yyyy", Locale.getDefault());
+        SimpleDateFormat sdf = new SimpleDateFormat("hh:mm a | dd-MM-yyyy", Locale.getDefault());
         return sdf.format(new Date());
     }
 
@@ -171,23 +276,28 @@ public class MainActivity extends Activity {
 
     // ---------- Permissions ----------
     private void requestPermissions() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED ||
-                    ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADVERTISE) != PackageManager.PERMISSION_GRANTED ||
-                    ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
-
-                ActivityCompat.requestPermissions(this,
-                        new String[]{
-                                Manifest.permission.ACCESS_FINE_LOCATION,
-                                Manifest.permission.BLUETOOTH_ADVERTISE,
-                                Manifest.permission.BLUETOOTH_SCAN
-                        },
-                        PERMISSION_REQUEST_CODE);
-                return;
+        List<String> permissionsList = new ArrayList<>();
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            permissionsList.add(Manifest.permission.ACCESS_FINE_LOCATION);
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) { // S = Android 12
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADVERTISE) != PackageManager.PERMISSION_GRANTED) {
+                permissionsList.add(Manifest.permission.BLUETOOTH_ADVERTISE);
             }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
+                permissionsList.add(Manifest.permission.BLUETOOTH_SCAN);
+            }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                permissionsList.add(Manifest.permission.BLUETOOTH_CONNECT);
+            }
+        }
+        if (!permissionsList.isEmpty()) {
+            ActivityCompat.requestPermissions(this, permissionsList.toArray(new String[0]), PERMISSION_REQUEST_CODE);
+            return;
         }
         startScanning();
     }
+
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
