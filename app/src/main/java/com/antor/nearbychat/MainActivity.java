@@ -1,4 +1,4 @@
-package com.antor.sosblue;
+package com.antor.nearbychat;
 
 import android.Manifest;
 import android.app.Activity;

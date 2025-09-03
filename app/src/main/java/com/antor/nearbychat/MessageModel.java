@@ -1,4 +1,4 @@
-package com.antor.sosblue;
+package com.antor.nearbychat;
 
 public class MessageModel {
     private String senderId;

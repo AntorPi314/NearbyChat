@@ -29,7 +29,7 @@
             android:layout_marginEnd="12dp"
             android:contentDescription="Nearby"
             android:padding="8dp"
-            android:tint="#9B8B8B"
+            android:tint="#8E7E7E"
             android:scaleType="centerCrop"
             android:src="@drawable/nearby" />
 
@@ -43,7 +43,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Nearby Chat"
-                android:textColor="#6B6060"
+                android:textColor="#756A6A"
                 android:textSize="20sp"
                 android:textStyle="bold" />
 
