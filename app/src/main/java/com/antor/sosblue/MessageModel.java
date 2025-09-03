@@ -4,7 +4,7 @@ public class MessageModel {
     private String senderId;
     private String message;
     private boolean isSelf;
-    private String timestamp; // নতুন ফিল্ড
+    private String timestamp;
 
     public MessageModel(String senderId, String message, boolean isSelf, String timestamp) {
         this.senderId = senderId;

@@ -1,10 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:background="#F5F5F5">
 
-    <!-- Chat list -->
+    <!-- Chat list fills all remaining space -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/chatRecyclerView"
         android:layout_width="match_parent"
@@ -13,15 +14,18 @@
         android:padding="8dp"
         android:clipToPadding="false" />
 
-    <!-- Input bar -->
+    <!-- Input bar always at bottom -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:padding="6dp"
-        android:gravity="bottom"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp"
+        android:paddingStart="8dp"
+        android:paddingEnd="6dp"
         android:background="#FFFFFF"
-        android:elevation="3dp">
+        android:elevation="6dp"
+        android:gravity="center_vertical">
 
         <EditText
             android:id="@+id/inputMessage"
@@ -29,11 +33,15 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:hint="Type your message..."
-            android:maxLength="27"
+            android:inputType="textMultiLine"
+            android:imeOptions="actionSend"
+            android:maxLines="4"
+            android:minLines="1"
             android:padding="10dp"
             android:background="@drawable/rounded_edittext"
             android:textColor="#000000"
-            android:textSize="15sp" />
+            android:textSize="15sp"
+            android:gravity="bottom|start" />
 
         <Button
             android:id="@+id/sendButton"
@@ -43,5 +51,7 @@
             android:textColor="#FFFFFF"
             android:background="@drawable/rounded_button"
             android:layout_marginStart="8dp" />
+
     </LinearLayout>
+
 </LinearLayout>

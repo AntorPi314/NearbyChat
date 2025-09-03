@@ -18,6 +18,10 @@ import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
+
+import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.*;
@@ -43,13 +47,16 @@ public class MainActivity extends Activity {
     // UserId storage
     private static final String PREFS_NAME = "SOSBluePrefs";
     private static final String KEY_USER_ID_BITS = "userIdBits";
+    private static final String KEY_CHAT_HISTORY = "chatHistory";
     private static final char[] ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ123456".toCharArray();
 
-    private long userIdBits;   // 40-bit unique ID
-    private String userId;     // 8-character 5-bit display string
+    private long userIdBits;
+    private String userId;
 
     // Duplicate filter
     private Set<String> receivedMessages = new HashSet<>();
+
+    private Gson gson = new Gson();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -64,7 +71,14 @@ public class MainActivity extends Activity {
         recyclerView.setLayoutManager(new LinearLayoutManager(this));
         recyclerView.setAdapter(chatAdapter);
 
-        initUserId(); // generate/load userId
+        initUserId();
+        loadChatHistory();
+
+        // show loaded history
+        chatAdapter.notifyDataSetChanged();
+        if (!messageList.isEmpty()) {
+            recyclerView.scrollToPosition(messageList.size() - 1);
+        }
 
         BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
 
@@ -88,14 +102,12 @@ public class MainActivity extends Activity {
         sendButton.setOnClickListener(v -> {
             String msg = inputMessage.getText().toString().trim();
             if (!msg.isEmpty()) {
-                // BLE message = ASCII ID + message
                 String fullMsg = toAscii(userIdBits) + ":" + msg;
                 startAdvertising(fullMsg);
 
                 String timestamp = getCurrentTimestamp();
-                messageList.add(new MessageModel(userId, msg, true, timestamp));
-                chatAdapter.notifyItemInserted(messageList.size() - 1);
-                recyclerView.scrollToPosition(messageList.size() - 1);
+                MessageModel newMsg = new MessageModel(userId, msg, true, timestamp);
+                addMessage(newMsg);
 
                 inputMessage.setText("");
             }
@@ -104,7 +116,7 @@ public class MainActivity extends Activity {
 
     // ---------- Timestamp Utility ----------
     private String getCurrentTimestamp() {
-        SimpleDateFormat sdf = new SimpleDateFormat("HH:mm | dd-MM-yyyy", Locale.getDefault());
+        SimpleDateFormat sdf = new SimpleDateFormat("HH:mm a | dd-MM-yyyy", Locale.getDefault());
         return sdf.format(new Date());
     }
 
@@ -116,10 +128,9 @@ public class MainActivity extends Activity {
             userIdBits = System.currentTimeMillis() & ((1L << 40) - 1);
             prefs.edit().putLong(KEY_USER_ID_BITS, userIdBits).apply();
         }
-        userId = getUserIdString(userIdBits); // 8-character 5-bit string
+        userId = getUserIdString(userIdBits);
     }
 
-    // Convert 40-bit long -> 8-character 5-bit model string
     private String getUserIdString(long bits40) {
         StringBuilder sb = new StringBuilder();
         long temp = bits40;
@@ -131,7 +142,6 @@ public class MainActivity extends Activity {
         return sb.reverse().toString();
     }
 
-    // Convert 40-bit ID -> 5-byte ASCII string
     private String toAscii(long bits40) {
         byte[] bytes = new byte[5];
         long temp = bits40;
@@ -142,7 +152,6 @@ public class MainActivity extends Activity {
         return new String(bytes, StandardCharsets.ISO_8859_1);
     }
 
-    // ASCII string -> 40-bit long
     private long fromAscii(String asciiId) {
         if (asciiId.length() != 5) throw new IllegalArgumentException("Invalid ASCII ID");
         byte[] bytes = asciiId.getBytes(StandardCharsets.ISO_8859_1);
@@ -235,18 +244,17 @@ public class MainActivity extends Activity {
                             runOnUiThread(() -> {
                                 if (received.contains(":")) {
                                     String[] parts = received.split(":", 2);
-                                    String asciiId = parts[0];      // 5-byte ASCII ID
+                                    String asciiId = parts[0];
                                     String message = parts[1];
 
                                     long bits = fromAscii(asciiId);
-                                    String displayId = getUserIdString(bits); // 8-char 5-bit ID
+                                    String displayId = getUserIdString(bits);
 
                                     boolean isSelf = displayId.equals(userId);
                                     String timestamp = getCurrentTimestamp();
 
-                                    messageList.add(new MessageModel(displayId, message, isSelf, timestamp));
-                                    chatAdapter.notifyItemInserted(messageList.size() - 1);
-                                    recyclerView.scrollToPosition(messageList.size() - 1);
+                                    MessageModel newMsg = new MessageModel(displayId, message, isSelf, timestamp);
+                                    addMessage(newMsg);
                                 }
                             });
                         }
@@ -263,6 +271,43 @@ public class MainActivity extends Activity {
         if (scanner != null && scanCallback != null) {
             scanner.stopScan(scanCallback);
         }
+        saveChatHistory();
         super.onDestroy();
+    }
+
+    // ---------- Chat Save/Load ----------
+    private void addMessage(MessageModel msg) {
+        messageList.add(msg);
+
+        if (messageList.size() > 200) {
+            messageList = new ArrayList<>(messageList.subList(messageList.size() - 200, messageList.size()));
+        }
+
+        chatAdapter.notifyDataSetChanged();
+        recyclerView.scrollToPosition(messageList.size() - 1);
+        saveChatHistory();
+    }
+
+    private void saveChatHistory() {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        String json = gson.toJson(messageList);
+        prefs.edit().putString(KEY_CHAT_HISTORY, json).apply();
+    }
+
+    private void loadChatHistory() {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        String json = prefs.getString(KEY_CHAT_HISTORY, null);
+        if (json != null) {
+            Type type = new TypeToken<List<MessageModel>>() {}.getType();
+            List<MessageModel> loaded = gson.fromJson(json, type);
+
+            if (loaded != null) {
+                if (loaded.size() > 200) {
+                    loaded = new ArrayList<>(loaded.subList(loaded.size() - 200, loaded.size()));
+                }
+                messageList.clear();
+                messageList.addAll(loaded);
+            }
+        }
     }
 }
