@@ -97,10 +97,15 @@ public class MainActivity extends Activity {
         int maxChars = maxBits / 8; // 22 characters
         inputMessage.addTextChangedListener(new TextWatcher() {
             boolean toastShown = false; // avoid repeated toast spam
+
             @Override
-            public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
             @Override
-            public void onTextChanged(CharSequence s, int start, int before, int count) { }
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+            }
+
             @Override
             public void afterTextChanged(Editable s) {
                 if (s.length() > maxChars) {
@@ -131,17 +136,58 @@ public class MainActivity extends Activity {
 
         findViewById(R.id.sendButton).setOnClickListener(v -> {
             String msg = inputMessage.getText().toString().trim();
-            if (!msg.isEmpty()) {
+
+            if (msg.isEmpty()) {
+                Toast.makeText(MainActivity.this, "Message cannot be empty!", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+            if (adapter == null) {
+                Toast.makeText(MainActivity.this, "Bluetooth not supported on this device", Toast.LENGTH_LONG).show();
+                return;
+            }
+            boolean allOk = true;
+            try {
+                if (!adapter.isEnabled()) {
+                    Toast.makeText(MainActivity.this, "Turn on Bluetooth", Toast.LENGTH_SHORT).show();
+                    allOk = false;
+                }
+            } catch (SecurityException se) {
+                Toast.makeText(MainActivity.this, "Bluetooth permission required", Toast.LENGTH_SHORT).show();
+                allOk = false;
+            }
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+                if (!isLocationEnabled()) {
+                    Toast.makeText(MainActivity.this, "Turn on Location", Toast.LENGTH_SHORT).show();
+                    allOk = false;
+                }
+            }
+            List<String> missing = new ArrayList<>();
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADVERTISE)
+                        != PackageManager.PERMISSION_GRANTED) missing.add("BLUETOOTH_ADVERTISE");
+                if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN)
+                        != PackageManager.PERMISSION_GRANTED) missing.add("BLUETOOTH_SCAN");
+                if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT)
+                        != PackageManager.PERMISSION_GRANTED) missing.add("BLUETOOTH_CONNECT");
+            } else {
+                if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                        != PackageManager.PERMISSION_GRANTED) missing.add("ACCESS_FINE_LOCATION");
+            }
+            if (!missing.isEmpty()) {
+                Toast.makeText(this, "Missing permission(s): " + missing, Toast.LENGTH_LONG).show();
+                allOk = false;
+            }
+            if (allOk) {
                 String fullMsg = toAscii(userIdBits) + ":" + msg;
                 startAdvertising(fullMsg);
-
                 String timestamp = getCurrentTimestamp();
                 MessageModel newMsg = new MessageModel(userId, msg, true, timestamp);
                 addMessage(newMsg);
-
                 inputMessage.setText("");
             }
         });
+
     }
 
 
@@ -159,6 +205,7 @@ public class MainActivity extends Activity {
         scanner = adapter.getBluetoothLeScanner();
         requestPermissions();
     }
+
     private void checkBluetoothAndLocation() {
         BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
         if (adapter == null) {
@@ -170,7 +217,7 @@ public class MainActivity extends Activity {
                     != PackageManager.PERMISSION_GRANTED) {
                 ActivityCompat.requestPermissions(
                         this,
-                        new String[]{ Manifest.permission.BLUETOOTH_CONNECT },
+                        new String[]{Manifest.permission.BLUETOOTH_CONNECT},
                         PERMISSION_REQUEST_CODE
                 );
                 return;
@@ -184,7 +231,7 @@ public class MainActivity extends Activity {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 ActivityCompat.requestPermissions(
                         this,
-                        new String[]{ Manifest.permission.BLUETOOTH_CONNECT },
+                        new String[]{Manifest.permission.BLUETOOTH_CONNECT},
                         PERMISSION_REQUEST_CODE
                 );
             } else {
@@ -200,7 +247,7 @@ public class MainActivity extends Activity {
                             != PackageManager.PERMISSION_GRANTED) {
                 ActivityCompat.requestPermissions(
                         this,
-                        new String[]{ Manifest.permission.BLUETOOTH_CONNECT },
+                        new String[]{Manifest.permission.BLUETOOTH_CONNECT},
                         PERMISSION_REQUEST_CODE
                 );
                 return;
@@ -362,8 +409,15 @@ public class MainActivity extends Activity {
                 .build();
         stopAdvertising();
         advertiseCallback = new AdvertiseCallback() {
-            @Override public void onStartSuccess(AdvertiseSettings settingsInEffect) { Log.i(TAG,"Advertising started"); }
-            @Override public void onStartFailure(int errorCode) { Log.e(TAG,"Advertising failed: "+errorCode); }
+            @Override
+            public void onStartSuccess(AdvertiseSettings settingsInEffect) {
+                Log.i(TAG, "Advertising started");
+            }
+
+            @Override
+            public void onStartFailure(int errorCode) {
+                Log.e(TAG, "Advertising failed: " + errorCode);
+            }
         };
         advertiser.startAdvertising(settings, data, advertiseCallback);
     }
@@ -432,7 +486,6 @@ public class MainActivity extends Activity {
     }
 
 
-
     @Override
     protected void onDestroy() {
         stopAdvertising();
@@ -456,10 +509,10 @@ public class MainActivity extends Activity {
     private void addMessage(MessageModel msg) {
         messageList.add(msg);
         if (messageList.size() > 200) {
-            messageList = new ArrayList<>(messageList.subList(messageList.size()-200, messageList.size()));
+            messageList = new ArrayList<>(messageList.subList(messageList.size() - 200, messageList.size()));
         }
         chatAdapter.notifyDataSetChanged();
-        recyclerView.scrollToPosition(messageList.size()-1);
+        recyclerView.scrollToPosition(messageList.size() - 1);
         saveChatHistory();
     }
 
@@ -470,12 +523,14 @@ public class MainActivity extends Activity {
 
     private void loadChatHistory() {
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        String json = prefs.getString(KEY_CHAT_HISTORY,null);
+        String json = prefs.getString(KEY_CHAT_HISTORY, null);
         if (json != null) {
-            Type type = new TypeToken<List<MessageModel>>(){}.getType();
-            List<MessageModel> loaded = gson.fromJson(json,type);
+            Type type = new TypeToken<List<MessageModel>>() {
+            }.getType();
+            List<MessageModel> loaded = gson.fromJson(json, type);
             if (loaded != null) {
-                if (loaded.size()>200) loaded = new ArrayList<>(loaded.subList(loaded.size()-200,loaded.size()));
+                if (loaded.size() > 200)
+                    loaded = new ArrayList<>(loaded.subList(loaded.size() - 200, loaded.size()));
                 messageList.clear();
                 messageList.addAll(loaded);
             }
@@ -487,10 +542,11 @@ public class MainActivity extends Activity {
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         String json = prefs.getString(KEY_NAME_MAP, null);
         if (json != null) {
-            Type type = new TypeToken<Map<String,String>>(){}.getType();
+            Type type = new TypeToken<Map<String, String>>() {
+            }.getType();
             nameMap = gson.fromJson(json, type);
         }
-        if (nameMap==null) nameMap = new HashMap<>();
+        if (nameMap == null) nameMap = new HashMap<>();
     }
 
     private void saveNameMap() {
@@ -502,7 +558,7 @@ public class MainActivity extends Activity {
     private void onMessageClick(MessageModel msg) {
         ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
         clipboard.setPrimaryClip(ClipData.newPlainText("Copied Message", msg.getMessage()));
-        Toast.makeText(this,"Copied",Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "Copied", Toast.LENGTH_SHORT).show();
     }
 
     private void onMessageLongClick(MessageModel msg) {
