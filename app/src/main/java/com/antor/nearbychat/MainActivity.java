@@ -70,8 +70,8 @@ public class MainActivity extends Activity {
     private long userIdBits;
     private String userId;
 
-    private Set<String> receivedMessages = new HashSet<>();
-    private Gson gson = new Gson();
+    final private Set<String> receivedMessages = new HashSet<>();
+    final private Gson gson = new Gson();
     private Map<String, String> nameMap = new HashMap<>(); // ID -> custom name
     private static final int REQUEST_ENABLE_BT = 101;
     private static final int REQUEST_ENABLE_LOCATION = 102;
@@ -159,22 +159,64 @@ public class MainActivity extends Activity {
         scanner = adapter.getBluetoothLeScanner();
         requestPermissions();
     }
-
     private void checkBluetoothAndLocation() {
         BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
         if (adapter == null) {
             Toast.makeText(this, "Bluetooth not available", Toast.LENGTH_LONG).show();
             return;
         }
-        if (!adapter.isEnabled()) {
-            Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
-            startActivityForResult(enableBtIntent, REQUEST_ENABLE_BT);
-        } else if (!isLocationEnabled()) {
-            promptEnableLocation();
-        } else {
-            initBLE(adapter);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT)
+                    != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(
+                        this,
+                        new String[]{ Manifest.permission.BLUETOOTH_CONNECT },
+                        PERMISSION_REQUEST_CODE
+                );
+                return;
+            }
         }
+
+        boolean btEnabled;
+        try {
+            btEnabled = adapter.isEnabled();
+        } catch (SecurityException se) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                ActivityCompat.requestPermissions(
+                        this,
+                        new String[]{ Manifest.permission.BLUETOOTH_CONNECT },
+                        PERMISSION_REQUEST_CODE
+                );
+            } else {
+                Toast.makeText(this, "Bluetooth permission required", Toast.LENGTH_LONG).show();
+            }
+            return;
+        }
+
+        if (!btEnabled) {
+            Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                    ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT)
+                            != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(
+                        this,
+                        new String[]{ Manifest.permission.BLUETOOTH_CONNECT },
+                        PERMISSION_REQUEST_CODE
+                );
+                return;
+            }
+            startActivityForResult(enableBtIntent, REQUEST_ENABLE_BT);
+            return;
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            if (!isLocationEnabled()) {
+                promptEnableLocation();
+                return;
+            }
+        }
+        initBLE(adapter);
     }
+
 
     private boolean isLocationEnabled() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -300,11 +342,13 @@ public class MainActivity extends Activity {
 
 
     @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
-                                           @NonNull int[] grantResults) {
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == PERMISSION_REQUEST_CODE) startScanning();
+        if (requestCode == PERMISSION_REQUEST_CODE) {
+            checkBluetoothAndLocation();
+        }
     }
+
 
     // ---------- Advertising ----------
     private void startAdvertising(String message) {
@@ -325,31 +369,57 @@ public class MainActivity extends Activity {
     }
 
     private void stopAdvertising() {
-        if (advertiser != null && advertiseCallback != null) advertiser.stopAdvertising(advertiseCallback);
+        if (advertiser != null && advertiseCallback != null) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADVERTISE)
+                        != PackageManager.PERMISSION_GRANTED) {
+                    // Permission not granted → skip
+                    return;
+                }
+            }
+            advertiser.stopAdvertising(advertiseCallback);
+        }
     }
+
 
     // ---------- Scanning ----------
     private void startScanning() {
+        if (scanner == null) return;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN)
+                    != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(
+                        this,
+                        new String[]{Manifest.permission.BLUETOOTH_SCAN},
+                        PERMISSION_REQUEST_CODE
+                );
+                return;
+            }
+        }
         scanCallback = new ScanCallback() {
             @Override
             public void onScanResult(int callbackType, ScanResult result) {
                 ScanRecord record = result.getScanRecord();
                 if (record != null) {
-                    byte[] data = record.getServiceData().get(new ParcelUuid(SERVICE_UUID));
+                    Map<ParcelUuid, byte[]> map = record.getServiceData();
+                    if (map == null) return;
+
+                    byte[] data = map.get(new ParcelUuid(SERVICE_UUID));
                     if (data != null) {
                         final String received = new String(data, StandardCharsets.UTF_8);
                         if (!receivedMessages.contains(received)) {
                             receivedMessages.add(received);
                             runOnUiThread(() -> {
                                 if (received.contains(":")) {
-                                    String[] parts = received.split(":",2);
+                                    String[] parts = received.split(":", 2);
                                     String asciiId = parts[0];
                                     String message = parts[1];
                                     long bits = fromAscii(asciiId);
                                     String displayId = getUserIdString(bits);
                                     boolean isSelf = displayId.equals(userId);
                                     String timestamp = getCurrentTimestamp();
-                                    MessageModel newMsg = new MessageModel(displayId, message, isSelf, timestamp);
+                                    MessageModel newMsg =
+                                            new MessageModel(displayId, message, isSelf, timestamp);
                                     addMessage(newMsg);
                                 }
                             });
@@ -361,14 +431,26 @@ public class MainActivity extends Activity {
         scanner.startScan(scanCallback);
     }
 
+
+
     @Override
     protected void onDestroy() {
         stopAdvertising();
-        if (scanner != null && scanCallback != null) scanner.stopScan(scanCallback);
+        if (scanner != null && scanCallback != null) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN)
+                        != PackageManager.PERMISSION_GRANTED) {
+                    super.onDestroy();
+                    return;
+                }
+            }
+            scanner.stopScan(scanCallback);
+        }
         saveChatHistory();
         saveNameMap();
         super.onDestroy();
     }
+
 
     // ---------- Chat Save/Load ----------
     private void addMessage(MessageModel msg) {
