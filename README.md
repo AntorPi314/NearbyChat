@@ -10,6 +10,8 @@
 A lightweight offline chat app using BLE.
 No Wifi, No SIM, No internet, no server — just nearby device-to-device communication.
 
+![screenshot](https://github.com/AntorPi314/SOSBlue/blob/main/screenshot/ss1.png)
+
 ## Features
 
 #### Core Functionality
