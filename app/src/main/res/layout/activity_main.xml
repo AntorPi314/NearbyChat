@@ -53,14 +53,14 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:autoLink="web"
+                android:clickable="true"
                 android:ellipsize="end"
-                android:singleLine="true"
                 android:linksClickable="true"
+                android:singleLine="true"
                 android:text="https://github.com/AntorPi314/NearbyChat"
                 android:textColor="#756C6C"
                 android:textColorLink="#756C6C"
-                android:textSize="11sp"
-                android:clickable="true" />
+                android:textSize="11sp" />
 
         </LinearLayout>
 

@@ -75,6 +75,10 @@ public class MainActivity extends Activity {
     private static final String KEY_NAME_MAP = "nameMap";
     private static final char[] ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ123456".toCharArray();
 
+    // BLE service data payload limit is typically 20-27 bytes
+    private static final int USER_ID_LENGTH = 5;    // 5 bytes for user ID
+    private static final int WARNING_THRESHOLD = 22; // Show red text after 22 characters
+
     private long userIdBits;
     private String userId;
     private final Set<String> receivedMessages = new HashSet<>();
@@ -120,31 +124,20 @@ public class MainActivity extends Activity {
     }
 
     private void setupMessageInput() {
-        int maxBits = 168;
-        int maxChars = maxBits / 8;
-
         inputMessage.addTextChangedListener(new TextWatcher() {
-            private boolean toastShown = false;
-
             @Override
             public void beforeTextChanged(CharSequence s, int start, int count, int after) {
             }
-
             @Override
             public void onTextChanged(CharSequence s, int start, int before, int count) {
             }
-
             @Override
             public void afterTextChanged(Editable s) {
-                if (s.length() > maxChars) {
+                // Only change color to red after 22 characters, but don't limit typing
+                if (s.length() > WARNING_THRESHOLD) {
                     inputMessage.setTextColor(Color.parseColor("#FF0000"));
-                    if (!toastShown) {
-                        Toast.makeText(MainActivity.this, "Maximum 168 bits allowed!", Toast.LENGTH_SHORT).show();
-                        toastShown = true;
-                    }
                 } else {
                     inputMessage.setTextColor(Color.parseColor("#000000"));
-                    toastShown = false;
                 }
             }
         });
@@ -207,7 +200,6 @@ public class MainActivity extends Activity {
 
     private void onSendButtonClick(View v) {
         String msg = inputMessage.getText().toString().trim();
-
         if (msg.isEmpty()) {
             Toast.makeText(this, "Message cannot be empty!", Toast.LENGTH_SHORT).show();
             return;
@@ -217,17 +209,27 @@ public class MainActivity extends Activity {
             return;
         }
 
+        // No limit check - just try to send whatever the user typed
         try {
-            String fullMsg = toAscii(userIdBits) + ":" + msg;
-            startAdvertising(fullMsg);
+            String fullMsg = toAscii(userIdBits) + msg;
 
+            // Debug logging to check payload size
+            Log.d(TAG, "Attempting to send - UserID: " + toAscii(userIdBits).length() +
+                    " bytes, Message: " + msg.length() + " chars, " +
+                    "Total payload: " + fullMsg.getBytes(StandardCharsets.UTF_8).length + " bytes");
+
+            // Always add to UI and show as sent
             String timestamp = getCurrentTimestamp();
             MessageModel newMsg = new MessageModel(userId, msg, true, timestamp);
             addMessage(newMsg);
             inputMessage.setText("");
+
+            // Try to advertise - if it fails, it fails silently
+            startAdvertising(fullMsg);
+
         } catch (Exception e) {
-            Log.e(TAG, "Error sending message", e);
-            Toast.makeText(this, "Failed to send message", Toast.LENGTH_SHORT).show();
+            Log.e(TAG, "Error processing message", e);
+            // Even if there's an error, the message is already shown in UI
         }
     }
 
@@ -527,19 +529,23 @@ public class MainActivity extends Activity {
         try {
             ScanRecord record = result.getScanRecord();
             if (record == null) return;
-
             Map<ParcelUuid, byte[]> serviceData = record.getServiceData();
             if (serviceData == null) return;
-
             byte[] data = serviceData.get(new ParcelUuid(SERVICE_UUID));
             if (data == null) return;
 
             String received = new String(data, StandardCharsets.UTF_8);
 
-            synchronized (receivedMessages) {
-                if (receivedMessages.contains(received)) return;
-                receivedMessages.add(received);
+            // Debug logging
+            Log.d(TAG, "Received data length: " + data.length + " bytes, content: " + received);
 
+            if (received.length() < USER_ID_LENGTH) return;
+
+            // Use full message as unique ID to prevent duplicates
+            String messageId = received;
+            synchronized (receivedMessages) {
+                if (receivedMessages.contains(messageId)) return;
+                receivedMessages.add(messageId);
                 if (receivedMessages.size() > 1000) {
                     receivedMessages.clear();
                 }
@@ -552,18 +558,14 @@ public class MainActivity extends Activity {
 
     private void processReceivedMessage(String received) {
         try {
-            if (!received.contains(":")) return;
+            if (received.length() < USER_ID_LENGTH) return;
 
-            String[] parts = received.split(":", 2);
-            if (parts.length != 2) return;
-
-            String asciiId = parts[0];
-            String message = parts[1];
+            String asciiId = received.substring(0, USER_ID_LENGTH);
+            String message = received.substring(USER_ID_LENGTH);
 
             long bits = fromAscii(asciiId);
             String displayId = getUserIdString(bits);
             boolean isSelf = displayId.equals(userId);
-
             String timestamp = getCurrentTimestamp();
             MessageModel newMsg = new MessageModel(displayId, message, isSelf, timestamp);
             addMessage(newMsg);
@@ -595,6 +597,12 @@ public class MainActivity extends Activity {
         if (advertiser == null) return;
         try {
             stopAdvertising();
+
+            // Convert to bytes for transmission
+            byte[] payload = message.getBytes(StandardCharsets.ISO_8859_1);
+
+            Log.d(TAG, "Attempting to advertise " + payload.length + " bytes");
+
             AdvertiseSettings settings = new AdvertiseSettings.Builder()
                     .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
                     .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
@@ -603,23 +611,47 @@ public class MainActivity extends Activity {
                     .build();
 
             AdvertiseData data = new AdvertiseData.Builder()
-                    .addServiceData(new ParcelUuid(SERVICE_UUID), message.getBytes(StandardCharsets.UTF_8))
+                    .addServiceData(new ParcelUuid(SERVICE_UUID), payload)
                     .build();
 
             advertiseCallback = new AdvertiseCallback() {
                 @Override
                 public void onStartSuccess(AdvertiseSettings settingsInEffect) {
-                    Log.d(TAG, "Advertising started successfully");
+                    Log.d(TAG, "BLE transmission successful - " + payload.length + " bytes sent");
                 }
                 @Override
                 public void onStartFailure(int errorCode) {
-                    Log.e(TAG, "Advertising failed: " + errorCode);
+                    // Complete silent fail - just log for debugging
+                    Log.w(TAG, "BLE transmission failed silently - Error: " + errorCode +
+                            ", Payload: " + payload.length + " bytes");
+
+                    // Only log the specific reason for debugging
+                    switch (errorCode) {
+                        case AdvertiseCallback.ADVERTISE_FAILED_DATA_TOO_LARGE:
+                            Log.d(TAG, "Message was too large for BLE (" + payload.length + " bytes)");
+                            break;
+                        case AdvertiseCallback.ADVERTISE_FAILED_TOO_MANY_ADVERTISERS:
+                            Log.d(TAG, "Too many BLE advertisers active");
+                            break;
+                        case AdvertiseCallback.ADVERTISE_FAILED_ALREADY_STARTED:
+                            Log.d(TAG, "BLE advertising already started");
+                            break;
+                        case AdvertiseCallback.ADVERTISE_FAILED_INTERNAL_ERROR:
+                            Log.d(TAG, "BLE internal error");
+                            break;
+                        case AdvertiseCallback.ADVERTISE_FAILED_FEATURE_UNSUPPORTED:
+                            Log.d(TAG, "BLE advertising not supported");
+                            break;
+                    }
+                    // No Toast or user notification - completely silent fail
+                    // Message is already shown in UI regardless of BLE success
                 }
             };
 
             advertiser.startAdvertising(settings, data, advertiseCallback);
         } catch (Exception e) {
-            Log.e(TAG, "Error starting advertising", e);
+            Log.e(TAG, "Exception during BLE advertising", e);
+            // Silent fail - message is already shown in UI
         }
     }
 

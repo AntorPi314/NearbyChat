@@ -33,5 +33,10 @@
         android:padding="10dp"
         android:text="Message"
         android:textColor="#FFFFFF"
-        android:textSize="15sp" />
+        android:textColorLink="#BBDEFB"
+        android:textSize="15sp"
+        android:autoLink="web"
+        android:linksClickable="true" />
+
+
 </LinearLayout>
