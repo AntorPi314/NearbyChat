@@ -33,6 +33,7 @@ import android.provider.Settings;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.util.Log;
+import android.util.SparseArray;
 import android.view.View;
 import android.widget.EditText;
 import android.widget.TextView;
@@ -75,9 +76,25 @@ public class MainActivity extends Activity {
     private static final String KEY_NAME_MAP = "nameMap";
     private static final char[] ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ123456".toCharArray();
 
-    // BLE service data payload limit is typically 20-27 bytes
+    // BLE service data payload limit - Fixed values
     private static final int USER_ID_LENGTH = 5;    // 5 bytes for user ID
+    private static final int MESSAGE_ID_LENGTH = 4; // 4 bytes for message ID
+    private static final int CHUNK_METADATA_LENGTH = 2; // 2 bytes for chunk index and total
+    private static final int HEADER_SIZE = USER_ID_LENGTH + MESSAGE_ID_LENGTH + CHUNK_METADATA_LENGTH; // 11 bytes total
+    private static final int MAX_PAYLOAD_SIZE = 27;  // Conservative BLE limit
+    private static final int MAX_CHUNK_DATA_SIZE = MAX_PAYLOAD_SIZE - HEADER_SIZE; // 9 bytes per chunk
     private static final int WARNING_THRESHOLD = 22; // Show red text after 22 characters
+    private static final int MAX_MESSAGE_LENGTH = 200; // Max total message length
+    private static final int MAX_MESSAGE_SAVED = 500;
+
+    private static final int SCAN_DURATION_MS = 10000;               // How long to scan continuously
+    private static final int SCAN_RESTART_DELAY_MS = 1000;           // Delay before restarting scan
+
+    private static final int CHUNK_TIMEOUT_MS = 30000;               // Keep 30 seconds reassembly timeout
+    private static final int CHUNK_CLEANUP_INTERVAL_MS = 10000;      // Keep 10 seconds cleanup interval
+
+    private static final int MAX_RECENT_MESSAGES = 1000;             // Recent messages to track
+    private static final int MAX_RECENT_CHUNKS = 2000;               // Recent chunks to track
 
     private long userIdBits;
     private String userId;
@@ -85,12 +102,75 @@ public class MainActivity extends Activity {
     private final Gson gson = new Gson();
     private Map<String, String> nameMap = new HashMap<>();
 
+    // For message chunking
+    private final Map<String, MessageReassembler> reassemblers = new HashMap<>();
+    private final Handler chunkHandler = new Handler(Looper.getMainLooper());
+
     private static final int REQUEST_ENABLE_LOCATION = 102;
 
     private BroadcastReceiver bluetoothReceiver;
     private boolean isReceiverRegistered = false;
     private boolean isAppActive = false;
     private Handler mainHandler;
+
+    // Class to handle message reassembly
+    private static class MessageReassembler {
+        private final String senderId;
+        private final String messageId; // Unique ID for this message
+        private final SparseArray<String> chunks = new SparseArray<>();
+        private final long timestamp;
+        private int totalChunks = -1;
+        private int receivedCount = 0;
+
+        public MessageReassembler(String senderId, String messageId) {
+            this.senderId = senderId;
+            this.messageId = messageId;
+            this.timestamp = System.currentTimeMillis();
+        }
+
+        public boolean addChunk(int chunkIndex, int totalChunks, String chunkData) {
+            if (this.totalChunks == -1) {
+                this.totalChunks = totalChunks;
+            } else if (this.totalChunks != totalChunks) {
+                Log.w(TAG, "Total chunks mismatch for message " + messageId);
+                return false;
+            }
+
+            // Only add if we don't already have this chunk
+            if (chunks.get(chunkIndex) == null) {
+                chunks.put(chunkIndex, chunkData);
+                receivedCount++;
+                return true;
+            }
+            return false;
+        }
+
+        public boolean isComplete() {
+            return totalChunks > 0 && receivedCount == totalChunks;
+        }
+
+        public String reassemble() {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < totalChunks; i++) {
+                String chunk = chunks.get(i);
+                if (chunk != null) {
+                    sb.append(chunk);
+                } else {
+                    Log.w(TAG, "Missing chunk " + i + " in message " + messageId);
+                    return null; // Missing chunk, cannot reassemble
+                }
+            }
+            return sb.toString();
+        }
+
+        public boolean isExpired(long timeoutMs) {
+            return System.currentTimeMillis() - timestamp > timeoutMs;
+        }
+
+        public String getMessageId() {
+            return messageId;
+        }
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -101,6 +181,28 @@ public class MainActivity extends Activity {
         initializeData();
         setupBluetoothReceiver();
         checkBluetoothAndLocation();
+
+        // Clean up expired reassemblers periodically
+        chunkHandler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                cleanupExpiredReassemblers();
+                chunkHandler.postDelayed(this, 10000); // Check every 10 seconds
+            }
+        }, 10000);
+    }
+
+    private void cleanupExpiredReassemblers() {
+        synchronized (reassemblers) {
+            Iterator<Map.Entry<String, MessageReassembler>> it = reassemblers.entrySet().iterator();
+            while (it.hasNext()) {
+                Map.Entry<String, MessageReassembler> entry = it.next();
+                if (entry.getValue().isExpired(CHUNK_TIMEOUT_MS)) {
+                    Log.d(TAG, "Removed expired reassembler for " + entry.getKey());
+                    it.remove();
+                }
+            }
+        }
     }
 
     private void setupUI() {
@@ -128,16 +230,23 @@ public class MainActivity extends Activity {
             @Override
             public void beforeTextChanged(CharSequence s, int start, int count, int after) {
             }
+
             @Override
             public void onTextChanged(CharSequence s, int start, int before, int count) {
             }
+
             @Override
             public void afterTextChanged(Editable s) {
-                // Only change color to red after 22 characters, but don't limit typing
                 if (s.length() > WARNING_THRESHOLD) {
                     inputMessage.setTextColor(Color.parseColor("#FF0000"));
                 } else {
                     inputMessage.setTextColor(Color.parseColor("#000000"));
+                }
+                // Show character count in a toast or status message if needed
+                if (s.length() > MAX_MESSAGE_LENGTH) {
+                    Toast.makeText(MainActivity.this,
+                            "Message too long (" + s.length() + "/" + MAX_MESSAGE_LENGTH + ")",
+                            Toast.LENGTH_SHORT).show();
                 }
             }
         });
@@ -187,6 +296,9 @@ public class MainActivity extends Activity {
                     mainHandler.postDelayed(() -> checkLocationAndInitBLE(), 500);
                 }
                 break;
+
+
+
             case BluetoothAdapter.STATE_OFF:
                 Log.d(TAG, "Bluetooth turned OFF");
                 safelyStopBleOperations();
@@ -205,32 +317,154 @@ public class MainActivity extends Activity {
             return;
         }
 
+        if (msg.length() > MAX_MESSAGE_LENGTH) {
+            Toast.makeText(this, "Message too long (" + msg.length() + "/" + MAX_MESSAGE_LENGTH + ")", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
         if (!validateBluetoothAndPermissions()) {
             return;
         }
 
-        // No limit check - just try to send whatever the user typed
         try {
-            String fullMsg = toAscii(userIdBits) + msg;
-
-            // Debug logging to check payload size
-            Log.d(TAG, "Attempting to send - UserID: " + toAscii(userIdBits).length() +
-                    " bytes, Message: " + msg.length() + " chars, " +
-                    "Total payload: " + fullMsg.getBytes(StandardCharsets.UTF_8).length + " bytes");
-
             // Always add to UI and show as sent
             String timestamp = getCurrentTimestamp();
             MessageModel newMsg = new MessageModel(userId, msg, true, timestamp);
             addMessage(newMsg);
             inputMessage.setText("");
 
-            // Try to advertise - if it fails, it fails silently
-            startAdvertising(fullMsg);
+            // Send message in chunks with proper sequencing
+            sendMessageInChunks(msg);
 
         } catch (Exception e) {
             Log.e(TAG, "Error processing message", e);
-            // Even if there's an error, the message is already shown in UI
         }
+    }
+
+    private String generateMessageId() {
+        // 4-byte ID (0-9999 range) ensuring it fits in 4 characters
+        int id = (int) (System.currentTimeMillis() % 10000);
+        return String.format("%04d", id);
+    }
+
+    private void sendMessageInChunks(String message) {
+        try {
+            String messageId = generateMessageId();
+            byte[] messageBytes = message.getBytes(StandardCharsets.UTF_8);
+            int totalChunks = (int) Math.ceil((double) messageBytes.length / MAX_CHUNK_DATA_SIZE);
+
+            Log.d(TAG, "Sending message: " + message.length() + " chars, "
+                    + messageBytes.length + " bytes, " + totalChunks + " chunks");
+
+            // startAdvertising(new byte[]{0x00}); // dummy data
+
+            for (int i = 0; i < totalChunks; i++) {
+                final int chunkIndex = i;
+                mainHandler.postDelayed(() -> {
+                    try {
+                        int start = chunkIndex * MAX_CHUNK_DATA_SIZE;
+                        int end = Math.min(messageBytes.length, start + MAX_CHUNK_DATA_SIZE);
+
+                        byte[] chunkData = Arrays.copyOfRange(messageBytes, start, end);
+                        byte[] chunkPayload = createChunkPayload(messageId, chunkIndex, totalChunks, chunkData);
+
+                        updateAdvertisingData(chunkPayload);
+                        Log.d(TAG, "Sent chunk " + chunkIndex + "/" + totalChunks
+                                + " (" + chunkData.length + " bytes)");
+                    } catch (Exception e) {
+                        Log.e(TAG, "Error sending chunk " + chunkIndex, e);
+                    }
+                }, i * 1200);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error preparing message chunks", e);
+        }
+    }
+
+    private void updateAdvertisingData(byte[] payload) {
+        if (advertiser == null) return;
+        try {
+            stopAdvertising();
+
+            AdvertiseData data = new AdvertiseData.Builder()
+                    .addServiceData(new ParcelUuid(SERVICE_UUID), payload)
+                    .build();
+
+            advertiseCallback = new AdvertiseCallback() {
+                @Override
+                public void onStartSuccess(AdvertiseSettings settingsInEffect) {
+                    Log.d(TAG, "Chunk advertise success (" + payload.length + " bytes)");
+                }
+
+                @Override
+                public void onStartFailure(int errorCode) {
+                    Log.w(TAG, "Chunk advertise failed: " + errorCode);
+                }
+            };
+
+            advertiser.startAdvertising(
+                    new AdvertiseSettings.Builder()
+                            .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
+                            .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
+                            .setConnectable(false)
+                            .setTimeout(1000)
+                            .build(),
+                    data,
+                    advertiseCallback
+            );
+        } catch (Exception e) {
+            Log.e(TAG, "Error updating advertising data", e);
+        }
+    }
+
+
+
+
+    private byte[] createChunkPayload(String messageId, int chunkIndex, int totalChunks, byte[] chunkData) {
+        try {
+            // Format: [userID(5)][messageId(4)][chunkIndex(1)][totalChunks(1)][chunkData]
+            byte[] userIdBytes = toAsciiBytes(userIdBits);
+            byte[] messageIdBytes = messageId.getBytes(StandardCharsets.UTF_8);
+
+            // Ensure messageId is exactly 4 bytes
+            if (messageIdBytes.length > 4) {
+                messageIdBytes = Arrays.copyOf(messageIdBytes, 4);
+            } else if (messageIdBytes.length < 4) {
+                byte[] temp = new byte[4];
+                System.arraycopy(messageIdBytes, 0, temp, 0, messageIdBytes.length);
+                messageIdBytes = temp;
+            }
+
+            byte[] payload = new byte[USER_ID_LENGTH + 4 + 2 + chunkData.length];
+
+            // Copy user ID
+            System.arraycopy(userIdBytes, 0, payload, 0, USER_ID_LENGTH);
+
+            // Copy message ID
+            System.arraycopy(messageIdBytes, 0, payload, USER_ID_LENGTH, 4);
+
+            // Add chunk metadata
+            payload[USER_ID_LENGTH + 4] = (byte) chunkIndex;
+            payload[USER_ID_LENGTH + 5] = (byte) totalChunks;
+
+            // Add chunk data
+            System.arraycopy(chunkData, 0, payload, USER_ID_LENGTH + 6, chunkData.length);
+
+            return payload;
+        } catch (Exception e) {
+            Log.e(TAG, "Error creating chunk payload", e);
+            return new byte[0];
+        }
+    }
+
+    private byte[] toAsciiBytes(long bits40) {
+        byte[] bytes = new byte[5];
+        long temp = bits40;
+        for (int i = 4; i >= 0; i--) {
+            bytes[i] = (byte) (temp & 0xFF);
+            temp >>= 8;
+        }
+        return bytes;
     }
 
     private boolean validateBluetoothAndPermissions() {
@@ -502,6 +736,7 @@ public class MainActivity extends Activity {
                 public void onScanResult(int callbackType, ScanResult result) {
                     handleScanResult(result);
                 }
+
                 @Override
                 public void onScanFailed(int errorCode) {
                     Log.e(TAG, "Scan failed with error: " + errorCode);
@@ -534,15 +769,14 @@ public class MainActivity extends Activity {
             byte[] data = serviceData.get(new ParcelUuid(SERVICE_UUID));
             if (data == null) return;
 
-            String received = new String(data, StandardCharsets.UTF_8);
-
             // Debug logging
-            Log.d(TAG, "Received data length: " + data.length + " bytes, content: " + received);
+            Log.d(TAG, "Received data length: " + data.length + " bytes");
 
-            if (received.length() < USER_ID_LENGTH) return;
+            if (data.length < USER_ID_LENGTH + 2)
+                return; // Need at least user ID + chunk metadata
 
             // Use full message as unique ID to prevent duplicates
-            String messageId = received;
+            String messageId = Arrays.toString(data);
             synchronized (receivedMessages) {
                 if (receivedMessages.contains(messageId)) return;
                 receivedMessages.add(messageId);
@@ -550,27 +784,91 @@ public class MainActivity extends Activity {
                     receivedMessages.clear();
                 }
             }
-            mainHandler.post(() -> processReceivedMessage(received));
+            mainHandler.post(() -> processReceivedMessage(data));
         } catch (Exception e) {
             Log.e(TAG, "Error handling scan result", e);
         }
     }
 
-    private void processReceivedMessage(String received) {
+    private void processReceivedMessage(byte[] receivedData) {
         try {
-            if (received.length() < USER_ID_LENGTH) return;
+            if (receivedData.length < USER_ID_LENGTH + 6) return;
 
-            String asciiId = received.substring(0, USER_ID_LENGTH);
-            String message = received.substring(USER_ID_LENGTH);
-
-            long bits = fromAscii(asciiId);
+            byte[] userIdBytes = Arrays.copyOfRange(receivedData, 0, USER_ID_LENGTH);
+            long bits = fromAsciiBytes(userIdBytes);
             String displayId = getUserIdString(bits);
-            boolean isSelf = displayId.equals(userId);
-            String timestamp = getCurrentTimestamp();
-            MessageModel newMsg = new MessageModel(displayId, message, isSelf, timestamp);
-            addMessage(newMsg);
+
+            byte[] messageIdBytes = Arrays.copyOfRange(receivedData, USER_ID_LENGTH, USER_ID_LENGTH + 4);
+            String messageId = new String(messageIdBytes, StandardCharsets.UTF_8).trim();
+
+            int chunkIndex = receivedData[USER_ID_LENGTH + 4] & 0xFF;
+            int totalChunks = receivedData[USER_ID_LENGTH + 5] & 0xFF;
+
+            if (chunkIndex < 0 || chunkIndex >= totalChunks || totalChunks <= 0) {
+                Log.w(TAG, "Invalid chunk metadata: " + chunkIndex + "/" + totalChunks);
+                return;
+            }
+
+            byte[] chunkDataBytes = Arrays.copyOfRange(receivedData, USER_ID_LENGTH + 6, receivedData.length);
+
+            String chunkKey = displayId + "_" + messageId + "_" + chunkIndex;
+            synchronized (receivedMessages) {
+                if (receivedMessages.contains(chunkKey)) return;
+                receivedMessages.add(chunkKey);
+                if (receivedMessages.size() > 2000) {
+                    receivedMessages.clear();
+                }
+            }
+
+            if (totalChunks > 1) {
+                processMessageChunk(displayId, messageId, chunkIndex, totalChunks, chunkDataBytes);
+            } else {
+                String message = new String(chunkDataBytes, StandardCharsets.UTF_8);
+                boolean isSelf = displayId.equals(userId);
+                String timestamp = getCurrentTimestamp();
+                MessageModel newMsg = new MessageModel(displayId, message, isSelf, timestamp);
+                addMessage(newMsg);
+            }
         } catch (Exception e) {
             Log.e(TAG, "Error processing received message", e);
+        }
+    }
+
+
+    private void processMessageChunk(String senderId, String messageId, int chunkIndex, int totalChunks, byte[] chunkData) {
+        String reassemblerKey = senderId + "_" + messageId;
+
+        synchronized (reassemblers) {
+            MessageReassembler reassembler = reassemblers.get(reassemblerKey);
+            if (reassembler == null) {
+                reassembler = new MessageReassembler(senderId, messageId);
+                reassemblers.put(reassemblerKey, reassembler);
+            }
+
+            // Convert chunk data to string for storage
+            String chunkString = new String(chunkData, StandardCharsets.UTF_8);
+
+            // Add the chunk (only if it's new)
+            if (reassembler.addChunk(chunkIndex, totalChunks, chunkString)) {
+                Log.d(TAG, "Received chunk " + chunkIndex + "/" + totalChunks + " for message " + messageId);
+            }
+
+            if (reassembler.isComplete()) {
+                // Message is complete, process it
+                String fullMessage = reassembler.reassemble();
+                if (fullMessage != null) {
+                    boolean isSelf = senderId.equals(userId);
+                    String timestamp = getCurrentTimestamp();
+                    MessageModel newMsg = new MessageModel(senderId, fullMessage, isSelf, timestamp);
+                    addMessage(newMsg);
+                    Log.d(TAG, "Successfully reassembled message: " + messageId);
+                } else {
+                    Log.w(TAG, "Failed to reassemble message: " + messageId);
+                }
+
+                // Remove the reassembler
+                reassemblers.remove(reassemblerKey);
+            }
         }
     }
 
@@ -593,13 +891,10 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void startAdvertising(String message) {
+    private void startAdvertising(byte[] payload) {
         if (advertiser == null) return;
         try {
             stopAdvertising();
-
-            // Convert to bytes for transmission
-            byte[] payload = message.getBytes(StandardCharsets.ISO_8859_1);
 
             Log.d(TAG, "Attempting to advertise " + payload.length + " bytes");
 
@@ -607,7 +902,7 @@ public class MainActivity extends Activity {
                     .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
                     .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
                     .setConnectable(false)
-                    .setTimeout(10000) // 10 seconds
+                    .setTimeout(10000)
                     .build();
 
             AdvertiseData data = new AdvertiseData.Builder()
@@ -619,6 +914,7 @@ public class MainActivity extends Activity {
                 public void onStartSuccess(AdvertiseSettings settingsInEffect) {
                     Log.d(TAG, "BLE transmission successful - " + payload.length + " bytes sent");
                 }
+
                 @Override
                 public void onStartFailure(int errorCode) {
                     // Complete silent fail - just log for debugging
@@ -740,6 +1036,9 @@ public class MainActivity extends Activity {
             if (mainHandler != null) {
                 mainHandler.removeCallbacksAndMessages(null);
             }
+            if (chunkHandler != null) {
+                chunkHandler.removeCallbacksAndMessages(null);
+            }
         } catch (Exception e) {
             Log.e(TAG, "Cleanup error", e);
         }
@@ -777,19 +1076,8 @@ public class MainActivity extends Activity {
         return sb.reverse().toString();
     }
 
-    private String toAscii(long bits40) {
-        byte[] bytes = new byte[5];
-        long temp = bits40;
-        for (int i = 4; i >= 0; i--) {
-            bytes[i] = (byte) (temp & 0xFF);
-            temp >>= 8;
-        }
-        return new String(bytes, StandardCharsets.ISO_8859_1);
-    }
-
-    private long fromAscii(String asciiId) {
-        if (asciiId.length() != 5) throw new IllegalArgumentException("Invalid ASCII ID");
-        byte[] bytes = asciiId.getBytes(StandardCharsets.ISO_8859_1);
+    private long fromAsciiBytes(byte[] bytes) {
+        if (bytes.length != 5) throw new IllegalArgumentException("Invalid ASCII bytes");
         long value = 0;
         for (byte b : bytes) {
             value = (value << 8) | (b & 0xFF);
@@ -800,8 +1088,8 @@ public class MainActivity extends Activity {
     private void addMessage(MessageModel msg) {
         try {
             messageList.add(msg);
-            if (messageList.size() > 200) {
-                messageList = new ArrayList<>(messageList.subList(messageList.size() - 200, messageList.size()));
+            if (messageList.size() > MAX_MESSAGE_SAVED) {
+                messageList = new ArrayList<>(messageList.subList(messageList.size() - MAX_MESSAGE_SAVED, messageList.size()));
             }
             chatAdapter.notifyDataSetChanged();
             recyclerView.scrollToPosition(messageList.size() - 1);
@@ -829,8 +1117,8 @@ public class MainActivity extends Activity {
                 }.getType();
                 List<MessageModel> loaded = gson.fromJson(json, type);
                 if (loaded != null) {
-                    if (loaded.size() > 200) {
-                        loaded = new ArrayList<>(loaded.subList(loaded.size() - 200, loaded.size()));
+                    if (loaded.size() > MAX_MESSAGE_SAVED) {
+                        loaded = new ArrayList<>(loaded.subList(loaded.size() - MAX_MESSAGE_SAVED, loaded.size()));
                     }
                     messageList.clear();
                     messageList.addAll(loaded);
@@ -938,6 +1226,9 @@ public class MainActivity extends Activity {
             synchronized (receivedMessages) {
                 receivedMessages.clear();
             }
+            synchronized (reassemblers) {
+                reassemblers.clear();
+            }
             if (level >= TRIM_MEMORY_COMPLETE) {
                 stopScanning();
             }
@@ -949,6 +1240,9 @@ public class MainActivity extends Activity {
         super.onLowMemory();
         synchronized (receivedMessages) {
             receivedMessages.clear();
+        }
+        synchronized (reassemblers) {
+            reassemblers.clear();
         }
         if (messageList.size() > 50) {
             messageList = new ArrayList<>(messageList.subList(messageList.size() - 50, messageList.size()));

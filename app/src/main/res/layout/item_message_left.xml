@@ -30,13 +30,14 @@
         android:id="@+id/textMessage"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:autoLink="all"
+        android:layout_marginEnd="100dp"
         android:background="@drawable/bubble_left"
+        android:linksClickable="true"
         android:padding="10dp"
         android:text="Message"
         android:textColor="#000000"
         android:textColorLink="#1565C0"
-        android:textSize="15sp"
-        android:autoLink="web"
-        android:linksClickable="true" />
+        android:textSize="15sp" />
 
 </LinearLayout>

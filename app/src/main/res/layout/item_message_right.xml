@@ -31,11 +31,12 @@
         android:layout_height="wrap_content"
         android:background="@drawable/bubble_right"
         android:padding="10dp"
+        android:layout_marginStart="100dp"
         android:text="Message"
         android:textColor="#FFFFFF"
         android:textColorLink="#BBDEFB"
         android:textSize="15sp"
-        android:autoLink="web"
+        android:autoLink="all"
         android:linksClickable="true" />
 
 
