@@ -84,17 +84,15 @@ public class MainActivity extends Activity {
     private static final int MAX_PAYLOAD_SIZE = 27;  // Conservative BLE limit
     private static final int MAX_CHUNK_DATA_SIZE = MAX_PAYLOAD_SIZE - HEADER_SIZE; // 9 bytes per chunk
     private static final int WARNING_THRESHOLD = 22; // Show red text after 22 characters
-    private static final int MAX_MESSAGE_LENGTH = 200; // Max total message length
+    private static final int MAX_MESSAGE_LENGTH = 500; // Max total message length
     private static final int MAX_MESSAGE_SAVED = 500;
 
-    private static final int SCAN_DURATION_MS = 10000;               // How long to scan continuously
-    private static final int SCAN_RESTART_DELAY_MS = 1000;           // Delay before restarting scan
-
-    private static final int CHUNK_TIMEOUT_MS = 30000;               // Keep 30 seconds reassembly timeout
-    private static final int CHUNK_CLEANUP_INTERVAL_MS = 10000;      // Keep 10 seconds cleanup interval
-
-    private static final int MAX_RECENT_MESSAGES = 1000;             // Recent messages to track
-    private static final int MAX_RECENT_CHUNKS = 2000;               // Recent chunks to track
+    private static final int ADVERTISING_DURATION_MS = 800;          // old value: 1000ms
+    private static final int DELAY_BETWEEN_CHUNKS_MS = 1000;          // old value: 1200ms
+    private static final int CHUNK_TIMEOUT_MS = 60000;                // old: 30 seconds reassembly timeout
+    private static final int CHUNK_CLEANUP_INTERVAL_MS = 10000;       // 10 seconds cleanup interval
+    private static final int MAX_RECENT_MESSAGES = 1000;              // Recent messages to track
+    private static final int MAX_RECENT_CHUNKS = 2000;                // Recent chunks to track
 
     private long userIdBits;
     private String userId;
@@ -187,7 +185,7 @@ public class MainActivity extends Activity {
             @Override
             public void run() {
                 cleanupExpiredReassemblers();
-                chunkHandler.postDelayed(this, 10000); // Check every 10 seconds
+                chunkHandler.postDelayed(this, CHUNK_CLEANUP_INTERVAL_MS);
             }
         }, 10000);
     }
@@ -374,7 +372,7 @@ public class MainActivity extends Activity {
                     } catch (Exception e) {
                         Log.e(TAG, "Error sending chunk " + chunkIndex, e);
                     }
-                }, i * 1200);
+                }, i * DELAY_BETWEEN_CHUNKS_MS);
             }
         } catch (Exception e) {
             Log.e(TAG, "Error preparing message chunks", e);
@@ -407,7 +405,7 @@ public class MainActivity extends Activity {
                             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
                             .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
                             .setConnectable(false)
-                            .setTimeout(1000)
+                            .setTimeout(ADVERTISING_DURATION_MS)
                             .build(),
                     data,
                     advertiseCallback
@@ -780,7 +778,7 @@ public class MainActivity extends Activity {
             synchronized (receivedMessages) {
                 if (receivedMessages.contains(messageId)) return;
                 receivedMessages.add(messageId);
-                if (receivedMessages.size() > 1000) {
+                if (receivedMessages.size() > MAX_RECENT_MESSAGES) {
                     receivedMessages.clear();
                 }
             }
@@ -815,7 +813,7 @@ public class MainActivity extends Activity {
             synchronized (receivedMessages) {
                 if (receivedMessages.contains(chunkKey)) return;
                 receivedMessages.add(chunkKey);
-                if (receivedMessages.size() > 2000) {
+                if (receivedMessages.size() > MAX_RECENT_CHUNKS) {
                     receivedMessages.clear();
                 }
             }
@@ -902,7 +900,7 @@ public class MainActivity extends Activity {
                     .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
                     .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
                     .setConnectable(false)
-                    .setTimeout(10000)
+                    .setTimeout(ADVERTISING_DURATION_MS)
                     .build();
 
             AdvertiseData data = new AdvertiseData.Builder()
