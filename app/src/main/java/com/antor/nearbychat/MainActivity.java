@@ -119,14 +119,7 @@ public class MainActivity extends Activity {
     }
 
     private void setupUI() {
-        final View rootView = findViewById(android.R.id.content);
-        rootView.getViewTreeObserver().addOnGlobalLayoutListener(() -> {
-            int heightDiff = rootView.getRootView().getHeight() - rootView.getHeight();
-            boolean keyboardVisible = heightDiff > dpToPx(this, 200);
-            if (!keyboardVisible) {
-                UiUtils.setLightSystemBars(this);
-            }
-        });
+        // ... other UI setup
         inputMessage = findViewById(R.id.inputMessage);
         setupMessageInput();
         recyclerView = findViewById(R.id.chatRecyclerView);
@@ -134,6 +127,13 @@ public class MainActivity extends Activity {
         recyclerView.setLayoutManager(new LinearLayoutManager(this));
         recyclerView.setAdapter(chatAdapter);
         findViewById(R.id.sendButton).setOnClickListener(this::onSendButtonClick);
+
+        // Add click listener to the app title to open settings
+        TextView appTitle = findViewById(R.id.appTitle);
+        appTitle.setOnClickListener(v -> {
+            Intent settingsIntent = new Intent(this, SettingsActivity.class);
+            startActivity(settingsIntent);
+        });
     }
 
     private void setupMessageInput() {

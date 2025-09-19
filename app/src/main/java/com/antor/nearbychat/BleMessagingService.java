@@ -19,6 +19,7 @@ import android.bluetooth.le.ScanResult;
 import android.bluetooth.le.ScanSettings;
 import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.os.Handler;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
@@ -52,20 +53,20 @@ public class BleMessagingService extends Service {
     private static final int NOTIFICATION_ID = 1001;
 
     // BLE Constants
-    private static final UUID SERVICE_UUID = UUID.fromString("0000aaaa-0000-1000-8000-00805f9b34fb");
+    private static UUID SERVICE_UUID = UUID.fromString("0000aaaa-0000-1000-8000-00805f9b34fb");
     private static final int USER_ID_LENGTH = 5;
     private static final int MESSAGE_ID_LENGTH = 4;
     private static final int CHUNK_METADATA_LENGTH = 2;
     private static final int HEADER_SIZE = USER_ID_LENGTH + MESSAGE_ID_LENGTH + CHUNK_METADATA_LENGTH;
-    private static final int MAX_PAYLOAD_SIZE = 27;
-    private static final int MAX_CHUNK_DATA_SIZE = MAX_PAYLOAD_SIZE - HEADER_SIZE;
-    private static final int ADVERTISING_DURATION_MS = 800;
-    private static final int DELAY_BETWEEN_CHUNKS_MS = 1000;
-    private static final int CHUNK_TIMEOUT_MS = 60000;
-    private static final int CHUNK_CLEANUP_INTERVAL_MS = 10000;
-    private static final int MAX_RECENT_MESSAGES = 1000;
-    private static final int MAX_RECENT_CHUNKS = 2000;
-    private static final int MAX_MESSAGE_SAVED = 500;
+    private static int MAX_PAYLOAD_SIZE = 27;
+    private static int MAX_CHUNK_DATA_SIZE = MAX_PAYLOAD_SIZE - HEADER_SIZE;
+    private static int ADVERTISING_DURATION_MS = 800;
+    private static int DELAY_BETWEEN_CHUNKS_MS = 1000;
+    private static int CHUNK_TIMEOUT_MS = 60000;
+    private static int CHUNK_CLEANUP_INTERVAL_MS = 10000;
+    private static int MAX_RECENT_MESSAGES = 1000;
+    private static int MAX_RECENT_CHUNKS = 2000;
+    private static int MAX_MESSAGE_SAVED = 500;
 
     // Broadcast Actions
     public static final String ACTION_MESSAGE_RECEIVED = "com.antor.nearbychat.MESSAGE_RECEIVED";
@@ -113,6 +114,31 @@ public class BleMessagingService extends Service {
             return BleMessagingService.this;
         }
     }
+
+    private void loadConfigurableSettings() {
+        SharedPreferences prefs = getSharedPreferences("NearbyChatSettings", MODE_PRIVATE); // এটা প্রথমে আসতে হবে
+
+        MAX_PAYLOAD_SIZE = prefs.getInt("MAX_PAYLOAD_SIZE", 27);
+        if (MAX_PAYLOAD_SIZE < 20) MAX_PAYLOAD_SIZE = 20;
+        MAX_CHUNK_DATA_SIZE = MAX_PAYLOAD_SIZE - HEADER_SIZE;
+
+        String serviceUuidString = prefs.getString("SERVICE_UUID", "0000aaaa-0000-1000-8000-00805f9b34fb");
+        try {
+            SERVICE_UUID = UUID.fromString(serviceUuidString);
+        } catch (IllegalArgumentException e) {
+            Log.e(TAG, "Invalid UUID, using default", e);
+            SERVICE_UUID = UUID.fromString("0000aaaa-0000-1000-8000-00805f9b34fb");
+        }
+
+        ADVERTISING_DURATION_MS = prefs.getInt("ADVERTISING_DURATION_MS", 800);
+        DELAY_BETWEEN_CHUNKS_MS = prefs.getInt("DELAY_BETWEEN_CHUNKS_MS", 1000);
+        CHUNK_TIMEOUT_MS = prefs.getInt("CHUNK_TIMEOUT_MS", 60000);
+        CHUNK_CLEANUP_INTERVAL_MS = prefs.getInt("CHUNK_CLEANUP_INTERVAL_MS", 10000);
+        MAX_RECENT_MESSAGES = prefs.getInt("MAX_RECENT_MESSAGES", 1000);
+        MAX_RECENT_CHUNKS = prefs.getInt("MAX_RECENT_CHUNKS", 2000);
+        MAX_MESSAGE_SAVED = prefs.getInt("MAX_MESSAGE_SAVED", 500);
+    }
+
 
     // MessageReassembler class
     private static class MessageReassembler {
@@ -187,6 +213,7 @@ public class BleMessagingService extends Service {
         chunkHandler = new Handler(Looper.getMainLooper());
 
         initializeData();
+        loadConfigurableSettings();
         acquireWakeLock();
         setupBluetoothReceiver();
         createNotificationChannel();

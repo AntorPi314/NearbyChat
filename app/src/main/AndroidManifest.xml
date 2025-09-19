@@ -50,6 +50,10 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".SettingsActivity"
+            android:exported="false" />
+
         <service
             android:name=".BleMessagingService"
             android:enabled="true"

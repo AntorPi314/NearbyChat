@@ -1,0 +1,182 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#F5F5F5">
+
+    <LinearLayout
+        android:id="@+id/topBarSettings"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#FFFFFF"
+        android:elevation="2dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="14dp"
+        android:paddingTop="4dp"
+        android:paddingEnd="4dp"
+        android:paddingBottom="8dp"
+        android:translationZ="2dp">
+
+        <ImageView
+            android:id="@+id/backIcon"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@drawable/nearby"
+            android:tint="#8E7E7E"
+            android:padding="12dp"
+            android:contentDescription="Back" />
+
+        <TextView
+            android:id="@+id/settingsTitle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Settings"
+            android:textColor="#756A6A"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:layout_marginStart="8dp" />
+
+        <Button
+            android:id="@+id/saveAndRestartButton"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:text="Save &amp; Restart"
+            android:textColor="#FFFFFF"
+            android:background="@drawable/rounded_button"
+            android:layout_marginEnd="8dp"/>
+    </LinearLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="BLE Messaging"
+                android:textStyle="bold"
+                android:textColor="#333333"
+                android:textSize="18sp"
+                android:paddingBottom="8dp" />
+
+            <LinearLayout style="@style/SettingsRow">
+                <TextView
+                    style="@style/SettingsLabel"
+                    android:text="Max Payload Size (bytes)" />
+                <EditText
+                    android:id="@+id/editMaxPayloadSize"
+                    style="@style/SettingsInput"
+                    android:hint="Min: 20, Default: 27" />
+            </LinearLayout>
+
+            <LinearLayout style="@style/SettingsRow">
+                <TextView
+                    style="@style/SettingsLabel"
+                    android:text="Service UUID" />
+                <EditText
+                    android:id="@+id/editServiceUuid"
+                    style="@style/SettingsInput"
+                    android:hint="e.g., 0000aaaa-0000-1000-8000-00805f9b34fb"
+                    android:inputType="text"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                style="@style/SettingsRow">
+                <TextView
+                    style="@style/SettingsLabel"
+                    android:text="Advertising Duration (ms)" />
+                <EditText
+                    android:id="@+id/editAdvertisingDuration"
+                    style="@style/SettingsInput"
+                    android:hint="e.g., 800" />
+            </LinearLayout>
+
+            <LinearLayout
+                style="@style/SettingsRow">
+                <TextView
+                    style="@style/SettingsLabel"
+                    android:text="Delay Between Chunks (ms)" />
+                <EditText
+                    android:id="@+id/editDelayBetweenChunks"
+                    style="@style/SettingsInput"
+                    android:hint="e.g., 1000" />
+            </LinearLayout>
+
+            <LinearLayout
+                style="@style/SettingsRow">
+                <TextView
+                    style="@style/SettingsLabel"
+                    android:text="Chunk Timeout (ms)" />
+                <EditText
+                    android:id="@+id/editChunkTimeout"
+                    style="@style/SettingsInput"
+                    android:hint="e.g., 60000" />
+            </LinearLayout>
+
+            <LinearLayout
+                style="@style/SettingsRow">
+                <TextView
+                    style="@style/SettingsLabel"
+                    android:text="Chunk Cleanup Interval (ms)" />
+                <EditText
+                    android:id="@+id/editChunkCleanupInterval"
+                    style="@style/SettingsInput"
+                    android:hint="e.g., 10000" />
+            </LinearLayout>
+
+            <LinearLayout
+                style="@style/SettingsRow">
+                <TextView
+                    style="@style/SettingsLabel"
+                    android:text="Max Recent Messages" />
+                <EditText
+                    android:id="@+id/editMaxRecentMessages"
+                    style="@style/SettingsInput"
+                    android:hint="e.g., 1000" />
+            </LinearLayout>
+
+            <LinearLayout
+                style="@style/SettingsRow">
+                <TextView
+                    style="@style/SettingsLabel"
+                    android:text="Max Recent Chunks" />
+                <EditText
+                    android:id="@+id/editMaxRecentChunks"
+                    style="@style/SettingsInput"
+                    android:hint="e.g., 2000" />
+            </LinearLayout>
+
+            <LinearLayout
+                style="@style/SettingsRow">
+                <TextView
+                    style="@style/SettingsLabel"
+                    android:text="Max Messages Saved" />
+                <EditText
+                    android:id="@+id/editMaxMessagesSaved"
+                    style="@style/SettingsInput"
+                    android:hint="e.g., 500" />
+            </LinearLayout>
+        </LinearLayout>
+    </ScrollView>
+
+    <Button
+        android:id="@+id/resetDefaultButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Reset Default"
+        android:textColor="#FFFFFF"
+        android:layout_margin="16dp"
+        android:background="@drawable/rounded_button" />
+
+</LinearLayout>
