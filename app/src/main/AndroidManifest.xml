@@ -52,7 +52,8 @@
 
         <activity
             android:name=".SettingsActivity"
-            android:exported="false" />
+            android:exported="false"
+            android:windowSoftInputMode="stateHidden|adjustResize"/>
 
         <service
             android:name=".BleMessagingService"

@@ -1,11 +1,12 @@
 package com.antor.nearbychat;
 
+import static androidx.core.util.TypedValueCompat.dpToPx;
+
 import android.app.Activity;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Build;
 import android.os.Bundle;
-import android.util.Log;
 import android.view.View;
 import android.os.Handler;
 import android.widget.Button;
@@ -21,6 +22,7 @@ public class SettingsActivity extends Activity {
     private static final String TAG = "SettingsActivity";
     private static final int MIN_MS_VALUE = 100;
 
+    private EditText uuidPart1, uuidPart2, uuidPart3, uuidPart4, uuidPart5;
     private SharedPreferences prefs;
     private Map<String, EditText> settingInputs = new HashMap<>();
 
@@ -35,8 +37,20 @@ public class SettingsActivity extends Activity {
     }
 
     private void setupUI() {
+        final View rootView = findViewById(android.R.id.content);
+        rootView.getViewTreeObserver().addOnGlobalLayoutListener(() -> {
+            int heightDiff = rootView.getRootView().getHeight() - rootView.getHeight();
+            boolean keyboardVisible = heightDiff > dpToPx(200, getResources().getDisplayMetrics());
+            if (!keyboardVisible) {
+                UiUtilsBlue.setLightSystemBars(this);
+            }
+        });
         settingInputs.put("MAX_PAYLOAD_SIZE", findViewById(R.id.editMaxPayloadSize));
-        EditText serviceUuidInput = findViewById(R.id.editServiceUuid);
+        uuidPart1 = findViewById(R.id.editUuidPart1);
+        uuidPart2 = findViewById(R.id.editUuidPart2);
+        uuidPart3 = findViewById(R.id.editUuidPart3);
+        uuidPart4 = findViewById(R.id.editUuidPart4);
+        uuidPart5 = findViewById(R.id.editUuidPart5);
 
         settingInputs.put("ADVERTISING_DURATION_MS", findViewById(R.id.editAdvertisingDuration));
         settingInputs.put("DELAY_BETWEEN_CHUNKS_MS", findViewById(R.id.editDelayBetweenChunks));
@@ -55,6 +69,21 @@ public class SettingsActivity extends Activity {
 
         ImageView backIcon = findViewById(R.id.backIcon);
         backIcon.setOnClickListener(v -> finish());
+
+        ImageView generateUuidIcon = findViewById(R.id.generateUuidIcon);
+        generateUuidIcon.setOnClickListener(v -> generateNewUUID());
+    }
+
+    private void generateNewUUID() {
+        String newUUID = UUID.randomUUID().toString();
+        String[] parts = newUUID.split("-");
+        if (parts.length == 5) {
+            uuidPart1.setText(parts[0]);
+            uuidPart2.setText(parts[1]);
+            uuidPart3.setText(parts[2]);
+            uuidPart4.setText(parts[3]);
+            uuidPart5.setText(parts[4]);
+        }
     }
 
     private void restartService() {
@@ -75,31 +104,44 @@ public class SettingsActivity extends Activity {
     }
 
     private void loadSettings() {
-        // Regular settings
+        // Define default values
+        Map<String, Integer> defaultValues = new HashMap<>();
+        defaultValues.put("MAX_PAYLOAD_SIZE", 27);
+        defaultValues.put("ADVERTISING_DURATION_MS", 800);
+        defaultValues.put("DELAY_BETWEEN_CHUNKS_MS", 1000);
+        defaultValues.put("CHUNK_TIMEOUT_MS", 60000);
+        defaultValues.put("CHUNK_CLEANUP_INTERVAL_MS", 10000);
+        defaultValues.put("MAX_RECENT_MESSAGES", 1000);
+        defaultValues.put("MAX_RECENT_CHUNKS", 2000);
+        defaultValues.put("MAX_MESSAGE_SAVED", 500);
+
         for (Map.Entry<String, EditText> entry : settingInputs.entrySet()) {
             String key = entry.getKey();
             EditText editText = entry.getValue();
-            int value = prefs.getInt(key, -1);
-            if (value != -1) {
-                editText.setText(String.valueOf(value));
-            }
+            int defaultValue = defaultValues.getOrDefault(key, 0);
+            int value = prefs.getInt(key, defaultValue);
+            editText.setText(String.valueOf(value));
         }
-
-        // UUID setting আলাদা
-        EditText serviceUuidInput = findViewById(R.id.editServiceUuid);
-        String serviceUuidValue = prefs.getString("SERVICE_UUID", "");
-        if (!serviceUuidValue.isEmpty()) {
-            serviceUuidInput.setText(serviceUuidValue);
+        String serviceUuidValue = prefs.getString("SERVICE_UUID", "0000aaaa-0000-1000-8000-00805f9b34fb");
+        String[] parts = serviceUuidValue.split("-");
+        if (parts.length == 5) {
+            uuidPart1.setText(parts[0]);
+            uuidPart2.setText(parts[1]);
+            uuidPart3.setText(parts[2]);
+            uuidPart4.setText(parts[3]);
+            uuidPart5.setText(parts[4]);
         }
     }
 
     private void saveSettingsAndRestart() {
         SharedPreferences.Editor editor = prefs.edit();
         boolean hasError = false;
+        String uuidText = uuidPart1.getText().toString().trim() + "-" +
+                uuidPart2.getText().toString().trim() + "-" +
+                uuidPart3.getText().toString().trim() + "-" +
+                uuidPart4.getText().toString().trim() + "-" +
+                uuidPart5.getText().toString().trim();
 
-        // UUID validation আগে করুন
-        EditText serviceUuidInput = findViewById(R.id.editServiceUuid);
-        String uuidText = serviceUuidInput.getText().toString().trim();
         if (!uuidText.isEmpty()) {
             try {
                 UUID.fromString(uuidText); // Validation
@@ -109,18 +151,13 @@ public class SettingsActivity extends Activity {
                 hasError = true;
             }
         }
-
-        // বাকি settings
         for (Map.Entry<String, EditText> entry : settingInputs.entrySet()) {
             String key = entry.getKey();
             EditText editText = entry.getValue();
             String text = editText.getText().toString();
-
             if (!text.isEmpty()) {
                 try {
                     int value = Integer.parseInt(text);
-
-                    // MAX_PAYLOAD_SIZE validation
                     if (key.equals("MAX_PAYLOAD_SIZE")) {
                         if (value < 20) {
                             Toast.makeText(this, "Max Payload Size must be at least 20", Toast.LENGTH_SHORT).show();
@@ -128,7 +165,6 @@ public class SettingsActivity extends Activity {
                             break;
                         }
                     }
-
                     if (key.contains("MS") && value < MIN_MS_VALUE) {
                         Toast.makeText(this, "Time values must be at least " + MIN_MS_VALUE + "ms", Toast.LENGTH_SHORT).show();
                         hasError = true;
@@ -144,7 +180,6 @@ public class SettingsActivity extends Activity {
                 editor.remove(key);
             }
         }
-
         if (!hasError) {
             editor.apply();
             Toast.makeText(this, "Settings saved! Restarting service...", Toast.LENGTH_SHORT).show();
@@ -153,13 +188,34 @@ public class SettingsActivity extends Activity {
         }
     }
 
+    private boolean validateUuidParts() {
+        if (uuidPart1.getText().toString().trim().isEmpty() ||
+                uuidPart2.getText().toString().trim().isEmpty() ||
+                uuidPart3.getText().toString().trim().isEmpty() ||
+                uuidPart4.getText().toString().trim().isEmpty() ||
+                uuidPart5.getText().toString().trim().isEmpty()) {
+
+            Toast.makeText(this, "All UUID parts must be filled", Toast.LENGTH_SHORT).show();
+            return false;
+        }
+        if (uuidPart1.getText().toString().trim().length() != 8 ||
+                uuidPart2.getText().toString().trim().length() != 4 ||
+                uuidPart3.getText().toString().trim().length() != 4 ||
+                uuidPart4.getText().toString().trim().length() != 4 ||
+                uuidPart5.getText().toString().trim().length() != 12) {
+
+            Toast.makeText(this, "Invalid UUID part lengths", Toast.LENGTH_SHORT).show();
+            return false;
+        }
+        return true;
+    }
+
     private void resetToDefaults() {
         SharedPreferences.Editor editor = prefs.edit();
         editor.clear();
         editor.apply();
         Toast.makeText(this, "Settings reset to defaults. Restarting service...", Toast.LENGTH_SHORT).show();
         loadSettings();
-        // Stop and restart the service
         Intent serviceIntent = new Intent(this, BleMessagingService.class);
         stopService(serviceIntent);
         startService(serviceIntent);

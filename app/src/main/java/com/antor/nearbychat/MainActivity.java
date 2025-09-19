@@ -119,7 +119,14 @@ public class MainActivity extends Activity {
     }
 
     private void setupUI() {
-        // ... other UI setup
+        final View rootView = findViewById(android.R.id.content);
+        rootView.getViewTreeObserver().addOnGlobalLayoutListener(() -> {
+            int heightDiff = rootView.getRootView().getHeight() - rootView.getHeight();
+            boolean keyboardVisible = heightDiff > dpToPx(this, 200);
+            if (!keyboardVisible) {
+                UiUtils.setLightSystemBars(this);
+            }
+        });
         inputMessage = findViewById(R.id.inputMessage);
         setupMessageInput();
         recyclerView = findViewById(R.id.chatRecyclerView);
@@ -268,14 +275,29 @@ public class MainActivity extends Activity {
             Toast.makeText(this, "Bluetooth not available", Toast.LENGTH_LONG).show();
             return;
         }
-        if (!bluetoothAdapter.isEnabled()) {
-            Toast.makeText(this, "Please turn on Bluetooth", Toast.LENGTH_LONG).show();
-            Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
-            startActivityForResult(enableBtIntent, 101); //ActivityResult থেকে আবার চেক হবে
-            return;
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                if (ContextCompat.checkSelfPermission(this,
+                        Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                    ActivityCompat.requestPermissions(this,
+                            new String[]{Manifest.permission.BLUETOOTH_CONNECT},
+                            PERMISSION_REQUEST_CODE);
+                    return;
+                }
+            }
+            if (!bluetoothAdapter.isEnabled()) {
+                Toast.makeText(this, "Please turn on Bluetooth", Toast.LENGTH_LONG).show();
+                Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
+                startActivityForResult(enableBtIntent, 101);
+                return;
+            }
+            checkAndRequestPermissionsSequentially();
+        } catch (SecurityException se) {
+            Log.e(TAG, "Bluetooth permission missing", se);
+            Toast.makeText(this, "Bluetooth permission required", Toast.LENGTH_SHORT).show();
         }
-        checkAndRequestPermissionsSequentially();
     }
+
 
     private boolean hasBasicBluetoothPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
