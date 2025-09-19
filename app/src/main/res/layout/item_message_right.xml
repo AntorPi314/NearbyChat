@@ -34,7 +34,7 @@
         android:layout_marginStart="100dp"
         android:text="Message"
         android:textColor="#FFFFFF"
-        android:textColorLink="#BBDEFB"
+        android:textColorLink="#FFFFFF"
         android:textSize="15sp"
         android:autoLink="all"
         android:linksClickable="true" />

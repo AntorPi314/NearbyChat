@@ -52,12 +52,14 @@ public class BleMessagingService extends Service {
     private static final String CHANNEL_ID = "nearby_chat_service";
     private static final int NOTIFICATION_ID = 1001;
 
-    // BLE Constants
+    // BLE Constants - These will be updated from settings
     private static UUID SERVICE_UUID = UUID.fromString("0000aaaa-0000-1000-8000-00805f9b34fb");
     private static final int USER_ID_LENGTH = 5;
     private static final int MESSAGE_ID_LENGTH = 4;
     private static final int CHUNK_METADATA_LENGTH = 2;
     private static final int HEADER_SIZE = USER_ID_LENGTH + MESSAGE_ID_LENGTH + CHUNK_METADATA_LENGTH;
+
+    // Dynamic settings - will be loaded from preferences
     private static int MAX_PAYLOAD_SIZE = 27;
     private static int MAX_CHUNK_DATA_SIZE = MAX_PAYLOAD_SIZE - HEADER_SIZE;
     private static int ADVERTISING_DURATION_MS = 800;
@@ -116,35 +118,52 @@ public class BleMessagingService extends Service {
     }
 
     private void loadConfigurableSettings() {
-        SharedPreferences prefs = getSharedPreferences("NearbyChatSettings", MODE_PRIVATE); // এটা প্রথমে আসতে হবে
-
-        MAX_PAYLOAD_SIZE = prefs.getInt("MAX_PAYLOAD_SIZE", 27);
-        if (MAX_PAYLOAD_SIZE < 20) MAX_PAYLOAD_SIZE = 20;
-        MAX_CHUNK_DATA_SIZE = MAX_PAYLOAD_SIZE - HEADER_SIZE;
-
-        String serviceUuidString = prefs.getString("SERVICE_UUID", "0000aaaa-0000-1000-8000-00805f9b34fb");
         try {
-            SERVICE_UUID = UUID.fromString(serviceUuidString);
-        } catch (IllegalArgumentException e) {
-            Log.e(TAG, "Invalid UUID, using default", e);
+            SharedPreferences prefs = getSharedPreferences("NearbyChatSettings", MODE_PRIVATE);
+
+            // Load settings with proper defaults
+            MAX_PAYLOAD_SIZE = prefs.getInt("MAX_PAYLOAD_SIZE", 27);
+            if (MAX_PAYLOAD_SIZE < 20) MAX_PAYLOAD_SIZE = 20;
+            MAX_CHUNK_DATA_SIZE = MAX_PAYLOAD_SIZE - HEADER_SIZE;
+
+            // Load and validate UUID
+            String serviceUuidString = prefs.getString("SERVICE_UUID", "0000aaaa-0000-1000-8000-00805f9b34fb");
+            try {
+                UUID newServiceUuid = UUID.fromString(serviceUuidString);
+                SERVICE_UUID = newServiceUuid;
+                Log.d(TAG, "Using Service UUID: " + SERVICE_UUID.toString());
+            } catch (IllegalArgumentException e) {
+                Log.e(TAG, "Invalid UUID in preferences, using default", e);
+                SERVICE_UUID = UUID.fromString("0000aaaa-0000-1000-8000-00805f9b34fb");
+            }
+
+            // Load timing settings
+            ADVERTISING_DURATION_MS = prefs.getInt("ADVERTISING_DURATION_MS", 800);
+            DELAY_BETWEEN_CHUNKS_MS = prefs.getInt("DELAY_BETWEEN_CHUNKS_MS", 1000);
+            CHUNK_TIMEOUT_MS = prefs.getInt("CHUNK_TIMEOUT_MS", 60000);
+            CHUNK_CLEANUP_INTERVAL_MS = prefs.getInt("CHUNK_CLEANUP_INTERVAL_MS", 10000);
+
+            // Load memory settings
+            MAX_RECENT_MESSAGES = prefs.getInt("MAX_RECENT_MESSAGES", 1000);
+            MAX_RECENT_CHUNKS = prefs.getInt("MAX_RECENT_CHUNKS", 2000);
+            MAX_MESSAGE_SAVED = prefs.getInt("MAX_MESSAGE_SAVED", 500);
+
+            Log.d(TAG, "Settings loaded - UUID: " + SERVICE_UUID + ", Payload: " + MAX_PAYLOAD_SIZE);
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error loading settings, using defaults", e);
+            // Set defaults if loading fails
             SERVICE_UUID = UUID.fromString("0000aaaa-0000-1000-8000-00805f9b34fb");
+            MAX_PAYLOAD_SIZE = 27;
+            MAX_CHUNK_DATA_SIZE = MAX_PAYLOAD_SIZE - HEADER_SIZE;
         }
-
-        ADVERTISING_DURATION_MS = prefs.getInt("ADVERTISING_DURATION_MS", 800);
-        DELAY_BETWEEN_CHUNKS_MS = prefs.getInt("DELAY_BETWEEN_CHUNKS_MS", 1000);
-        CHUNK_TIMEOUT_MS = prefs.getInt("CHUNK_TIMEOUT_MS", 60000);
-        CHUNK_CLEANUP_INTERVAL_MS = prefs.getInt("CHUNK_CLEANUP_INTERVAL_MS", 10000);
-        MAX_RECENT_MESSAGES = prefs.getInt("MAX_RECENT_MESSAGES", 1000);
-        MAX_RECENT_CHUNKS = prefs.getInt("MAX_RECENT_CHUNKS", 2000);
-        MAX_MESSAGE_SAVED = prefs.getInt("MAX_MESSAGE_SAVED", 500);
     }
-
 
     // MessageReassembler class
     private static class MessageReassembler {
         private final String senderId;
         private final String messageId;
-        private final SparseArray<byte[]> chunks = new SparseArray<>(); // Change to byte[]
+        private final SparseArray<byte[]> chunks = new SparseArray<>();
         private final long timestamp;
         private int totalChunks = -1;
         private int receivedCount = 0;
@@ -155,7 +174,7 @@ public class BleMessagingService extends Service {
             this.timestamp = System.currentTimeMillis();
         }
 
-        public boolean addChunk(int chunkIndex, int totalChunks, byte[] chunkData) { // Change parameter
+        public boolean addChunk(int chunkIndex, int totalChunks, byte[] chunkData) {
             if (this.totalChunks == -1) {
                 this.totalChunks = totalChunks;
             } else if (this.totalChunks != totalChunks) {
@@ -212,8 +231,10 @@ public class BleMessagingService extends Service {
         mainHandler = new Handler(Looper.getMainLooper());
         chunkHandler = new Handler(Looper.getMainLooper());
 
-        initializeData();
+        // Load settings FIRST before initializing anything
         loadConfigurableSettings();
+
+        initializeData();
         acquireWakeLock();
         setupBluetoothReceiver();
         createNotificationChannel();
@@ -232,11 +253,22 @@ public class BleMessagingService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         Log.d(TAG, "Service onStartCommand");
 
+        // Reload settings each time the service starts (important for restart)
+        loadConfigurableSettings();
+
         if (!isServiceRunning) {
             startForegroundService();
             initializeBle();
             isServiceRunning = true;
             broadcastServiceState(true);
+        } else {
+            // If service is already running but we got new intent, reinitialize BLE
+            // This handles the restart case
+            Log.d(TAG, "Service already running, reinitializing BLE with new settings");
+            stopBleOperations();
+            mainHandler.postDelayed(() -> {
+                initializeBle();
+            }, 1000);
         }
 
         // Handle message sending if intent contains data
@@ -249,7 +281,6 @@ public class BleMessagingService extends Service {
 
         return START_STICKY;
     }
-
 
     private void startForegroundService() {
         Intent notificationIntent = new Intent(this, MainActivity.class);
@@ -377,6 +408,8 @@ public class BleMessagingService extends Service {
 
             if (scanner != null) {
                 startScanning();
+            } else {
+                Log.w(TAG, "BLE Scanner not available");
             }
         } catch (SecurityException e) {
             Log.e(TAG, "SecurityException when initializing BLE - missing permissions", e);
@@ -399,7 +432,10 @@ public class BleMessagingService extends Service {
     }
 
     private void startScanning() {
-        if (scanner == null || isScanning) return;
+        if (scanner == null || isScanning) {
+            Log.d(TAG, "Scanner null or already scanning");
+            return;
+        }
 
         try {
             if (!hasRequiredPermissions()) {
@@ -424,17 +460,17 @@ public class BleMessagingService extends Service {
                     .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
                     .build();
 
+            // Create filter with the current SERVICE_UUID
             List<ScanFilter> filters = Arrays.asList(
                     new ScanFilter.Builder()
                             .setServiceData(new ParcelUuid(SERVICE_UUID), new byte[0])
                             .build()
             );
 
-            // Wrap in try-catch to handle SecurityException
             try {
                 scanner.startScan(filters, settings, scanCallback);
                 isScanning = true;
-                Log.d(TAG, "Started scanning");
+                Log.d(TAG, "Started scanning with UUID: " + SERVICE_UUID.toString());
                 updateNotification("Scanning for messages...", true);
             } catch (SecurityException e) {
                 Log.e(TAG, "SecurityException when starting scan - missing permissions", e);
@@ -529,8 +565,6 @@ public class BleMessagingService extends Service {
                 reassemblers.put(reassemblerKey, reassembler);
             }
 
-            String chunkString = new String(chunkData, StandardCharsets.UTF_8);
-
             if (reassembler.addChunk(chunkIndex, totalChunks, chunkData)) {
                 Log.d(TAG, "Received chunk " + chunkIndex + "/" + totalChunks);
             }
@@ -557,11 +591,13 @@ public class BleMessagingService extends Service {
             addMessage(sentMsg);
             broadcastMessage(sentMsg);
 
-            // Send via BLE
+            // Send via BLE using current settings
             String messageId = generateMessageId();
             byte[] messageBytes = message.getBytes(StandardCharsets.UTF_8);
             List<byte[]> safeChunks = createSafeUtf8Chunks(messageBytes, MAX_CHUNK_DATA_SIZE);
             int totalChunks = safeChunks.size();
+
+            Log.d(TAG, "Sending message in " + totalChunks + " chunks with UUID: " + SERVICE_UUID.toString());
 
             for (int i = 0; i < totalChunks; i++) {
                 final int chunkIndex = i;
@@ -607,10 +643,6 @@ public class BleMessagingService extends Service {
         return chunks;
     }
 
-    private boolean checkPermission(String permission) {
-        return ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED;
-    }
-
     private void updateAdvertisingData(byte[] payload) {
         if (advertiser == null) return;
 
@@ -620,8 +652,9 @@ public class BleMessagingService extends Service {
                 return;
             }
 
-            stopAdvertising();
+            // stopAdvertising();
 
+            // Use the current SERVICE_UUID for advertising
             AdvertiseData data = new AdvertiseData.Builder()
                     .addServiceData(new ParcelUuid(SERVICE_UUID), payload)
                     .build();
@@ -629,7 +662,7 @@ public class BleMessagingService extends Service {
             advertiseCallback = new AdvertiseCallback() {
                 @Override
                 public void onStartSuccess(AdvertiseSettings settingsInEffect) {
-                    Log.d(TAG, "Advertise success");
+                    Log.d(TAG, "Advertise success with UUID: " + SERVICE_UUID.toString());
                 }
 
                 @Override
@@ -638,7 +671,6 @@ public class BleMessagingService extends Service {
                 }
             };
 
-            // Wrap in try-catch to handle SecurityException
             try {
                 advertiser.startAdvertising(
                         new AdvertiseSettings.Builder()
@@ -674,7 +706,6 @@ public class BleMessagingService extends Service {
             }
         }
     }
-
 
     private void stopScanning() {
         if (scanner != null && scanCallback != null) {
@@ -723,20 +754,18 @@ public class BleMessagingService extends Service {
     }
 
     private void broadcastMessage(MessageModel message) {
-        // Send broadcast using standard Android broadcast
         Intent intent = new Intent(ACTION_MESSAGE_RECEIVED);
         intent.putExtra(EXTRA_MESSAGE, gson.toJson(message));
-        intent.setPackage(getPackageName()); // Restrict to this app only
+        intent.setPackage(getPackageName());
         sendBroadcast(intent);
 
-        // Update notification with message count
         updateNotification("Active - " + messageList.size() + " messages", true);
     }
 
     private void broadcastServiceState(boolean isRunning) {
         Intent intent = new Intent(ACTION_SERVICE_STATE);
         intent.putExtra(EXTRA_IS_RUNNING, isRunning);
-        intent.setPackage(getPackageName()); // Restrict to this app only
+        intent.setPackage(getPackageName());
         sendBroadcast(intent);
     }
 

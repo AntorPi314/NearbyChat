@@ -140,20 +140,38 @@
                         android:gravity="center_vertical"
                         android:layout_marginBottom="8dp">
 
-                        <EditText
-                            android:id="@+id/editUuidPart1"
+                        <TextView
+                            android:id="@+id/editUuidPart1a"
                             android:layout_width="0dp"
                             android:layout_height="40dp"
-                            android:layout_weight="2.5"
+                            android:layout_weight="1.5"
+                            android:background="@drawable/uuid_fake_input_bg"
+                            android:textSize="13sp"
+                            android:fontFamily="monospace"
+                            android:inputType="textNoSuggestions"
+                            android:maxLength="8"
+                            android:maxLines="1"
+                            android:padding="8dp"
+                            android:text="0000"
+                            android:textColor="#A0AEC0"
+                            android:gravity="center"
+                            android:layout_marginEnd="4dp" />
+
+                        <EditText
+                            android:id="@+id/editUuidPart1b"
+                            android:layout_width="0dp"
+                            android:layout_height="40dp"
+                            android:layout_weight="1.6"
                             android:background="@drawable/uuid_input_bg"
                             android:textSize="13sp"
+                            android:textStyle="bold"
                             android:textColor="#2D3748"
                             android:fontFamily="monospace"
                             android:inputType="textNoSuggestions"
                             android:maxLength="8"
                             android:maxLines="1"
                             android:padding="8dp"
-                            android:hint="9a2c1c1f"
+                            android:hint="aaaa"
                             android:textColorHint="#A0AEC0"
                             android:gravity="center"
                             android:layout_marginEnd="4dp" />
@@ -167,24 +185,23 @@
                             android:layout_marginStart="2dp"
                             android:layout_marginEnd="2dp" />
 
-                        <EditText
+                        <TextView
                             android:id="@+id/editUuidPart2"
                             android:layout_width="0dp"
                             android:layout_height="40dp"
+                            android:layout_marginStart="2dp"
+                            android:layout_marginEnd="2dp"
                             android:layout_weight="1.5"
-                            android:background="@drawable/uuid_input_bg"
-                            android:textSize="13sp"
-                            android:textColor="#2D3748"
+                            android:background="@drawable/uuid_fake_input_bg"
                             android:fontFamily="monospace"
+                            android:gravity="center"
+                            android:text="0000"
                             android:inputType="textNoSuggestions"
                             android:maxLength="4"
                             android:maxLines="1"
                             android:padding="8dp"
-                            android:hint="3b48"
-                            android:textColorHint="#A0AEC0"
-                            android:gravity="center"
-                            android:layout_marginStart="2dp"
-                            android:layout_marginEnd="2dp" />
+                            android:textColor="#A0AEC0"
+                            android:textSize="13sp" />
 
                         <TextView
                             android:layout_width="wrap_content"
@@ -195,51 +212,24 @@
                             android:layout_marginStart="2dp"
                             android:layout_marginEnd="2dp" />
 
-                        <EditText
+                        <TextView
                             android:id="@+id/editUuidPart3"
                             android:layout_width="0dp"
                             android:layout_height="40dp"
+                            android:layout_marginStart="2dp"
+                            android:layout_marginEnd="2dp"
                             android:layout_weight="1.5"
-                            android:background="@drawable/uuid_input_bg"
-                            android:textSize="13sp"
-                            android:textColor="#2D3748"
+                            android:background="@drawable/uuid_fake_input_bg"
                             android:fontFamily="monospace"
+                            android:gravity="center"
+                            android:text="1000"
                             android:inputType="textNoSuggestions"
                             android:maxLength="4"
                             android:maxLines="1"
                             android:padding="8dp"
-                            android:hint="43e5"
-                            android:textColorHint="#A0AEC0"
-                            android:gravity="center"
-                            android:layout_marginStart="2dp"
-                            android:layout_marginEnd="2dp" />
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="-"
-                            android:textSize="16sp"
-                            android:textColor="#718096"
-                            android:layout_marginStart="2dp"
-                            android:layout_marginEnd="2dp" />
-
-                        <EditText
-                            android:id="@+id/editUuidPart4"
-                            android:layout_width="0dp"
-                            android:layout_height="40dp"
-                            android:layout_marginStart="2dp"
-                            android:layout_weight="1.5"
-                            android:background="@drawable/uuid_input_bg"
-                            android:fontFamily="monospace"
-                            android:gravity="center"
-                            android:hint="a6fd"
-                            android:maxLength="4"
-                            android:maxLines="1"
-                            android:padding="8dp"
-                            android:textColor="#2D3748"
-                            android:inputType="textNoSuggestions"
-                            android:textColorHint="#A0AEC0"
+                            android:textColor="#A0AEC0"
                             android:textSize="13sp" />
+
 
                     </LinearLayout>
 
@@ -256,23 +246,49 @@
                             android:text="-"
                             android:textSize="16sp"
                             android:textColor="#718096"
+                            android:layout_marginStart="2dp"
+                            android:layout_marginEnd="2dp" />
+
+                        <TextView
+                            android:id="@+id/editUuidPart4"
+                            android:layout_width="0dp"
+                            android:layout_height="40dp"
+                            android:layout_marginStart="2dp"
+                            android:layout_weight="0.5"
+                            android:background="@drawable/uuid_fake_input_bg"
+                            android:fontFamily="monospace"
+                            android:gravity="center"
+                            android:text="8000"
+                            android:inputType="textNoSuggestions"
+                            android:maxLength="4"
+                            android:maxLines="1"
+                            android:padding="8dp"
+                            android:textColor="#A0AEC0"
+                            android:textSize="13sp" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="-"
+                            android:textSize="16sp"
+                            android:textColor="#718096"
+                            android:layout_marginStart="4dp"
                             android:layout_marginEnd="4dp" />
 
-                        <EditText
+                        <TextView
                             android:id="@+id/editUuidPart5"
                             android:layout_width="0dp"
                             android:layout_height="40dp"
                             android:layout_weight="1"
-                            android:background="@drawable/uuid_input_bg"
+                            android:background="@drawable/uuid_fake_input_bg"
                             android:textSize="13sp"
-                            android:textColor="#2D3748"
+                            android:textColor="#A0AEC0"
                             android:fontFamily="monospace"
                             android:inputType="textNoSuggestions"
                             android:maxLength="12"
                             android:maxLines="1"
                             android:padding="8dp"
-                            android:hint="3ae3ff3f2d15"
-                            android:textColorHint="#A0AEC0"
+                            android:text="00805f9b34fb"
                             android:gravity="center"
                             android:layout_marginEnd="8dp" />
 
