@@ -544,7 +544,7 @@ public class BleMessagingService extends Service {
                 String message = new String(chunkDataBytes, StandardCharsets.UTF_8);
                 boolean isSelf = displayId.equals(userId);
                 if (!isSelf) {
-                    MessageModel newMsg = new MessageModel(displayId, message, false, getCurrentTimestamp());
+                    MessageModel newMsg = new MessageModel(displayId, message, false, getCurrentTimestamp(1));
                     addMessage(newMsg);
                     broadcastMessage(newMsg);
                 }
@@ -574,7 +574,8 @@ public class BleMessagingService extends Service {
                 if (fullMessage != null) {
                     boolean isSelf = senderId.equals(userId);
                     if (!isSelf) {
-                        MessageModel newMsg = new MessageModel(senderId, fullMessage, false, getCurrentTimestamp());
+                        // USE CORRECT CHUNK COUNT FROM REASSEMBLER
+                        MessageModel newMsg = new MessageModel(senderId, fullMessage, false, getCurrentTimestamp(totalChunks));
                         addMessage(newMsg);
                         broadcastMessage(newMsg);
                     }
@@ -586,16 +587,16 @@ public class BleMessagingService extends Service {
 
     public void sendMessageInChunks(String message) {
         try {
-            // Add to local storage
-            MessageModel sentMsg = new MessageModel(userId, message, true, getCurrentTimestamp());
-            addMessage(sentMsg);
-            broadcastMessage(sentMsg);
-
             // Send via BLE using current settings
             String messageId = generateMessageId();
             byte[] messageBytes = message.getBytes(StandardCharsets.UTF_8);
             List<byte[]> safeChunks = createSafeUtf8Chunks(messageBytes, MAX_CHUNK_DATA_SIZE);
             int totalChunks = safeChunks.size();
+
+            // Add to local storage WITH CORRECT CHUNK COUNT
+            MessageModel sentMsg = new MessageModel(userId, message, true, getCurrentTimestamp(totalChunks));
+            addMessage(sentMsg);
+            broadcastMessage(sentMsg);
 
             Log.d(TAG, "Sending message in " + totalChunks + " chunks with UUID: " + SERVICE_UUID.toString());
 
@@ -848,9 +849,10 @@ public class BleMessagingService extends Service {
         return sb.reverse().toString();
     }
 
-    private String getCurrentTimestamp() {
+    private String getCurrentTimestamp(int chunkCount) {
         SimpleDateFormat sdf = new SimpleDateFormat("hh:mm a | dd-MM-yyyy", Locale.getDefault());
-        return sdf.format(new Date());
+        String baseTime = sdf.format(new Date());
+        return baseTime + " | " + chunkCount + "C";
     }
 
     private void saveChatHistory() {

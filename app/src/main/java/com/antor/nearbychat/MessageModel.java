@@ -5,6 +5,7 @@ public class MessageModel {
     private String message;
     private boolean isSelf;
     private String timestamp;
+    private int chunkCount = 1;
 
     public MessageModel(String senderId, String message, boolean isSelf, String timestamp) {
         this.senderId = senderId;
@@ -27,5 +28,13 @@ public class MessageModel {
 
     public String getTimestamp() {
         return timestamp;
+    }
+
+    public int getChunkCount() {
+        return chunkCount;
+    }
+
+    public void setChunkCount(int chunkCount) {
+        this.chunkCount = chunkCount;
     }
 }
