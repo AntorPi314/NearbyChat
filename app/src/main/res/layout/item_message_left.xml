@@ -44,7 +44,7 @@
                 android:paddingLeft="8dp"
                 android:text="USERID"
                 android:textColor="#555555"
-                android:textSize="12sp" />
+                android:textSize="10sp" />
 
             <TextView
                 android:id="@+id/textMessage"

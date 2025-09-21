@@ -20,7 +20,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="USERID"
-        android:textSize="12sp"
+        android:textSize="10sp"
         android:textColor="#555555"
         android:layout_marginBottom="2dp"
         android:paddingRight="8dp" />

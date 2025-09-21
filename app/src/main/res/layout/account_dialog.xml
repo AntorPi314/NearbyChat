@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.cardview.widget.CardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="280dp"
+    android:layout_height="wrap_content"
+    android:layout_gravity="center"
+    android:layout_margin="16dp"
+    app:cardBackgroundColor="@android:color/white"
+    app:cardCornerRadius="16dp"
+    app:cardElevation="8dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <!-- Profile Image -->
+        <ImageView
+            android:id="@+id/profilePicRound"
+            android:layout_width="70dp"
+            android:layout_height="70dp"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="12dp"
+            android:background="@drawable/circle_bg"
+            android:contentDescription="Profile Picture"
+            android:padding="4dp"
+            android:src="@drawable/profile_pic_round_vector" />
+
+        <!-- Title -->
+
+        <!-- Name -->
+        <TextView
+            android:id="@+id/textID"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            android:text="YOUR_ID/Name"
+            android:textColor="@android:color/black"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+
+        <Button
+            android:id="@+id/id_friends"
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:layout_marginBottom="12dp"
+            android:background="@drawable/btn_bg_round"
+            android:drawableStart="@drawable/ic_friends"
+            android:drawablePadding="12dp"
+            android:gravity="center|start"
+            android:paddingStart="12dp"
+            android:paddingTop="8dp"
+            android:paddingEnd="8dp"
+            android:paddingBottom="8dp"
+            android:text="Friends"
+            android:textAllCaps="false"
+            android:textColor="#EFE7E7" />
+
+        <Button
+            android:id="@+id/id_groups"
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:layout_marginBottom="12dp"
+            android:background="@drawable/btn_bg_round"
+            android:drawableStart="@drawable/ic_group"
+            android:drawablePadding="6dp"
+            android:gravity="center|start"
+            android:paddingStart="12dp"
+            android:paddingTop="8dp"
+            android:paddingEnd="8dp"
+            android:paddingBottom="8dp"
+            android:text="Groups"
+            android:textAllCaps="false"
+            android:textColor="#EFE7E7" />
+
+        <Button
+            android:id="@+id/id_settings"
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:layout_marginBottom="12dp"
+            android:background="@drawable/btn_bg_round"
+            android:drawableStart="@drawable/ic_settings"
+            android:drawablePadding="9dp"
+            android:drawableTint="#FFFFFF"
+            android:gravity="center|start"
+            android:paddingStart="12dp"
+            android:paddingTop="8dp"
+            android:paddingEnd="8dp"
+            android:paddingBottom="8dp"
+            android:text="Settings"
+            android:textAllCaps="false"
+            android:textColor="#EFE7E7" />
+
+        <Button
+            android:id="@+id/id_about"
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:layout_marginBottom="12dp"
+            android:background="@drawable/btn_bg_round"
+            android:drawableStart="@drawable/ic_about"
+            android:drawablePadding="9dp"
+            android:gravity="center|start"
+            android:paddingStart="12dp"
+            android:paddingTop="8dp"
+            android:paddingEnd="8dp"
+            android:paddingBottom="8dp"
+            android:text="About"
+            android:textAllCaps="false"
+            android:textColor="#EFE7E7" />
+
+        <Button
+            android:id="@+id/id_restart_app"
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:layout_marginBottom="12dp"
+            android:background="@drawable/btn_bg_round"
+            android:drawableStart="@drawable/ic_restart"
+            android:drawablePadding="9dp"
+            android:gravity="center|start"
+            android:paddingStart="12dp"
+            android:paddingTop="8dp"
+            android:paddingEnd="8dp"
+            android:paddingBottom="8dp"
+            android:text="Restart App"
+            android:textAllCaps="false"
+            android:textColor="#EFE7E7" />
+
+
+    </LinearLayout>
+</androidx.cardview.widget.CardView>

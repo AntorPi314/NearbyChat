@@ -17,6 +17,7 @@ import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
+import android.graphics.Paint;
 import android.location.LocationManager;
 import android.net.Uri;
 import android.os.Build;
@@ -29,7 +30,6 @@ import android.provider.MediaStore;
 import android.provider.Settings;
 import android.util.Base64;
 import android.app.Dialog;
-import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.view.WindowManager;
 
@@ -54,7 +54,6 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 
-import java.io.ByteArrayOutputStream;
 import java.lang.reflect.Type;
 import java.text.SimpleDateFormat;
 import java.util.*;
@@ -154,14 +153,109 @@ public class MainActivity extends Activity {
         chatAdapter = new ChatAdapter(messageList, this, this::onMessageClick, this::onMessageLongClick);
         recyclerView.setLayoutManager(new LinearLayoutManager(this));
         recyclerView.setAdapter(chatAdapter);
-        findViewById(R.id.sendButton).setOnClickListener(this::onSendButtonClick);
 
-        // Add click listener to the app title to open settings
-        TextView appTitle = findViewById(R.id.appTitle);
-        appTitle.setOnClickListener(v -> {
-            Intent settingsIntent = new Intent(this, SettingsActivity.class);
+        findViewById(R.id.sendButton).setOnClickListener(this::onSendButtonClick);
+        setupAppIconClick();
+        TextView appSubtitle = findViewById(R.id.appSubtitle);
+        appSubtitle.setPaintFlags(appSubtitle.getPaintFlags() | Paint.UNDERLINE_TEXT_FLAG);
+        appSubtitle.setOnClickListener(v -> {
+            Intent settingsIntent = new Intent(this, GithubLinkActivity.class);
             startActivity(settingsIntent);
         });
+    }
+
+    private void setupAppIconClick() {
+        ImageView appIcon = findViewById(R.id.appIcon);
+        appIcon.setOnClickListener(v -> showAccountDialog());
+    }
+
+    private void showAccountDialog() {
+        try {
+            Dialog dialog = new Dialog(this);
+            dialog.setContentView(R.layout.account_dialog);
+
+            // Make background transparent and set window attributes
+            if (dialog.getWindow() != null) {
+                dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+                WindowManager.LayoutParams lp = new WindowManager.LayoutParams();
+                lp.copyFrom(dialog.getWindow().getAttributes());
+                lp.width = dpToPx(this, 280); // Fixed 280dp width
+                lp.height = WindowManager.LayoutParams.WRAP_CONTENT;
+                dialog.getWindow().setAttributes(lp);
+            }
+
+            // Get dialog views
+            TextView textID = dialog.findViewById(R.id.textID);
+            ImageView profilePic = dialog.findViewById(R.id.profilePicRound);
+            Button friendsBtn = dialog.findViewById(R.id.id_friends);
+            Button groupsBtn = dialog.findViewById(R.id.id_groups);
+            Button settingsBtn = dialog.findViewById(R.id.id_settings);
+            Button aboutBtn = dialog.findViewById(R.id.id_about);
+            Button restartBtn = dialog.findViewById(R.id.id_restart_app);
+
+            // Set current user info
+            textID.setText(getDisplayName(userId));
+            loadProfilePicture(userId, profilePic);
+
+            // Profile pic click listener
+            profilePic.setOnClickListener(v -> {
+                currentUserId = userId;
+                currentProfilePic = profilePic;
+                showImagePickerDialog(userId, profilePic);
+            });
+
+            // Button click listeners
+            friendsBtn.setOnClickListener(v -> {
+                dialog.dismiss();
+                startActivity(new Intent(this, FriendsActivity.class));
+            });
+
+            groupsBtn.setOnClickListener(v -> {
+                dialog.dismiss();
+                startActivity(new Intent(this, GroupsActivity.class));
+            });
+
+            settingsBtn.setOnClickListener(v -> {
+                dialog.dismiss();
+                startActivity(new Intent(this, SettingsActivity.class));
+            });
+
+            aboutBtn.setOnClickListener(v -> {
+                dialog.dismiss();
+                startActivity(new Intent(this, AboutActivity.class));
+            });
+
+            restartBtn.setOnClickListener(v -> {
+                dialog.dismiss();
+                restartApp();
+            });
+
+            dialog.show();
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error showing account dialog", e);
+            Toast.makeText(this, "Error opening account menu", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void restartApp() {
+        try {
+            // Stop the service first
+            Intent serviceIntent = new Intent(this, BleMessagingService.class);
+            stopService(serviceIntent);
+
+            // Restart the app
+            Intent restartIntent = getPackageManager().getLaunchIntentForPackage(getPackageName());
+            if (restartIntent != null) {
+                restartIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(restartIntent);
+                finish();
+                System.exit(0);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error restarting app", e);
+            Toast.makeText(this, "Error restarting app", Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void setupMessageInput() {
