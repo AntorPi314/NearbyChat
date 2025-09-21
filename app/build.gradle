@@ -32,4 +32,6 @@ dependencies {
     implementation libs.recyclerview
     implementation libs.core
     implementation libs.gson
+    implementation libs.cardview
+
 }

@@ -14,6 +14,8 @@ import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.location.LocationManager;
 import android.net.Uri;
@@ -23,12 +25,23 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.provider.MediaStore;
 import android.provider.Settings;
+import android.util.Base64;
+import android.app.Dialog;
+import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
+import android.view.WindowManager;
+
+import java.io.ByteArrayOutputStream;
+
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.util.Log;
 import android.view.View;
+import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -41,6 +54,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 
+import java.io.ByteArrayOutputStream;
 import java.lang.reflect.Type;
 import java.text.SimpleDateFormat;
 import java.util.*;
@@ -74,6 +88,13 @@ public class MainActivity extends Activity {
     private static final int WARNING_THRESHOLD = 22;
     private static final int MAX_MESSAGE_LENGTH = 500;
     private boolean permissionsJustGranted = false;
+    private static final int REQUEST_STORAGE_PERMISSION = 202;
+    private static final int REQUEST_CAMERA_PERMISSION = 203;
+
+    private static final int REQUEST_GALLERY = 200;
+    private static final int REQUEST_CAMERA = 201;
+    private String currentUserId;
+    private ImageView currentProfilePic;
 
     private long userIdBits;
     private String userId;
@@ -352,8 +373,32 @@ public class MainActivity extends Activity {
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+
         if (requestCode == PERMISSION_REQUEST_CODE) {
             checkAndRequestPermissionsSequentially();
+        }
+        else if (requestCode == REQUEST_STORAGE_PERMISSION) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                // Permission granted, show picker
+                if (currentUserId != null && currentProfilePic != null) {
+                    showImagePickerDialogInternal(currentUserId, currentProfilePic);
+                }
+            } else {
+                Toast.makeText(this, "Storage permission required for gallery access", Toast.LENGTH_SHORT).show();
+                // Still allow camera option
+                if (currentUserId != null && currentProfilePic != null) {
+                    openCamera(currentUserId, currentProfilePic);
+                }
+            }
+        }
+        else if (requestCode == REQUEST_CAMERA_PERMISSION) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                if (currentUserId != null && currentProfilePic != null) {
+                    openCameraInternal(currentUserId, currentProfilePic);
+                }
+            } else {
+                Toast.makeText(this, "Camera permission required", Toast.LENGTH_SHORT).show();
+            }
         }
     }
 
@@ -502,6 +547,44 @@ public class MainActivity extends Activity {
                 Toast.makeText(this, "Battery optimization disabled", Toast.LENGTH_SHORT).show();
             }
         }
+        else if (requestCode == REQUEST_GALLERY && resultCode == RESULT_OK) {
+            try {
+                if (data != null && data.getData() != null && currentProfilePic != null && currentUserId != null) {
+                    Uri imageUri = data.getData();
+                    Bitmap bitmap = MediaStore.Images.Media.getBitmap(getContentResolver(), imageUri);
+                    Bitmap resizedBitmap = ImageConverter.resizeAndCrop(bitmap, 94, 94);
+                    Bitmap circularBitmap = ImageConverter.createCircularBitmap(resizedBitmap);
+                    currentProfilePic.setImageBitmap(circularBitmap);
+                    saveProfilePicture(currentUserId, resizedBitmap);
+                } else {
+                    Toast.makeText(this, "No image selected", Toast.LENGTH_SHORT).show();
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Error processing gallery image", e);
+                Toast.makeText(this, "Error processing image", Toast.LENGTH_SHORT).show();
+            }
+        }
+        else if (requestCode == REQUEST_CAMERA && resultCode == RESULT_OK) {
+            try {
+                if (data != null && data.getExtras() != null) {
+                    Bundle extras = data.getExtras();
+                    Bitmap bitmap = (Bitmap) extras.get("data");
+                    if (bitmap != null && currentProfilePic != null && currentUserId != null) {
+                        Bitmap resizedBitmap = ImageConverter.resizeAndCrop(bitmap, 94, 94);
+                        Bitmap circularBitmap = ImageConverter.createCircularBitmap(resizedBitmap);
+                        currentProfilePic.setImageBitmap(circularBitmap);
+                        saveProfilePicture(currentUserId, resizedBitmap);
+                    } else {
+                        Toast.makeText(this, "Error capturing image", Toast.LENGTH_SHORT).show();
+                    }
+                } else {
+                    Toast.makeText(this, "No image captured", Toast.LENGTH_SHORT).show();
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Error processing camera image", e);
+                Toast.makeText(this, "Error processing image", Toast.LENGTH_SHORT).show();
+            }
+        }
     }
 
     private void requestAllPermissions() {
@@ -547,36 +630,216 @@ public class MainActivity extends Activity {
         }
     }
 
+
     private void onMessageLongClick(MessageModel msg) {
         try {
-            AlertDialog.Builder builder = new AlertDialog.Builder(this);
-            View dialogView = getLayoutInflater().inflate(R.layout.dialog_edit_name, null);
-            builder.setView(dialogView);
-            EditText input = dialogView.findViewById(R.id.editName);
-            String existing = nameMap.get(msg.getSenderId());
-            input.setText(existing != null ? existing : "");
+            Dialog dialog = new Dialog(this);
+            dialog.setContentView(R.layout.dialog_edit_name);
 
-            builder.setTitle("Set Custom Name")
-                    .setPositiveButton("Save", (dialog, which) -> {
-                        try {
-                            String newName = input.getText().toString().trim();
-                            if (newName.isEmpty()) {
-                                nameMap.remove(msg.getSenderId());
-                            } else {
-                                nameMap.put(msg.getSenderId(), newName);
-                            }
-                            saveNameMap();
-                            chatAdapter.notifyDataSetChanged();
-                            Toast.makeText(this, "Name updated", Toast.LENGTH_SHORT).show();
-                        } catch (Exception e) {
-                            Log.e(TAG, "Error updating name", e);
-                        }
-                    })
-                    .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
-                    .create()
-                    .show();
+            // Make background transparent and set window attributes
+            if (dialog.getWindow() != null) {
+                dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+                WindowManager.LayoutParams lp = new WindowManager.LayoutParams();
+                lp.copyFrom(dialog.getWindow().getAttributes());
+                lp.width = dpToPx(this, 280); // Fixed 280dp width
+                lp.height = WindowManager.LayoutParams.WRAP_CONTENT;
+                dialog.getWindow().setAttributes(lp);
+            }
+
+            EditText editName = dialog.findViewById(R.id.editName);
+            EditText editEncryptionKey = dialog.findViewById(R.id.editEncryptionKey);
+            TextView textID = dialog.findViewById(R.id.textID);
+            ImageView profilePic = dialog.findViewById(R.id.profilePicRound);
+            Button btnSave = dialog.findViewById(R.id.btnSave);
+            Button btnCancel = dialog.findViewById(R.id.btnCancel);
+
+            // Set current values
+            textID.setText(msg.getSenderId());
+            String existingName = nameMap.get(msg.getSenderId());
+            editName.setText(existingName != null ? existingName : "");
+
+            String existingKey = getEncryptionKey(msg.getSenderId());
+            editEncryptionKey.setText(existingKey);
+
+            // Load saved profile picture
+            loadProfilePicture(msg.getSenderId(), profilePic);
+
+            // Profile pic click listener
+            profilePic.setOnClickListener(v -> showImagePickerDialog(msg.getSenderId(), profilePic));
+
+            // Button listeners
+            btnCancel.setOnClickListener(v -> dialog.dismiss());
+
+            btnSave.setOnClickListener(v -> {
+                String newName = editName.getText().toString().trim();
+                String newKey = editEncryptionKey.getText().toString().trim();
+
+                if (newName.isEmpty()) {
+                    nameMap.remove(msg.getSenderId());
+                } else {
+                    nameMap.put(msg.getSenderId(), newName);
+                }
+
+                saveEncryptionKey(msg.getSenderId(), newKey);
+                saveNameMap();
+                chatAdapter.notifyDataSetChanged();
+
+                Toast.makeText(this, "Settings saved", Toast.LENGTH_SHORT).show();
+                dialog.dismiss();
+            });
+
+            dialog.show();
+
         } catch (Exception e) {
-            Log.e(TAG, "Error showing name dialog", e);
+            Log.e(TAG, "Error showing dialog", e);
+        }
+    }
+
+    private void openCameraInternal(String userId, ImageView profilePic) {
+        try {
+            Intent intent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+            if (intent.resolveActivity(getPackageManager()) != null) {
+                currentUserId = userId;
+                currentProfilePic = profilePic;
+                startActivityForResult(intent, REQUEST_CAMERA);
+            } else {
+                Toast.makeText(this, "Camera not available", Toast.LENGTH_SHORT).show();
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error opening camera", e);
+            Toast.makeText(this, "Error opening camera", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+
+    private void showImagePickerDialog(String userId, ImageView profilePic) {
+        // Check if we need storage permission based on Android version
+        if (needsStoragePermission()) {
+            // Store for later use
+            currentUserId = userId;
+            currentProfilePic = profilePic;
+
+            // Request appropriate permission based on Android version
+            requestStoragePermission();
+            return;
+        }
+        // Permission already granted or not needed, show picker
+        showImagePickerDialogInternal(userId, profilePic);
+    }
+
+    private void requestStoragePermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            // Android 13+ - Request READ_MEDIA_IMAGES
+            ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.READ_MEDIA_IMAGES},
+                    REQUEST_STORAGE_PERMISSION);
+        } else {
+            // Android 6-12 - Request READ_EXTERNAL_STORAGE
+            ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.READ_EXTERNAL_STORAGE},
+                    REQUEST_STORAGE_PERMISSION);
+        }
+    }
+
+    private boolean needsStoragePermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            // Android 13+ - Check for READ_MEDIA_IMAGES
+            return ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES)
+                    != PackageManager.PERMISSION_GRANTED;
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            // Android 6-12 - Check for READ_EXTERNAL_STORAGE
+            return ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)
+                    != PackageManager.PERMISSION_GRANTED;
+        }
+        return false; // No permission needed for older versions
+    }
+
+    private void showImagePickerDialogInternal(String userId, ImageView profilePic) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("Select Image")
+                .setItems(new String[]{"Gallery", "Camera"}, (dialog, which) -> {
+                    if (which == 0) {
+                        openGallery(userId, profilePic);
+                    } else {
+                        openCamera(userId, profilePic);
+                    }
+                })
+                .show();
+    }
+
+    private void openGallery(String userId, ImageView profilePic) {
+        Intent intent = new Intent(Intent.ACTION_PICK);
+        intent.setType("image/*");
+        // Store userId and profilePic reference for onActivityResult
+        currentUserId = userId;
+        currentProfilePic = profilePic;
+        startActivityForResult(intent, REQUEST_GALLERY);
+    }
+
+    private void openCamera(String userId, ImageView profilePic) {
+        // Check camera permission first
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            currentUserId = userId;
+            currentProfilePic = profilePic;
+
+            ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.CAMERA},
+                    REQUEST_CAMERA_PERMISSION);
+            return;
+        }
+
+        // Permission granted, open camera
+        openCameraInternal(userId, profilePic);
+    }
+
+    // Encryption key methods
+    private String getEncryptionKey(String userId) {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        return prefs.getString("encryption_" + userId, "");
+    }
+
+    private void saveEncryptionKey(String userId, String key) {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        prefs.edit().putString("encryption_" + userId, key).apply();
+    }
+
+    // Profile picture methods
+    private void loadProfilePicture(String userId, ImageView imageView) {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        String base64Image = prefs.getString("profile_" + userId, null);
+        if (base64Image != null) {
+            try {
+                byte[] imageBytes = Base64.decode(base64Image, Base64.DEFAULT);
+                Bitmap bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.length);
+
+                // Make it circular
+                Bitmap circularBitmap = ImageConverter.createCircularBitmap(bitmap);
+                imageView.setImageBitmap(circularBitmap);
+            } catch (Exception e) {
+                Log.e(TAG, "Error loading profile picture", e);
+            }
+        }
+    }
+
+    public void loadProfilePictureForAdapter(String userId, ImageView imageView) {
+        loadProfilePicture(userId, imageView);
+    }
+
+    private void saveProfilePicture(String userId, Bitmap bitmap) {
+        try {
+            // First resize, then make circular
+            Bitmap resizedBitmap = ImageConverter.resizeAndCrop(bitmap, 94, 94);
+            Bitmap circularBitmap = ImageConverter.createCircularBitmap(resizedBitmap);
+
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            circularBitmap.compress(Bitmap.CompressFormat.PNG, 100, baos);
+            byte[] imageBytes = baos.toByteArray();
+            String base64Image = Base64.encodeToString(imageBytes, Base64.DEFAULT);
+
+            SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+            prefs.edit().putString("profile_" + userId, base64Image).apply();
+        } catch (Exception e) {
+            Log.e(TAG, "Error saving profile picture", e);
         }
     }
 
