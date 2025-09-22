@@ -73,16 +73,7 @@
 
     </LinearLayout>
 
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/chatRecyclerView"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:padding="8dp"
-        android:clipToPadding="false" />
-
     <LinearLayout
-        android:id="@+id/inputContainer"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
@@ -92,40 +83,6 @@
         android:paddingEnd="8dp"
         android:background="#FFFFFF"
         android:elevation="3dp"
-        android:gravity="center_vertical">
-
-        <EditText
-            android:id="@+id/inputMessage"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="3dp"
-            android:layout_marginBottom="3dp"
-            android:layout_weight="1"
-            android:background="@drawable/rounded_edittext"
-            android:gravity="bottom|start"
-            android:hint="Type your message..."
-            android:imeOptions="actionSend"
-            android:inputType="textMultiLine"
-            android:maxLines="4"
-            android:minLines="1"
-            android:paddingStart="18dp"
-            android:paddingTop="10dp"
-            android:paddingEnd="10dp"
-            android:paddingBottom="10dp"
-            android:textColor="#000000"
-            android:textSize="15sp" />
-
-        <Button
-            android:id="@+id/sendButton"
-            android:layout_width="wrap_content"
-            android:layout_height="40dp"
-            android:text="Send"
-            android:textColor="#FFFFFF"
-            android:layout_marginTop="3dp"
-            android:layout_marginBottom="3dp"
-            android:background="@drawable/rounded_button"
-            android:layout_marginStart="8dp" />
-
-    </LinearLayout>
+        android:gravity="center_vertical"/>
 
 </LinearLayout>

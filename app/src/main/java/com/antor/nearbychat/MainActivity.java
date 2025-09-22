@@ -48,6 +48,7 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import androidx.core.view.WindowCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -131,6 +132,7 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         mainHandler = new Handler(Looper.getMainLooper());
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
         setupUI();
         initializeData();
         setupReceivers();
@@ -139,6 +141,8 @@ public class MainActivity extends Activity {
     }
 
     private void setupUI() {
+
+
         final View rootView = findViewById(android.R.id.content);
         rootView.getViewTreeObserver().addOnGlobalLayoutListener(() -> {
             int heightDiff = rootView.getRootView().getHeight() - rootView.getHeight();
@@ -160,6 +164,16 @@ public class MainActivity extends Activity {
         appSubtitle.setPaintFlags(appSubtitle.getPaintFlags() | Paint.UNDERLINE_TEXT_FLAG);
         appSubtitle.setOnClickListener(v -> {
             Intent settingsIntent = new Intent(this, GithubLinkActivity.class);
+            startActivity(settingsIntent);
+        });
+        TextView appTitle = findViewById(R.id.appTitle);
+        appTitle.setOnClickListener(v -> {
+            Intent settingsIntent = new Intent(this, AboutActivity.class);
+            startActivity(settingsIntent);
+        });
+        ImageView save_palestine = findViewById(R.id.save_palestine);
+        save_palestine.setOnClickListener(v -> {
+            Intent settingsIntent = new Intent(this, NoteActivity.class);
             startActivity(settingsIntent);
         });
     }

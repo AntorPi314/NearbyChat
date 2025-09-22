@@ -51,6 +51,9 @@
         android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar"
         tools:targetApi="35">
         <activity
+            android:name=".ZzzzzzActivity"
+            android:exported="false" />
+        <activity
             android:name=".GithubLinkActivity"
             android:exported="false" />
         <activity

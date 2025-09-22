@@ -50,6 +50,12 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
         // Load profile picture if exists
         if (holder.profilePic != null) {
             main.loadProfilePictureForAdapter(msg.getSenderId(), holder.profilePic);
+
+            // Add click listener to profile picture
+            holder.profilePic.setOnClickListener(v -> {
+                // Call the same method that's used for long click on messages
+                longClickListener.onClick(msg);
+            });
         }
 
         holder.itemView.setOnClickListener(v -> clickListener.onClick(msg));
