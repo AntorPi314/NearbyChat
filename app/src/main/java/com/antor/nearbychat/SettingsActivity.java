@@ -13,6 +13,9 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.Toast;
+
+import androidx.core.view.WindowCompat;
+
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -29,6 +32,7 @@ public class SettingsActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
         setContentView(R.layout.activity_settings);
         prefs = getSharedPreferences("NearbyChatSettings", MODE_PRIVATE);
         setupUI();

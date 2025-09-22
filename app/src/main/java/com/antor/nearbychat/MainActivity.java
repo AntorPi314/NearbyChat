@@ -48,7 +48,10 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -70,6 +73,7 @@ public class MainActivity extends Activity {
     private EditText inputMessage;
     private RecyclerView recyclerView;
     private ChatAdapter chatAdapter;
+    private TextView textStatus;
     private List<MessageModel> messageList = new ArrayList<>();
 
     // Service Components
@@ -130,9 +134,9 @@ public class MainActivity extends Activity {
             });
         });
         super.onCreate(savedInstanceState);
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
         setContentView(R.layout.activity_main);
         mainHandler = new Handler(Looper.getMainLooper());
-        WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
         setupUI();
         initializeData();
         setupReceivers();
@@ -152,6 +156,7 @@ public class MainActivity extends Activity {
             }
         });
         inputMessage = findViewById(R.id.inputMessage);
+        textStatus = findViewById(R.id.textStatus);
         setupMessageInput();
         recyclerView = findViewById(R.id.chatRecyclerView);
         chatAdapter = new ChatAdapter(messageList, this, this::onMessageClick, this::onMessageLongClick);
@@ -336,6 +341,7 @@ public class MainActivity extends Activity {
                                 messageList.add(message);
                                 chatAdapter.notifyItemInserted(messageList.size() - 1);
                                 recyclerView.scrollToPosition(messageList.size() - 1);
+                                updateChatUI();
                             }
                         });
                     }
@@ -361,6 +367,17 @@ public class MainActivity extends Activity {
         } else {
             registerReceiver(messageReceiver, messageFilter);
             registerReceiver(serviceStateReceiver, serviceFilter);
+        }
+    }
+
+    private void updateChatUI() {
+        if (messageList.isEmpty()) {
+            textStatus.setText("No messages yet!\nStart the conversation");
+            textStatus.setVisibility(View.VISIBLE);
+            recyclerView.setVisibility(View.GONE);
+        } else {
+            textStatus.setVisibility(View.GONE);
+            recyclerView.setVisibility(View.VISIBLE);
         }
     }
 
@@ -542,7 +559,7 @@ public class MainActivity extends Activity {
     private void loadMessagesFromService() {
         if (isServiceBound && bleService != null) {
             List<MessageModel> serviceMessages = bleService.getAllMessages();
-            if (serviceMessages != null && !serviceMessages.isEmpty()) {
+            if (serviceMessages != null) { // <-- এখানে একটি null চেক যোগ করা ভালো
                 messageList.clear();
                 messageList.addAll(serviceMessages);
                 chatAdapter.notifyDataSetChanged();
@@ -550,6 +567,7 @@ public class MainActivity extends Activity {
                     recyclerView.scrollToPosition(messageList.size() - 1);
                 }
             }
+            updateChatUI(); // <-- এই নতুন মেথডটি কল করুন
         }
     }
 
@@ -919,13 +937,14 @@ public class MainActivity extends Activity {
             try {
                 byte[] imageBytes = Base64.decode(base64Image, Base64.DEFAULT);
                 Bitmap bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.length);
-
-                // Make it circular
                 Bitmap circularBitmap = ImageConverter.createCircularBitmap(bitmap);
                 imageView.setImageBitmap(circularBitmap);
             } catch (Exception e) {
-                Log.e(TAG, "Error loading profile picture", e);
+                Log.e(TAG, "Error loading profile picture for " + userId, e);
+                imageView.setImageResource(R.drawable.profile_pic_round_vector);
             }
+        } else {
+            imageView.setImageResource(R.drawable.profile_pic_round_vector);
         }
     }
 

@@ -9,14 +9,6 @@ import android.graphics.Rect;
 import android.graphics.RectF;
 
 public class ImageConverter {
-
-    /**
-     * Resize and crop image to specified dimensions with center crop
-     * @param bitmap Original bitmap
-     * @param targetWidth Target width in pixels
-     * @param targetHeight Target height in pixels
-     * @return Resized and cropped bitmap
-     */
     public static Bitmap resizeAndCrop(Bitmap bitmap, int targetWidth, int targetHeight) {
         if (bitmap == null) return null;
 
@@ -24,47 +16,35 @@ public class ImageConverter {
             int originalWidth = bitmap.getWidth();
             int originalHeight = bitmap.getHeight();
 
-            // Calculate scale to fit the target size (center crop)
             float scaleX = (float) targetWidth / originalWidth;
             float scaleY = (float) targetHeight / originalHeight;
-            float scale = Math.max(scaleX, scaleY); // Use max for center crop
+            float scale = Math.max(scaleX, scaleY);
 
-            // Calculate new dimensions
             int scaledWidth = Math.round(originalWidth * scale);
             int scaledHeight = Math.round(originalHeight * scale);
 
-            // Scale the bitmap
             Bitmap scaledBitmap = Bitmap.createScaledBitmap(bitmap, scaledWidth, scaledHeight, true);
 
-            // Calculate crop coordinates (center crop)
             int cropX = (scaledWidth - targetWidth) / 2;
             int cropY = (scaledHeight - targetHeight) / 2;
 
-            // Crop the bitmap
             Bitmap croppedBitmap = Bitmap.createBitmap(scaledBitmap,
                     Math.max(0, cropX),
                     Math.max(0, cropY),
                     Math.min(targetWidth, scaledWidth),
                     Math.min(targetHeight, scaledHeight));
 
-            // Clean up
             if (scaledBitmap != bitmap && scaledBitmap != croppedBitmap) {
                 scaledBitmap.recycle();
             }
-
             return croppedBitmap;
 
         } catch (Exception e) {
             e.printStackTrace();
-            return bitmap; // Return original if error
+            return bitmap;
         }
     }
 
-    /**
-     * Create circular bitmap
-     * @param bitmap Input bitmap
-     * @return Circular bitmap
-     */
     public static Bitmap createCircularBitmap(Bitmap bitmap) {
         if (bitmap == null) return null;
 
@@ -92,12 +72,6 @@ public class ImageConverter {
         }
     }
 
-    /**
-     * Resize bitmap maintaining aspect ratio
-     * @param bitmap Original bitmap
-     * @param maxSize Maximum size for width or height
-     * @return Resized bitmap
-     */
     public static Bitmap resizeWithAspectRatio(Bitmap bitmap, int maxSize) {
         if (bitmap == null) return null;
 
