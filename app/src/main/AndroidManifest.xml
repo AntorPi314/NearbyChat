@@ -54,6 +54,9 @@
             android:name=".GithubLinkActivity"
             android:exported="false" />
         <activity
+            android:name=".NoteActivity"
+            android:exported="false" />
+        <activity
             android:name=".AboutActivity"
             android:exported="false" />
         <activity

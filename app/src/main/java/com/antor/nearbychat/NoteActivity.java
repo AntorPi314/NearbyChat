@@ -3,10 +3,7 @@ package com.antor.nearbychat;
 import android.app.Activity;
 import android.os.Bundle;
 
-import androidx.core.graphics.Insets;
-import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
-import androidx.core.view.WindowInsetsCompat;
 
 public class NoteActivity extends Activity {
 

@@ -16,30 +16,40 @@
         android:gravity="center_horizontal"
         android:padding="20dp">
 
-        <!-- Profile Image -->
+        <TextView
+            android:id="@+id/dia_title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="10dp"
+            android:text="Add New Friend"
+            android:textColor="@android:color/black"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
         <ImageView
             android:id="@+id/profilePicRound"
             android:layout_width="70dp"
             android:layout_height="70dp"
             android:layout_marginTop="8dp"
-            android:layout_marginBottom="12dp"
+            android:layout_marginBottom="16dp"
             android:contentDescription="Profile Picture"
             android:src="@drawable/profile_pic_round_vector"
             android:background="@drawable/circle_bg"
             android:padding="4dp" />
 
-        <!-- Title -->
-        <TextView
-            android:id="@+id/textID"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            android:text="YOUR_ID"
+        <EditText
+            android:id="@+id/editID"
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:hint="Enter ID"
+            android:background="@drawable/edittext_bg"
+            android:inputType="textPersonName"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:layout_marginBottom="10dp"
             android:textColor="@android:color/black"
-            android:textSize="16sp"
-            android:textStyle="bold" />
+            android:textSize="14sp" />
 
-        <!-- Name -->
         <EditText
             android:id="@+id/editName"
             android:layout_width="match_parent"
@@ -65,7 +75,6 @@
             android:textColor="@android:color/black"
             android:textSize="14sp" />
 
-        <!-- Action Buttons -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -74,8 +83,18 @@
             android:gravity="end">
 
             <Button
+                android:id="@+id/btnDelete"
+                android:layout_width="80dp"
+                android:layout_height="40dp"
+                android:text="Delete"
+                android:textSize="13sp"
+                android:layout_gravity="center"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp" />
+
+            <Button
                 android:id="@+id/btnCancel"
-                android:layout_width="wrap_content"
+                android:layout_width="80dp"
                 android:layout_height="40dp"
                 android:text="Cancel"
                 android:textSize="13sp"
@@ -84,11 +103,11 @@
                 android:paddingEnd="16dp" />
 
             <Button
-                android:id="@+id/btnSave"
-                android:layout_width="wrap_content"
+                android:id="@+id/btnAdd"
+                android:layout_width="80dp"
                 android:layout_height="40dp"
                 android:layout_marginStart="8dp"
-                android:text="Save"
+                android:text="Add"
                 android:textSize="13sp"
                 android:layout_gravity="center"
                 android:paddingStart="20dp"

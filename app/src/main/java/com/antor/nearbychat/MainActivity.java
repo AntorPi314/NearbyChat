@@ -165,21 +165,22 @@ public class MainActivity extends Activity {
 
         findViewById(R.id.sendButton).setOnClickListener(this::onSendButtonClick);
         setupAppIconClick();
+
         TextView appSubtitle = findViewById(R.id.appSubtitle);
         appSubtitle.setPaintFlags(appSubtitle.getPaintFlags() | Paint.UNDERLINE_TEXT_FLAG);
         appSubtitle.setOnClickListener(v -> {
-            Intent settingsIntent = new Intent(this, GithubLinkActivity.class);
-            startActivity(settingsIntent);
+            Intent appSubtitleIntent = new Intent(this, GithubLinkActivity.class);
+            startActivity(appSubtitleIntent);
         });
         TextView appTitle = findViewById(R.id.appTitle);
         appTitle.setOnClickListener(v -> {
-            Intent settingsIntent = new Intent(this, AboutActivity.class);
-            startActivity(settingsIntent);
+            Intent appTitleIntent = new Intent(this, AboutActivity.class);
+            startActivity(appTitleIntent);
         });
         ImageView save_palestine = findViewById(R.id.save_palestine);
         save_palestine.setOnClickListener(v -> {
-            Intent settingsIntent = new Intent(this, NoteActivity.class);
-            startActivity(settingsIntent);
+            Intent noteIntent = new Intent(this, NoteActivity.class);
+            startActivity(noteIntent);
         });
     }
 
