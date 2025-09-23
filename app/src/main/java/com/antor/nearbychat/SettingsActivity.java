@@ -20,7 +20,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
-public class SettingsActivity extends Activity {
+public class SettingsActivity extends BaseActivity {
 
     private static final String TAG = "SettingsActivity";
     private static final int MIN_MS_VALUE = 100;
@@ -32,7 +32,7 @@ public class SettingsActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
+        // WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
         setContentView(R.layout.activity_settings);
         prefs = getSharedPreferences("NearbyChatSettings", MODE_PRIVATE);
         setupUI();
@@ -45,7 +45,7 @@ public class SettingsActivity extends Activity {
             int heightDiff = rootView.getRootView().getHeight() - rootView.getHeight();
             boolean keyboardVisible = heightDiff > dpToPx(200, getResources().getDisplayMetrics());
             if (!keyboardVisible) {
-                UiUtilsBlue.setLightSystemBars(this);
+                setTheme(R.style.AppThemeSettings);
             }
         });
         settingInputs.put("MAX_PAYLOAD_SIZE", findViewById(R.id.editMaxPayloadSize));

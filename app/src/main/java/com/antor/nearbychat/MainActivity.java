@@ -31,6 +31,7 @@ import android.provider.Settings;
 import android.util.Base64;
 import android.app.Dialog;
 import android.graphics.drawable.ColorDrawable;
+import android.view.Gravity;
 import android.view.WindowManager;
 
 import java.io.ByteArrayOutputStream;
@@ -62,7 +63,7 @@ import java.lang.reflect.Type;
 import java.text.SimpleDateFormat;
 import java.util.*;
 
-public class MainActivity extends Activity {
+public class MainActivity extends BaseActivity {
 
     private static final int PERMISSION_REQUEST_CODE = 100;
     private static final int REQUEST_ENABLE_LOCATION = 102;
@@ -134,7 +135,6 @@ public class MainActivity extends Activity {
             });
         });
         super.onCreate(savedInstanceState);
-        WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
         setContentView(R.layout.activity_main);
         mainHandler = new Handler(Looper.getMainLooper());
         setupUI();
@@ -145,8 +145,6 @@ public class MainActivity extends Activity {
     }
 
     private void setupUI() {
-
-
         final View rootView = findViewById(android.R.id.content);
         rootView.getViewTreeObserver().addOnGlobalLayoutListener(() -> {
             int heightDiff = rootView.getRootView().getHeight() - rootView.getHeight();
@@ -201,6 +199,7 @@ public class MainActivity extends Activity {
                 lp.copyFrom(dialog.getWindow().getAttributes());
                 lp.width = dpToPx(this, 280); // Fixed 280dp width
                 lp.height = WindowManager.LayoutParams.WRAP_CONTENT;
+                lp.gravity = Gravity.CENTER;
                 dialog.getWindow().setAttributes(lp);
             }
 
@@ -770,6 +769,7 @@ public class MainActivity extends Activity {
                 lp.copyFrom(dialog.getWindow().getAttributes());
                 lp.width = dpToPx(this, 280); // Fixed 280dp width
                 lp.height = WindowManager.LayoutParams.WRAP_CONTENT;
+                lp.gravity = Gravity.CENTER;
                 dialog.getWindow().setAttributes(lp);
             }
 

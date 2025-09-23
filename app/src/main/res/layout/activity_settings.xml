@@ -1,11 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#FFFFFF">
-
-    <!-- Top Bar with gradient background -->
+    android:background="#FFFFFF"
+    android:fitsSystemWindows="true"
+    tools:context=".SettingsActivity">
 
     <LinearLayout
         android:id="@+id/topBarSettings"
@@ -69,7 +71,6 @@
             android:background="#FFFFFF"
             android:padding="12dp">
 
-            <!-- Service UUID Section with 5 separate inputs -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -124,7 +125,6 @@
                     android:textColor="#718096"
                     android:layout_marginBottom="12dp" />
 
-                <!-- UUID Input Container with 5 separate fields -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -132,7 +132,6 @@
                     android:orientation="vertical"
                     android:padding="12dp">
 
-                    <!-- First row: First 4 UUID segments -->
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -233,7 +232,6 @@
 
                     </LinearLayout>
 
-                    <!-- Second row: Last UUID segment and generate button -->
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -338,7 +336,6 @@
                         android:textStyle="bold" />
                 </LinearLayout>
 
-                <!-- Payload Settings Group -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -380,7 +377,6 @@
                     </LinearLayout>
                 </LinearLayout>
 
-                <!-- Timing Settings Group -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -479,7 +475,6 @@
                     </LinearLayout>
                 </LinearLayout>
 
-                <!-- Memory Settings Group -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"

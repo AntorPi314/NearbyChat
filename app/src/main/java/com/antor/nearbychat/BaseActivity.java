@@ -2,16 +2,13 @@ package com.antor.nearbychat;
 
 import android.app.Activity;
 import android.os.Bundle;
-
+import androidx.annotation.Nullable;
 import androidx.core.view.WindowCompat;
 
-public class AboutActivity extends Activity {
-
+public abstract class BaseActivity extends Activity {
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
+    protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
-        setContentView(R.layout.activity_about);
-        UiUtils.setLightSystemBars(this);
     }
 }
