@@ -164,27 +164,27 @@ public class MainActivity extends BaseActivity {
         findViewById(R.id.sendButton).setOnClickListener(this::onSendButtonClick);
         setupAppIconClick();
 
-        TextView appSubtitle = findViewById(R.id.appSubtitle);
-        appSubtitle.setPaintFlags(appSubtitle.getPaintFlags() | Paint.UNDERLINE_TEXT_FLAG);
-        appSubtitle.setOnClickListener(v -> {
-            Intent appSubtitleIntent = new Intent(this, GithubLinkActivity.class);
-            startActivity(appSubtitleIntent);
+//        TextView appSubtitle = findViewById(R.id.appSubtitle);
+//        appSubtitle.setPaintFlags(appSubtitle.getPaintFlags() | Paint.UNDERLINE_TEXT_FLAG);
+//        appSubtitle.setOnClickListener(v -> {
+//            Intent appSubtitleIntent = new Intent(this, GithubLinkActivity.class);
+//            startActivity(appSubtitleIntent);
+//        });
+        ImageView appIcon = findViewById(R.id.appIcon);
+        appIcon.setOnClickListener(v -> {
+            Intent appIconIntent = new Intent(this, GroupsActivity.class);
+            startActivity(appIconIntent);
         });
         TextView appTitle = findViewById(R.id.appTitle);
         appTitle.setOnClickListener(v -> {
-            Intent appTitleIntent = new Intent(this, AboutActivity.class);
+            Intent appTitleIntent = new Intent(this, GroupsActivity.class);
             startActivity(appTitleIntent);
-        });
-        ImageView save_palestine = findViewById(R.id.save_palestine);
-        save_palestine.setOnClickListener(v -> {
-            Intent noteIntent = new Intent(this, NoteActivity.class);
-            startActivity(noteIntent);
         });
     }
 
     private void setupAppIconClick() {
-        ImageView appIcon = findViewById(R.id.appIcon);
-        appIcon.setOnClickListener(v -> showAccountDialog());
+        ImageView threeDotIcon = findViewById(R.id.threeDotIcon);
+        threeDotIcon.setOnClickListener(v -> showAccountDialog());
     }
 
     private void showAccountDialog() {
