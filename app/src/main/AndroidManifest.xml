@@ -65,6 +65,7 @@
         <activity
             android:name=".GroupsActivity"
             android:exported="false"
+            android:theme="@style/ActivityDialogTheme"
             android:windowSoftInputMode="adjustResize"/>
         <activity
             android:name=".FriendsActivity"

@@ -1032,6 +1032,7 @@ public class MainActivity extends BaseActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        Toast.makeText(this, "OnRes", Toast.LENGTH_SHORT).show();
         if (permissionsJustGranted) {
             permissionsJustGranted = false;
             if (bluetoothAdapter != null && bluetoothAdapter.isEnabled()) {
