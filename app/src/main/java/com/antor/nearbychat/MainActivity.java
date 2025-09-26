@@ -90,6 +90,20 @@ public class MainActivity extends BaseActivity {
     private static final String KEY_BATTERY_OPT_REQUESTED = "batteryOptRequested";
     private static final char[] ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ123456".toCharArray();
 
+    private static final int[] BACKGROUND_COLORS = {
+            0xFF1ABC9C, 0xFF2ECC71, 0xFF3498DB, 0xFF9B59B6, 0xFFE74C3C, 0xFF2C3E50, 0xFF16A085, 0xFF27AE60,
+            0xFF2980B9, 0xFF8E44AD, 0xFFC0392B, 0xFFD35400, 0xFF34495E, 0xFF7F8C8D, 0xFFE67E22, 0xFF6C7B7F,
+            0xFF8B4513, 0xFF1F2937, 0xFF374151, 0xFF4B5563, 0xFF6B7280, 0xFF9CA3AF, 0xFF6B7280, 0xFF9CA3AF,
+            0xFFEF4444, 0xFFF97316, 0xFF228B22, 0xFF22C55E, 0xFF3B82F6, 0xFF8B5CF6, 0xFFEC4899, 0xFF06B6D4
+    };
+
+    private static final int[] TEXT_COLORS = {
+            0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF,
+            0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF,
+            0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF,
+            0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF
+    };
+
     private static final int WARNING_THRESHOLD = 22;
     private static final int MAX_MESSAGE_LENGTH = 500;
     private boolean permissionsJustGranted = false;
@@ -255,6 +269,74 @@ public class MainActivity extends BaseActivity {
             Log.e(TAG, "Error showing account dialog", e);
             Toast.makeText(this, "Error opening account menu", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    private Bitmap generateProfilePic(String userId) {
+        try {
+            if (userId == null || userId.length() < 8) {
+                return createDefaultProfilePic();
+            }
+
+            String text = userId.substring(6, 8);
+            char colorChar = userId.charAt(5);
+            int colorIndex = getAlphabetIndex(colorChar);
+            int bgColor = BACKGROUND_COLORS[colorIndex];
+            int textColor = TEXT_COLORS[colorIndex];
+            return createTextBitmap(text, bgColor, textColor);
+        } catch (Exception e) {
+            Log.e(TAG, "Error generating profile pic", e);
+            return createDefaultProfilePic();
+        }
+    }
+
+    private int getAlphabetIndex(char c) {
+        for (int i = 0; i < ALPHABET.length; i++) {
+            if (ALPHABET[i] == c) {
+                return i;
+            }
+        }
+        return 0;
+    }
+
+    private Bitmap createTextBitmap(String text, int bgColor, int textColor) {
+        int size = 94;
+        Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+        android.graphics.Canvas canvas = new android.graphics.Canvas(bitmap);
+
+        Paint bgPaint = new Paint();
+        bgPaint.setAntiAlias(true);
+        bgPaint.setColor(bgColor);
+        canvas.drawCircle(size / 2f, size / 2f, size / 2f, bgPaint);
+
+        Paint textPaint = new Paint();
+        textPaint.setAntiAlias(true);
+        textPaint.setColor(textColor);
+        textPaint.setTextSize(size * 0.45f); // 35% of size
+        textPaint.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        textPaint.setTextAlign(Paint.Align.CENTER);
+
+        Paint.FontMetrics fontMetrics = textPaint.getFontMetrics();
+        float textHeight = fontMetrics.bottom - fontMetrics.top;
+        float textY = (size + textHeight) / 2f - fontMetrics.bottom;
+        canvas.drawText(text, size / 2f, textY, textPaint);
+        return bitmap;
+    }
+
+    private Bitmap createDefaultProfilePic() {
+        return createTextBitmap("??", 0xFF95A5A6, 0xFFFFFFFF);
+    }
+
+    private boolean hasCustomProfilePicture(String userId) {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        String base64Image = prefs.getString("profile_" + userId, null);
+        return base64Image != null;
+    }
+
+    private void resetToGeneratedProfilePic(String userId, ImageView imageView) {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        prefs.edit().remove("profile_" + userId).apply();
+        Bitmap generatedBitmap = generateProfilePic(userId);
+        imageView.setImageBitmap(generatedBitmap);
     }
 
     private void restartApp() {
@@ -759,66 +841,132 @@ public class MainActivity extends BaseActivity {
 
     private void onMessageLongClick(MessageModel msg) {
         try {
-            Dialog dialog = new Dialog(this);
-            dialog.setContentView(R.layout.dialog_edit_name);
+            String[] options;
 
-            // Make background transparent and set window attributes
-            if (dialog.getWindow() != null) {
-                dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-                WindowManager.LayoutParams lp = new WindowManager.LayoutParams();
-                lp.copyFrom(dialog.getWindow().getAttributes());
-                lp.width = dpToPx(this, 280); // Fixed 280dp width
-                lp.height = WindowManager.LayoutParams.WRAP_CONTENT;
-                lp.gravity = Gravity.CENTER;
-                dialog.getWindow().setAttributes(lp);
+            // Check if it's my message or others'
+            if (msg.isSelf()) {
+                // My message - show Copy and Resend
+                options = new String[]{"Copy", "Resend"};
+            } else {
+                // Others' message - show Copy and Forward
+                options = new String[]{"Copy", "Forward"};
             }
 
-            EditText editName = dialog.findViewById(R.id.editName);
-            EditText editEncryptionKey = dialog.findViewById(R.id.editEncryptionKey);
-            TextView textID = dialog.findViewById(R.id.textID);
-            ImageView profilePic = dialog.findViewById(R.id.profilePicRound);
-            Button btnSave = dialog.findViewById(R.id.btnSave);
-            Button btnCancel = dialog.findViewById(R.id.btnCancel);
-
-            // Set current values
-            textID.setText(msg.getSenderId());
-            String existingName = nameMap.get(msg.getSenderId());
-            editName.setText(existingName != null ? existingName : "");
-
-            String existingKey = getEncryptionKey(msg.getSenderId());
-            editEncryptionKey.setText(existingKey);
-
-            // Load saved profile picture
-            loadProfilePicture(msg.getSenderId(), profilePic);
-
-            // Profile pic click listener
-            profilePic.setOnClickListener(v -> showImagePickerDialog(msg.getSenderId(), profilePic));
-
-            // Button listeners
-            btnCancel.setOnClickListener(v -> dialog.dismiss());
-
-            btnSave.setOnClickListener(v -> {
-                String newName = editName.getText().toString().trim();
-                String newKey = editEncryptionKey.getText().toString().trim();
-
-                if (newName.isEmpty()) {
-                    nameMap.remove(msg.getSenderId());
-                } else {
-                    nameMap.put(msg.getSenderId(), newName);
-                }
-
-                saveEncryptionKey(msg.getSenderId(), newKey);
-                saveNameMap();
-                chatAdapter.notifyDataSetChanged();
-
-                Toast.makeText(this, "Settings saved", Toast.LENGTH_SHORT).show();
-                dialog.dismiss();
-            });
-
-            dialog.show();
+            AlertDialog.Builder builder = new AlertDialog.Builder(this);
+            builder.setTitle("Message Options")
+                    .setItems(options, (dialog, which) -> {
+                        if (which == 0) {
+                            // Copy option
+                            copyMessageToClipboard(msg);
+                        } else if (which == 1) {
+                            if (msg.isSelf()) {
+                                // Resend my message
+                                resendMyMessage(msg);
+                            } else {
+                                // Forward others' message
+                                forwardMessage(msg);
+                            }
+                        }
+                    })
+                    .show();
 
         } catch (Exception e) {
-            Log.e(TAG, "Error showing dialog", e);
+            Log.e(TAG, "Error showing message options", e);
+        }
+    }
+
+    private void resendMyMessage(MessageModel msg) {
+        try {
+            if (!validateBluetoothAndService()) {
+                return;
+            }
+
+            Toast.makeText(this, "Resending...", Toast.LENGTH_SHORT).show();
+
+            if (isServiceBound && bleService != null) {
+                // Use the new method that doesn't save to chat
+                bleService.resendMessageWithoutSaving(msg.getMessage());
+            } else {
+                Intent serviceIntent = new Intent(this, BleMessagingService.class);
+                serviceIntent.putExtra("message_to_resend", msg.getMessage()); // Different key
+                serviceIntent.putExtra("is_resend", true); // Flag to indicate resend
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(serviceIntent);
+                } else {
+                    startService(serviceIntent);
+                }
+            }
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error resending message", e);
+        }
+    }
+
+    private void forwardMessage(MessageModel msg) {
+        try {
+            if (!validateBluetoothAndService()) {
+                return;
+            }
+
+            Toast.makeText(this, "Forwarding...", Toast.LENGTH_SHORT).show();
+
+            // Need to modify BleMessagingService to send with original sender ID
+            if (isServiceBound && bleService != null) {
+                bleService.forwardMessageWithOriginalSender(msg.getMessage(), msg.getSenderId());
+            } else {
+                Intent serviceIntent = new Intent(this, BleMessagingService.class);
+                serviceIntent.putExtra("message_to_send", msg.getMessage());
+                serviceIntent.putExtra("original_sender_id", msg.getSenderId());
+                serviceIntent.putExtra("is_forward", true);
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(serviceIntent);
+                } else {
+                    startService(serviceIntent);
+                }
+            }
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error forwarding message", e);
+        }
+    }
+
+    private void copyMessageToClipboard(MessageModel msg) {
+        try {
+            ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            if (clipboard != null) {
+                clipboard.setPrimaryClip(ClipData.newPlainText("Copied Message", msg.getMessage()));
+                Toast.makeText(this, "Copied", Toast.LENGTH_SHORT).show();
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error copying message", e);
+        }
+    }
+
+    private void resendMessage(MessageModel msg) {
+        try {
+            if (!validateBluetoothAndService()) {
+                return;
+            }
+            if (isServiceBound && bleService != null) {
+                bleService.sendMessageInChunks(msg.getMessage());
+                Toast.makeText(this, "Message resent", Toast.LENGTH_SHORT).show();
+            } else {
+                Intent serviceIntent = new Intent(this, BleMessagingService.class);
+                serviceIntent.putExtra("message_to_send", msg.getMessage());
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(serviceIntent);
+                } else {
+                    startService(serviceIntent);
+                }
+                Toast.makeText(this, "Message resent", Toast.LENGTH_SHORT).show();
+            }
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error resending message", e);
+            Toast.makeText(this, "Error resending message", Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -882,13 +1030,22 @@ public class MainActivity extends BaseActivity {
     }
 
     private void showImagePickerDialogInternal(String userId, ImageView profilePic) {
+        String[] options;
+        if (hasCustomProfilePicture(userId)) {
+            options = new String[]{"Gallery", "Camera", "Reset to Default"};
+        } else {
+            options = new String[]{"Gallery", "Camera"};
+        }
+
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle("Select Image")
-                .setItems(new String[]{"Gallery", "Camera"}, (dialog, which) -> {
+                .setItems(options, (dialog, which) -> {
                     if (which == 0) {
                         openGallery(userId, profilePic);
-                    } else {
+                    } else if (which == 1) {
                         openCamera(userId, profilePic);
+                    } else if (which == 2) {
+                        resetToGeneratedProfilePic(userId, profilePic);
                     }
                 })
                 .show();
@@ -897,7 +1054,6 @@ public class MainActivity extends BaseActivity {
     private void openGallery(String userId, ImageView profilePic) {
         Intent intent = new Intent(Intent.ACTION_PICK);
         intent.setType("image/*");
-        // Store userId and profilePic reference for onActivityResult
         currentUserId = userId;
         currentProfilePic = profilePic;
         startActivityForResult(intent, REQUEST_GALLERY);
@@ -934,18 +1090,24 @@ public class MainActivity extends BaseActivity {
     private void loadProfilePicture(String userId, ImageView imageView) {
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         String base64Image = prefs.getString("profile_" + userId, null);
+
         if (base64Image != null) {
             try {
+                // Load custom saved image
                 byte[] imageBytes = Base64.decode(base64Image, Base64.DEFAULT);
                 Bitmap bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.length);
                 Bitmap circularBitmap = ImageConverter.createCircularBitmap(bitmap);
                 imageView.setImageBitmap(circularBitmap);
             } catch (Exception e) {
-                Log.e(TAG, "Error loading profile picture for " + userId, e);
-                imageView.setImageResource(R.drawable.profile_pic_round_vector);
+                Log.e(TAG, "Error loading saved profile picture for " + userId, e);
+                // Fall back to generated profile pic
+                Bitmap generatedBitmap = generateProfilePic(userId);
+                imageView.setImageBitmap(generatedBitmap);
             }
         } else {
-            imageView.setImageResource(R.drawable.profile_pic_round_vector);
+            // No saved image, generate profile pic
+            Bitmap generatedBitmap = generateProfilePic(userId);
+            imageView.setImageBitmap(generatedBitmap);
         }
     }
 

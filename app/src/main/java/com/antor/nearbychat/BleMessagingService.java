@@ -272,10 +272,17 @@ public class BleMessagingService extends Service {
         }
 
         // Handle message sending if intent contains data
-        if (intent != null && intent.hasExtra("message_to_send")) {
-            String message = intent.getStringExtra("message_to_send");
-            if (message != null) {
-                sendMessageInChunks(message);
+        if (intent != null) {
+            if (intent.hasExtra("message_to_send")) {
+                String message = intent.getStringExtra("message_to_send");
+                if (message != null) {
+                    sendMessageInChunks(message);
+                }
+            } else if (intent.hasExtra("message_to_resend")) {
+                String message = intent.getStringExtra("message_to_resend");
+                if (message != null) {
+                    resendMessageWithoutSaving(message);
+                }
             }
         }
 
@@ -331,6 +338,114 @@ public class BleMessagingService extends Service {
         NotificationManager manager = getSystemService(NotificationManager.class);
         if (manager != null) {
             manager.createNotificationChannel(channel);
+        }
+    }
+
+    public void forwardMessageWithOriginalSender(String message, String originalSenderId) {
+        try {
+            String messageId = generateMessageId();
+            byte[] messageBytes = message.getBytes(StandardCharsets.UTF_8);
+            List<byte[]> safeChunks = createSafeUtf8Chunks(messageBytes, MAX_CHUNK_DATA_SIZE);
+            int totalChunks = safeChunks.size();
+
+            // Convert originalSenderId back to bits for transmission
+            long originalSenderBits = getUserIdBits(originalSenderId);
+
+            Log.d(TAG, "Forwarding message from " + originalSenderId + " in " + totalChunks + " chunks");
+
+            for (int i = 0; i < totalChunks; i++) {
+                final int chunkIndex = i;
+                mainHandler.postDelayed(() -> {
+                    try {
+                        byte[] chunkData = safeChunks.get(chunkIndex);
+                        byte[] chunkPayload = createChunkPayloadWithSender(messageId, chunkIndex, totalChunks, chunkData, originalSenderBits);
+                        updateAdvertisingData(chunkPayload);
+                    } catch (Exception e) {
+                        Log.e(TAG, "Error forwarding chunk", e);
+                    }
+                }, i * DELAY_BETWEEN_CHUNKS_MS);
+            }
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error forwarding message", e);
+        }
+    }
+
+    private byte[] createChunkPayloadWithSender(String messageId, int chunkIndex, int totalChunks, byte[] chunkData, long senderBits) {
+        try {
+            byte[] userIdBytes = toAsciiBytes(senderBits); // Use original sender's bits
+            byte[] messageIdBytes = messageId.getBytes(StandardCharsets.UTF_8);
+
+            if (messageIdBytes.length > 4) {
+                messageIdBytes = Arrays.copyOf(messageIdBytes, 4);
+            } else if (messageIdBytes.length < 4) {
+                byte[] temp = new byte[4];
+                System.arraycopy(messageIdBytes, 0, temp, 0, messageIdBytes.length);
+                messageIdBytes = temp;
+            }
+
+            byte[] payload = new byte[USER_ID_LENGTH + 4 + 2 + chunkData.length];
+
+            System.arraycopy(userIdBytes, 0, payload, 0, USER_ID_LENGTH);
+            System.arraycopy(messageIdBytes, 0, payload, USER_ID_LENGTH, 4);
+            payload[USER_ID_LENGTH + 4] = (byte) chunkIndex;
+            payload[USER_ID_LENGTH + 5] = (byte) totalChunks;
+            System.arraycopy(chunkData, 0, payload, USER_ID_LENGTH + 6, chunkData.length);
+
+            return payload;
+        } catch (Exception e) {
+            Log.e(TAG, "Error creating chunk payload with sender", e);
+            return new byte[0];
+        }
+    }
+    private long getUserIdBits(String userId) {
+        // Convert userId string back to bits using the same algorithm
+        if (userId == null || userId.length() != 8) {
+            return System.currentTimeMillis() & ((1L << 40) - 1); // fallback
+        }
+
+        long bits = 0;
+        for (int i = 0; i < 8; i++) {
+            char c = userId.charAt(i);
+            int index = -1;
+            for (int j = 0; j < ALPHABET.length; j++) {
+                if (ALPHABET[j] == c) {
+                    index = j;
+                    break;
+                }
+            }
+            if (index == -1) index = 0; // fallback for invalid char
+            bits = (bits << 5) | index;
+        }
+        return bits;
+    }
+
+    public void resendMessageWithoutSaving(String message) {
+        try {
+            // Send via BLE using current settings but DON'T save to local storage
+            String messageId = generateMessageId();
+            byte[] messageBytes = message.getBytes(StandardCharsets.UTF_8);
+            List<byte[]> safeChunks = createSafeUtf8Chunks(messageBytes, MAX_CHUNK_DATA_SIZE);
+            int totalChunks = safeChunks.size();
+
+            // DON'T add to local storage - just send
+            Log.d(TAG, "Resending message in " + totalChunks + " chunks with UUID: " + SERVICE_UUID.toString());
+
+            for (int i = 0; i < totalChunks; i++) {
+                final int chunkIndex = i;
+                mainHandler.postDelayed(() -> {
+                    try {
+                        byte[] chunkData = safeChunks.get(chunkIndex);
+                        byte[] chunkPayload = createChunkPayload(messageId, chunkIndex, totalChunks, chunkData);
+                        updateAdvertisingData(chunkPayload);
+                    } catch (Exception e) {
+                        Log.e(TAG, "Error resending chunk", e);
+                    }
+                }, i * DELAY_BETWEEN_CHUNKS_MS);
+            }
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error resending message", e);
         }
     }
 

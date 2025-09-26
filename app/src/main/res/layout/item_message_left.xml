@@ -25,8 +25,8 @@
 
         <ImageView
             android:id="@+id/profilePicRound"
-            android:layout_width="34dp"
-            android:layout_height="34dp"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
             android:layout_marginEnd="6dp"
             android:src="@drawable/profile_pic_round_vector" />
 
@@ -54,7 +54,7 @@
                 android:autoLink="all"
                 android:background="@drawable/bubble_left"
                 android:linksClickable="true"
-                android:padding="10dp"
+                android:padding="8dp"
                 android:text="Message"
                 android:textColor="#000000"
                 android:textColorLink="#000000"
