@@ -27,7 +27,6 @@ import android.content.pm.PackageManager;
 import android.content.pm.ServiceInfo;
 import android.os.Binder;
 import android.os.Build;
-import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.ParcelUuid;
@@ -38,15 +37,17 @@ import android.util.SparseArray;
 import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
 
+import com.antor.nearbychat.Database.AppDatabase;
 import com.google.gson.Gson;
-import com.google.gson.reflect.TypeToken;
 
-import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.*;
 
 public class BleMessagingService extends Service {
+
+    private AppDatabase database;
+    private com.antor.nearbychat.Database.MessageDao messageDao;
 
     private static final String TAG = "BleMessagingService";
     private static final String CHANNEL_ID = "nearby_chat_service";
@@ -95,9 +96,10 @@ public class BleMessagingService extends Service {
     private boolean isScanning = false;
     private boolean isServiceRunning = false;
     private Handler mainHandler;
-    private Handler chunkHandler;
     private boolean isReceiving = false;
     private boolean isSending = false;
+    private boolean lastAdvertiseSuccessful = true;
+    private volatile boolean isAdvertising = false;
 
     // Data Management
     private long userIdBits;
@@ -109,6 +111,11 @@ public class BleMessagingService extends Service {
 
     // Bluetooth State Receiver
     private BroadcastReceiver bluetoothReceiver;
+
+    private int retryCount = 0;
+    private static final int MAX_RETRIES = 3;
+    private final Set<String> processedMessageIds = Collections.synchronizedSet(new HashSet<>());
+    private final Map<String, Long> messageTimestamps = Collections.synchronizedMap(new HashMap<>());
 
     // Binder for local communication
     private final IBinder binder = new LocalBinder();
@@ -231,24 +238,25 @@ public class BleMessagingService extends Service {
         Log.d(TAG, "Service onCreate");
 
         mainHandler = new Handler(Looper.getMainLooper());
-        chunkHandler = new Handler(Looper.getMainLooper());
 
-        // Load settings FIRST before initializing anything
+        database = AppDatabase.getInstance(this);
+        messageDao = database.messageDao();
+
         loadConfigurableSettings();
-
         initializeData();
         acquireWakeLock();
         setupBluetoothReceiver();
         createNotificationChannel();
 
-        // Start periodic cleanup
-        chunkHandler.postDelayed(new Runnable() {
+        // Start periodic cleanup with Runnable
+        Runnable cleanupRunnable = new Runnable() {
             @Override
             public void run() {
                 cleanupExpiredReassemblers();
-                chunkHandler.postDelayed(this, CHUNK_CLEANUP_INTERVAL_MS);
+                mainHandler.postDelayed(this, CHUNK_CLEANUP_INTERVAL_MS);
             }
-        }, CHUNK_CLEANUP_INTERVAL_MS);
+        };
+        mainHandler.postDelayed(cleanupRunnable, CHUNK_CLEANUP_INTERVAL_MS);
     }
 
     @Override
@@ -341,6 +349,12 @@ public class BleMessagingService extends Service {
         if (manager != null) {
             manager.createNotificationChannel(channel);
         }
+    }
+
+    private void resetBleState() {
+        isScanning = false;
+        isAdvertising = false;
+        retryCount = 0;
     }
 
     public void forwardMessageWithOriginalSender(String message, String originalSenderId, String originalMessageId) {
@@ -489,6 +503,17 @@ public class BleMessagingService extends Service {
         }
     }
 
+    // ADD this method:
+    private void restartScanning() {
+        resetBleState();
+        stopScanning();
+        mainHandler.postDelayed(() -> {
+            if (!isScanning) {
+                startScanning();
+            }
+        }, 2000);
+    }
+
     private void initializeData() {
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         userIdBits = prefs.getLong(KEY_USER_ID_BITS, -1);
@@ -497,7 +522,7 @@ public class BleMessagingService extends Service {
             prefs.edit().putLong(KEY_USER_ID_BITS, userIdBits).apply();
         }
         userId = getUserIdString(userIdBits);
-        loadChatHistory();
+        //loadChatHistory();
     }
 
     private void setupBluetoothReceiver() {
@@ -596,6 +621,14 @@ public class BleMessagingService extends Service {
                 public void onScanFailed(int errorCode) {
                     Log.e(TAG, "Scan failed: " + errorCode);
                     isScanning = false;
+                    // ADD retry logic:
+                    if (retryCount < MAX_RETRIES) {
+                        retryCount++;
+                        mainHandler.postDelayed(() -> {
+                            Log.d(TAG, "Retrying scan, attempt: " + retryCount);
+                            startScanning();
+                        }, 3000);
+                    }
                 }
             };
 
@@ -638,13 +671,14 @@ public class BleMessagingService extends Service {
             byte[] data = serviceData.get(new ParcelUuid(SERVICE_UUID));
             if (data == null || data.length < USER_ID_LENGTH + 6) return;
 
-            String messageId = Arrays.toString(data);
-            synchronized (receivedMessages) {
-                if (receivedMessages.contains(messageId)) return;
-                receivedMessages.add(messageId);
-                if (receivedMessages.size() > MAX_RECENT_MESSAGES) {
-                    receivedMessages.clear();
-                }
+            byte[] messageIdBytes = Arrays.copyOfRange(data, USER_ID_LENGTH, USER_ID_LENGTH + 4);
+            String actualMessageId = new String(messageIdBytes, StandardCharsets.UTF_8).trim();
+            String senderId = getUserIdString(fromAsciiBytes(Arrays.copyOfRange(data, 0, USER_ID_LENGTH)));
+            String uniqueKey = senderId + "_" + actualMessageId;
+
+            synchronized (processedMessageIds) {
+                if (processedMessageIds.contains(uniqueKey)) return;
+                processedMessageIds.add(uniqueKey);
             }
 
             mainHandler.post(() -> processReceivedMessage(data));
@@ -657,15 +691,13 @@ public class BleMessagingService extends Service {
     private void processReceivedMessage(byte[] receivedData) {
         try {
             isReceiving = true;
-            updateNotification("", true); // Update notification to show "Receiving..."
+            updateNotification("", true);
 
-            // Reset receiving status after a short delay
             mainHandler.postDelayed(() -> {
                 isReceiving = false;
                 updateNotification("", true);
-            }, 2000); // Show "Receiving..." for 2 seconds
+            }, 2000);
 
-            // Rest of the existing method remains the same...
             byte[] userIdBytes = Arrays.copyOfRange(receivedData, 0, USER_ID_LENGTH);
             long bits = fromAsciiBytes(userIdBytes);
             String displayId = getUserIdString(bits);
@@ -681,13 +713,24 @@ public class BleMessagingService extends Service {
             }
 
             byte[] chunkDataBytes = Arrays.copyOfRange(receivedData, USER_ID_LENGTH + 6, receivedData.length);
-
             String chunkKey = displayId + "_" + messageId + "_" + chunkIndex;
+
             synchronized (receivedMessages) {
                 if (receivedMessages.contains(chunkKey)) return;
                 receivedMessages.add(chunkKey);
-                if (receivedMessages.size() > MAX_RECENT_CHUNKS) {
-                    receivedMessages.clear();
+                messageTimestamps.put(chunkKey, System.currentTimeMillis());
+
+                // Fixed cleanup logic
+                if (receivedMessages.size() > MAX_RECENT_MESSAGES) {
+                    Iterator<String> it = receivedMessages.iterator();
+                    while (it.hasNext()) {
+                        String msg = it.next();
+                        Long timestamp = messageTimestamps.get(msg);
+                        if (timestamp != null && System.currentTimeMillis() - timestamp > 300000) {
+                            it.remove();
+                            messageTimestamps.remove(msg);
+                        }
+                    }
                 }
             }
 
@@ -699,7 +742,6 @@ public class BleMessagingService extends Service {
                 if (!isSelf) {
                     MessageModel newMsg = new MessageModel(displayId, message, false, getCurrentTimestamp(1));
                     addMessage(newMsg);
-                    broadcastMessage(newMsg);
                 }
             }
 
@@ -732,7 +774,7 @@ public class BleMessagingService extends Service {
                         // USE CORRECT CHUNK COUNT FROM REASSEMBLER
                         MessageModel newMsg = new MessageModel(senderId, fullMessage, false, getCurrentTimestamp(totalChunks));
                         addMessage(newMsg);
-                        broadcastMessage(newMsg);
+                        //broadcastMessage(newMsg);
                     }
                 }
                 reassemblers.remove(reassemblerKey);
@@ -752,7 +794,7 @@ public class BleMessagingService extends Service {
 
             MessageModel sentMsg = new MessageModel(userId, message, true, getCurrentTimestamp(totalChunks));
             addMessage(sentMsg);
-            broadcastMessage(sentMsg);
+            //broadcastMessage(sentMsg);
 
             Log.d(TAG, "Sending message in " + totalChunks + " chunks with UUID: " + SERVICE_UUID.toString());
 
@@ -819,9 +861,6 @@ public class BleMessagingService extends Service {
                 return;
             }
 
-            // stopAdvertising();
-
-            // Use the current SERVICE_UUID for advertising
             AdvertiseData data = new AdvertiseData.Builder()
                     .addServiceData(new ParcelUuid(SERVICE_UUID), payload)
                     .build();
@@ -829,11 +868,15 @@ public class BleMessagingService extends Service {
             advertiseCallback = new AdvertiseCallback() {
                 @Override
                 public void onStartSuccess(AdvertiseSettings settingsInEffect) {
-                    Log.d(TAG, "Advertise success with UUID: " + SERVICE_UUID.toString());
+                    isAdvertising = true;
+                    lastAdvertiseSuccessful = true;
+                    Log.d(TAG, "Advertise success");
                 }
 
                 @Override
                 public void onStartFailure(int errorCode) {
+                    isAdvertising = false;
+                    lastAdvertiseSuccessful = false;
                     Log.w(TAG, "Advertise failed: " + errorCode);
                 }
             };
@@ -849,6 +892,15 @@ public class BleMessagingService extends Service {
                         data,
                         advertiseCallback
                 );
+
+                // ADD timeout for advertising
+                mainHandler.postDelayed(() -> {
+                    if (isAdvertising) {
+                        stopAdvertising();
+                        isAdvertising = false;
+                    }
+                }, ADVERTISING_DURATION_MS + 1000);
+
             } catch (SecurityException e) {
                 Log.e(TAG, "SecurityException when starting advertising - missing permissions", e);
             }
@@ -910,24 +962,22 @@ public class BleMessagingService extends Service {
     }
 
     private void addMessage(MessageModel msg) {
-        messageList.add(msg);
-        if (messageList.size() > MAX_MESSAGE_SAVED) {
-            messageList = new ArrayList<>(messageList.subList(
-                    messageList.size() - MAX_MESSAGE_SAVED,
-                    messageList.size()
-            ));
-        }
-        saveChatHistory();
+        new Thread(() -> {
+            try {
+                // Check if message already exists to prevent duplicates
+                if (messageDao.messageExists(msg.getSenderId(), msg.getMessage(), msg.getTimestamp()) == 0) {
+                    com.antor.nearbychat.Database.MessageEntity entity = com.antor.nearbychat.Database.MessageEntity.fromMessageModel(msg);
+                    messageDao.insertMessage(entity);
+
+                    // Cleanup old messages periodically
+                    AppDatabase.cleanupOldMessages(this, MAX_MESSAGE_SAVED);
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Error saving message to database", e);
+            }
+        }).start();
     }
 
-    private void broadcastMessage(MessageModel message) {
-        Intent intent = new Intent(ACTION_MESSAGE_RECEIVED);
-        intent.putExtra(EXTRA_MESSAGE, gson.toJson(message));
-        intent.setPackage(getPackageName());
-        sendBroadcast(intent);
-
-        updateNotification("Active - " + messageList.size() + " messages", true);
-    }
 
     private void broadcastServiceState(boolean isRunning) {
         Intent intent = new Intent(ACTION_SERVICE_STATE);
@@ -974,7 +1024,7 @@ public class BleMessagingService extends Service {
         }
 
         if (statuses.isEmpty()) {
-            return "Active - " + messageList.size() + " messages";
+            return "Active";
         } else {
             return String.join(", ", statuses);
         }
@@ -1050,40 +1100,18 @@ public class BleMessagingService extends Service {
         return baseTime + " | " + chunkCount + "C";
     }
 
-    private void saveChatHistory() {
-        try {
-            SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-            prefs.edit().putString(KEY_CHAT_HISTORY, gson.toJson(messageList)).apply();
-        } catch (Exception e) {
-            Log.e(TAG, "Error saving chat history", e);
-        }
-    }
-
-    private void loadChatHistory() {
-        try {
-            SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-            String json = prefs.getString(KEY_CHAT_HISTORY, null);
-            if (json != null) {
-                Type type = new TypeToken<List<MessageModel>>(){}.getType();
-                List<MessageModel> loaded = gson.fromJson(json, type);
-                if (loaded != null) {
-                    if (loaded.size() > MAX_MESSAGE_SAVED) {
-                        loaded = new ArrayList<>(loaded.subList(
-                                loaded.size() - MAX_MESSAGE_SAVED,
-                                loaded.size()
-                        ));
-                    }
-                    messageList.clear();
-                    messageList.addAll(loaded);
-                }
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "Error loading chat history", e);
-        }
-    }
-
     public List<MessageModel> getAllMessages() {
-        return new ArrayList<>(messageList);
+        try {
+            List<com.antor.nearbychat.Database.MessageEntity> entities = messageDao.getAllMessages();
+            List<MessageModel> messages = new ArrayList<>();
+            for (com.antor.nearbychat.Database.MessageEntity entity : entities) {
+                messages.add(entity.toMessageModel());
+            }
+            return messages;
+        } catch (Exception e) {
+            Log.e(TAG, "Error getting messages from database", e);
+            return new ArrayList<>();
+        }
     }
 
     @Override
@@ -1109,18 +1137,11 @@ public class BleMessagingService extends Service {
                 Log.e(TAG, "Error unregistering receiver", e);
             }
         }
-
-        if (chunkHandler != null) {
-            chunkHandler.removeCallbacksAndMessages(null);
-        }
-
         if (mainHandler != null) {
             mainHandler.removeCallbacksAndMessages(null);
         }
 
-        saveChatHistory();
         broadcastServiceState(false);
-
         super.onDestroy();
     }
 }
