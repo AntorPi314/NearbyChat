@@ -65,8 +65,6 @@ public class GroupsActivity extends Activity {
         WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
         setContentView(R.layout.activity_groups);
 
-        UiUtilsBlue.setLightSystemBars(this);
-
         gson = new Gson();
         initializeViews();
         loadGroupsData();

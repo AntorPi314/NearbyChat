@@ -66,8 +66,6 @@ public class FriendsActivity extends Activity {
         WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
         setContentView(R.layout.activity_friends);
 
-        UiUtilsBlue.setLightSystemBars(this);
-
         gson = new Gson();
         initializeCurrentUser();
         initializeViews();

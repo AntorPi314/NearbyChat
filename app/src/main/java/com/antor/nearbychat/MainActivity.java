@@ -885,7 +885,7 @@ public class MainActivity extends BaseActivity {
 
             if (isServiceBound && bleService != null) {
                 // Use the new method that doesn't save to chat
-                bleService.resendMessageWithoutSaving(msg.getMessage());
+                bleService.resendMessageWithoutSaving(msg.getMessage(), msg.getMessageId());
             } else {
                 Intent serviceIntent = new Intent(this, BleMessagingService.class);
                 serviceIntent.putExtra("message_to_resend", msg.getMessage()); // Different key
@@ -913,7 +913,7 @@ public class MainActivity extends BaseActivity {
 
             // Need to modify BleMessagingService to send with original sender ID
             if (isServiceBound && bleService != null) {
-                bleService.forwardMessageWithOriginalSender(msg.getMessage(), msg.getSenderId());
+                bleService.forwardMessageWithOriginalSender(msg.getMessage(), msg.getSenderId(), msg.getMessageId());
             } else {
                 Intent serviceIntent = new Intent(this, BleMessagingService.class);
                 serviceIntent.putExtra("message_to_send", msg.getMessage());

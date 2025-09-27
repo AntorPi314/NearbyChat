@@ -12,6 +12,5 @@ public class AboutActivity extends Activity {
         super.onCreate(savedInstanceState);
         WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
         setContentView(R.layout.activity_about);
-        UiUtils.setLightSystemBars(this);
     }
 }

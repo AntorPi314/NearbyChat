@@ -96,6 +96,8 @@ public class BleMessagingService extends Service {
     private boolean isServiceRunning = false;
     private Handler mainHandler;
     private Handler chunkHandler;
+    private boolean isReceiving = false;
+    private boolean isSending = false;
 
     // Data Management
     private long userIdBits;
@@ -281,7 +283,7 @@ public class BleMessagingService extends Service {
             } else if (intent.hasExtra("message_to_resend")) {
                 String message = intent.getStringExtra("message_to_resend");
                 if (message != null) {
-                    resendMessageWithoutSaving(message);
+                    resendMessageWithoutSaving(message, null);
                 }
             }
         }
@@ -301,7 +303,7 @@ public class BleMessagingService extends Service {
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("Nearby Chat Active")
                 .setContentText("Scanning for nearby messages...")
-                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setSmallIcon(R.drawable.ic_nearby_chat)
                 .setContentIntent(pendingIntent)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setOngoing(true)
@@ -341,17 +343,21 @@ public class BleMessagingService extends Service {
         }
     }
 
-    public void forwardMessageWithOriginalSender(String message, String originalSenderId) {
+    public void forwardMessageWithOriginalSender(String message, String originalSenderId, String originalMessageId) {
         try {
-            String messageId = generateMessageId();
+            isSending = true;
+            updateNotification("", true); // Update notification to show "Sending..."
+
+            String messageId = (originalMessageId != null && !originalMessageId.isEmpty()) ?
+                    originalMessageId : generateMessageId();
+
             byte[] messageBytes = message.getBytes(StandardCharsets.UTF_8);
             List<byte[]> safeChunks = createSafeUtf8Chunks(messageBytes, MAX_CHUNK_DATA_SIZE);
             int totalChunks = safeChunks.size();
 
-            // Convert originalSenderId back to bits for transmission
             long originalSenderBits = getUserIdBits(originalSenderId);
 
-            Log.d(TAG, "Forwarding message from " + originalSenderId + " in " + totalChunks + " chunks");
+            Log.d(TAG, "Forwarding message from " + originalSenderId + " with original message ID: " + messageId);
 
             for (int i = 0; i < totalChunks; i++) {
                 final int chunkIndex = i;
@@ -360,6 +366,14 @@ public class BleMessagingService extends Service {
                         byte[] chunkData = safeChunks.get(chunkIndex);
                         byte[] chunkPayload = createChunkPayloadWithSender(messageId, chunkIndex, totalChunks, chunkData, originalSenderBits);
                         updateAdvertisingData(chunkPayload);
+
+                        // If this is the last chunk, stop showing "Sending..." status
+                        if (chunkIndex == totalChunks - 1) {
+                            mainHandler.postDelayed(() -> {
+                                isSending = false;
+                                updateNotification("", true);
+                            }, ADVERTISING_DURATION_MS + 500);
+                        }
                     } catch (Exception e) {
                         Log.e(TAG, "Error forwarding chunk", e);
                     }
@@ -368,6 +382,8 @@ public class BleMessagingService extends Service {
 
         } catch (Exception e) {
             Log.e(TAG, "Error forwarding message", e);
+            isSending = false;
+            updateNotification("", true);
         }
     }
 
@@ -420,16 +436,19 @@ public class BleMessagingService extends Service {
         return bits;
     }
 
-    public void resendMessageWithoutSaving(String message) {
+    public void resendMessageWithoutSaving(String message, String originalMessageId) {
         try {
-            // Send via BLE using current settings but DON'T save to local storage
-            String messageId = generateMessageId();
+            isSending = true;
+            updateNotification("", true); // Update notification to show "Sending..."
+
+            String messageId = (originalMessageId != null && !originalMessageId.isEmpty()) ?
+                    originalMessageId : generateMessageId();
+
             byte[] messageBytes = message.getBytes(StandardCharsets.UTF_8);
             List<byte[]> safeChunks = createSafeUtf8Chunks(messageBytes, MAX_CHUNK_DATA_SIZE);
             int totalChunks = safeChunks.size();
 
-            // DON'T add to local storage - just send
-            Log.d(TAG, "Resending message in " + totalChunks + " chunks with UUID: " + SERVICE_UUID.toString());
+            Log.d(TAG, "Resending message with original message ID: " + messageId);
 
             for (int i = 0; i < totalChunks; i++) {
                 final int chunkIndex = i;
@@ -438,14 +457,23 @@ public class BleMessagingService extends Service {
                         byte[] chunkData = safeChunks.get(chunkIndex);
                         byte[] chunkPayload = createChunkPayload(messageId, chunkIndex, totalChunks, chunkData);
                         updateAdvertisingData(chunkPayload);
+
+                        // If this is the last chunk, stop showing "Sending..." status
+                        if (chunkIndex == totalChunks - 1) {
+                            mainHandler.postDelayed(() -> {
+                                isSending = false;
+                                updateNotification("", true);
+                            }, ADVERTISING_DURATION_MS + 500);
+                        }
                     } catch (Exception e) {
                         Log.e(TAG, "Error resending chunk", e);
                     }
                 }, i * DELAY_BETWEEN_CHUNKS_MS);
             }
-
         } catch (Exception e) {
             Log.e(TAG, "Error resending message", e);
+            isSending = false;
+            updateNotification("", true);
         }
     }
 
@@ -628,6 +656,16 @@ public class BleMessagingService extends Service {
 
     private void processReceivedMessage(byte[] receivedData) {
         try {
+            isReceiving = true;
+            updateNotification("", true); // Update notification to show "Receiving..."
+
+            // Reset receiving status after a short delay
+            mainHandler.postDelayed(() -> {
+                isReceiving = false;
+                updateNotification("", true);
+            }, 2000); // Show "Receiving..." for 2 seconds
+
+            // Rest of the existing method remains the same...
             byte[] userIdBytes = Arrays.copyOfRange(receivedData, 0, USER_ID_LENGTH);
             long bits = fromAsciiBytes(userIdBytes);
             String displayId = getUserIdString(bits);
@@ -667,6 +705,8 @@ public class BleMessagingService extends Service {
 
         } catch (Exception e) {
             Log.e(TAG, "Error processing message", e);
+            isReceiving = false;
+            updateNotification("", true);
         }
     }
 
@@ -702,13 +742,14 @@ public class BleMessagingService extends Service {
 
     public void sendMessageInChunks(String message) {
         try {
-            // Send via BLE using current settings
+            isSending = true;
+            updateNotification("", true); // Update notification to show "Sending..."
+
             String messageId = generateMessageId();
             byte[] messageBytes = message.getBytes(StandardCharsets.UTF_8);
             List<byte[]> safeChunks = createSafeUtf8Chunks(messageBytes, MAX_CHUNK_DATA_SIZE);
             int totalChunks = safeChunks.size();
 
-            // Add to local storage WITH CORRECT CHUNK COUNT
             MessageModel sentMsg = new MessageModel(userId, message, true, getCurrentTimestamp(totalChunks));
             addMessage(sentMsg);
             broadcastMessage(sentMsg);
@@ -722,6 +763,14 @@ public class BleMessagingService extends Service {
                         byte[] chunkData = safeChunks.get(chunkIndex);
                         byte[] chunkPayload = createChunkPayload(messageId, chunkIndex, totalChunks, chunkData);
                         updateAdvertisingData(chunkPayload);
+
+                        // If this is the last chunk, stop showing "Sending..." status
+                        if (chunkIndex == totalChunks - 1) {
+                            mainHandler.postDelayed(() -> {
+                                isSending = false;
+                                updateNotification("", true);
+                            }, ADVERTISING_DURATION_MS + 500); // Wait for advertising to complete
+                        }
                     } catch (Exception e) {
                         Log.e(TAG, "Error sending chunk", e);
                     }
@@ -730,6 +779,8 @@ public class BleMessagingService extends Service {
 
         } catch (Exception e) {
             Log.e(TAG, "Error sending message", e);
+            isSending = false;
+            updateNotification("", true);
         }
     }
 
@@ -886,17 +937,46 @@ public class BleMessagingService extends Service {
     }
 
     private void updateNotification(String text, boolean ongoing) {
+        // Build status text based on current operations
+        String statusText = buildNotificationStatus();
+
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("Nearby Chat")
-                .setContentText(text)
-                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentText(statusText) // Use dynamic status instead of fixed text
+                .setSmallIcon(R.drawable.ic_nearby_chat) // Changed icon
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setOngoing(ongoing)
                 .setShowWhen(false);
 
+        // Add click intent to open app
+        Intent notificationIntent = new Intent(this, MainActivity.class);
+        notificationIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        PendingIntent pendingIntent = PendingIntent.getActivity(
+                this, 0, notificationIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+        builder.setContentIntent(pendingIntent);
+
         NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
         if (manager != null) {
             manager.notify(NOTIFICATION_ID, builder.build());
+        }
+    }
+
+    private String buildNotificationStatus() {
+        List<String> statuses = new ArrayList<>();
+
+        if (isSending) {
+            statuses.add("Sending...");
+        }
+        if (isReceiving) {
+            statuses.add("Receiving...");
+        }
+
+        if (statuses.isEmpty()) {
+            return "Active - " + messageList.size() + " messages";
+        } else {
+            return String.join(", ", statuses);
         }
     }
 
