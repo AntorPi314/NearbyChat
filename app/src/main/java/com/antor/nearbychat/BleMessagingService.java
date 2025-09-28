@@ -18,15 +18,17 @@ import android.bluetooth.le.ScanRecord;
 import android.bluetooth.le.ScanResult;
 import android.bluetooth.le.ScanSettings;
 import android.content.BroadcastReceiver;
+import android.content.ComponentName;
 import android.content.Context;
-import android.os.Handler;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.ServiceConnection;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.pm.ServiceInfo;
 import android.os.Binder;
 import android.os.Build;
+import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.ParcelUuid;
@@ -43,24 +45,21 @@ import com.google.gson.Gson;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class BleMessagingService extends Service {
-
-    private AppDatabase database;
-    private com.antor.nearbychat.Database.MessageDao messageDao;
 
     private static final String TAG = "BleMessagingService";
     private static final String CHANNEL_ID = "nearby_chat_service";
     private static final int NOTIFICATION_ID = 1001;
 
-    // BLE Constants - These will be updated from settings
     private static UUID SERVICE_UUID = UUID.fromString("0000aaaa-0000-1000-8000-00805f9b34fb");
     private static final int USER_ID_LENGTH = 5;
     private static final int MESSAGE_ID_LENGTH = 4;
     private static final int CHUNK_METADATA_LENGTH = 2;
     private static final int HEADER_SIZE = USER_ID_LENGTH + MESSAGE_ID_LENGTH + CHUNK_METADATA_LENGTH;
 
-    // Dynamic settings - will be loaded from preferences
     private static int MAX_PAYLOAD_SIZE = 27;
     private static int MAX_CHUNK_DATA_SIZE = MAX_PAYLOAD_SIZE - HEADER_SIZE;
     private static int ADVERTISING_DURATION_MS = 800;
@@ -70,105 +69,78 @@ public class BleMessagingService extends Service {
     private static int MAX_RECENT_MESSAGES = 1000;
     private static int MAX_RECENT_CHUNKS = 2000;
     private static int MAX_MESSAGE_SAVED = 500;
+    private static final int SCAN_RESTART_DELAY = 100;
+    private static final int RETRY_COUNT = 2;
+    private static final int RETRY_DELAY = 500;
 
-    // Broadcast Actions
     public static final String ACTION_MESSAGE_RECEIVED = "com.antor.nearbychat.MESSAGE_RECEIVED";
     public static final String ACTION_MESSAGE_SENT = "com.antor.nearbychat.MESSAGE_SENT";
     public static final String ACTION_SERVICE_STATE = "com.antor.nearbychat.SERVICE_STATE";
     public static final String EXTRA_MESSAGE = "extra_message";
     public static final String EXTRA_IS_RUNNING = "extra_is_running";
 
-    // Preferences
     private static final String PREFS_NAME = "NearbyChatPrefs";
     private static final String KEY_USER_ID_BITS = "userIdBits";
-    private static final String KEY_CHAT_HISTORY = "chatHistory";
     private static final char[] ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ123456".toCharArray();
 
-    // BLE Components
     private BluetoothAdapter bluetoothAdapter;
     private BluetoothLeAdvertiser advertiser;
     private BluetoothLeScanner scanner;
     private ScanCallback scanCallback;
-    private AdvertiseCallback advertiseCallback;
 
-    // Service State
     private PowerManager.WakeLock wakeLock;
-    private boolean isScanning = false;
-    private boolean isServiceRunning = false;
     private Handler mainHandler;
-    private boolean isReceiving = false;
-    private boolean isSending = false;
-    private boolean lastAdvertiseSuccessful = true;
-    private volatile boolean isAdvertising = false;
+    private AppDatabase database;
+    private com.antor.nearbychat.Database.MessageDao messageDao;
 
-    // Data Management
+    private final AtomicBoolean isScanning = new AtomicBoolean(false);
+    private final AtomicBoolean isAdvertising = new AtomicBoolean(false);
+    private boolean isServiceRunning = false;
+    private boolean isSending = false;
+    private boolean isReceiving = false;
+
     private long userIdBits;
     private String userId;
-    private final Set<String> receivedMessages = new HashSet<>();
-    private final Map<String, MessageReassembler> reassemblers = new HashMap<>();
     private final Gson gson = new Gson();
-    private List<MessageModel> messageList = new ArrayList<>();
 
-    // Bluetooth State Receiver
+    private final Map<String, MessageReassembler> reassemblers = new ConcurrentHashMap<>();
+    private final Map<String, ChunkInfo> chunkTracker = new ConcurrentHashMap<>();
+    private final Set<String> completedMessages = Collections.synchronizedSet(new HashSet<>());
+    private final Queue<ChunkData> sendQueue = new LinkedList<>();
     private BroadcastReceiver bluetoothReceiver;
 
-    private int retryCount = 0;
-    private static final int MAX_RETRIES = 3;
-    private final Set<String> processedMessageIds = Collections.synchronizedSet(new HashSet<>());
-    private final Map<String, Long> messageTimestamps = Collections.synchronizedMap(new HashMap<>());
-
-    // Binder for local communication
     private final IBinder binder = new LocalBinder();
 
-    public class LocalBinder extends Binder {
-        public BleMessagingService getService() {
-            return BleMessagingService.this;
+    private static class ChunkInfo {
+        final String messageId;
+        final int chunkIndex;
+        final long timestamp;
+        int receiveCount = 0;
+
+        ChunkInfo(String messageId, int chunkIndex) {
+            this.messageId = messageId;
+            this.chunkIndex = chunkIndex;
+            this.timestamp = System.currentTimeMillis();
         }
     }
 
-    private void loadConfigurableSettings() {
-        try {
-            SharedPreferences prefs = getSharedPreferences("NearbyChatSettings", MODE_PRIVATE);
+    private static class ChunkData {
+        final String messageId;
+        final int chunkIndex;
+        final int totalChunks;
+        final byte[] data;
+        final long senderBits;
+        int retryCount = 0;
 
-            // Load settings with proper defaults
-            MAX_PAYLOAD_SIZE = prefs.getInt("MAX_PAYLOAD_SIZE", 27);
-            if (MAX_PAYLOAD_SIZE < 20) MAX_PAYLOAD_SIZE = 20;
-            MAX_CHUNK_DATA_SIZE = MAX_PAYLOAD_SIZE - HEADER_SIZE;
-
-            // Load and validate UUID
-            String serviceUuidString = prefs.getString("SERVICE_UUID", "0000aaaa-0000-1000-8000-00805f9b34fb");
-            try {
-                UUID newServiceUuid = UUID.fromString(serviceUuidString);
-                SERVICE_UUID = newServiceUuid;
-                Log.d(TAG, "Using Service UUID: " + SERVICE_UUID.toString());
-            } catch (IllegalArgumentException e) {
-                Log.e(TAG, "Invalid UUID in preferences, using default", e);
-                SERVICE_UUID = UUID.fromString("0000aaaa-0000-1000-8000-00805f9b34fb");
-            }
-
-            // Load timing settings
-            ADVERTISING_DURATION_MS = prefs.getInt("ADVERTISING_DURATION_MS", 800);
-            DELAY_BETWEEN_CHUNKS_MS = prefs.getInt("DELAY_BETWEEN_CHUNKS_MS", 1000);
-            CHUNK_TIMEOUT_MS = prefs.getInt("CHUNK_TIMEOUT_MS", 60000);
-            CHUNK_CLEANUP_INTERVAL_MS = prefs.getInt("CHUNK_CLEANUP_INTERVAL_MS", 10000);
-
-            // Load memory settings
-            MAX_RECENT_MESSAGES = prefs.getInt("MAX_RECENT_MESSAGES", 1000);
-            MAX_RECENT_CHUNKS = prefs.getInt("MAX_RECENT_CHUNKS", 2000);
-            MAX_MESSAGE_SAVED = prefs.getInt("MAX_MESSAGE_SAVED", 500);
-
-            Log.d(TAG, "Settings loaded - UUID: " + SERVICE_UUID + ", Payload: " + MAX_PAYLOAD_SIZE);
-
-        } catch (Exception e) {
-            Log.e(TAG, "Error loading settings, using defaults", e);
-            // Set defaults if loading fails
-            SERVICE_UUID = UUID.fromString("0000aaaa-0000-1000-8000-00805f9b34fb");
-            MAX_PAYLOAD_SIZE = 27;
-            MAX_CHUNK_DATA_SIZE = MAX_PAYLOAD_SIZE - HEADER_SIZE;
+        ChunkData(String messageId, int chunkIndex, int totalChunks, byte[] data, long senderBits) {
+            this.messageId = messageId;
+            this.chunkIndex = chunkIndex;
+            this.totalChunks = totalChunks;
+            this.data = data;
+            this.senderBits = senderBits;
         }
     }
 
-    // MessageReassembler class
     private static class MessageReassembler {
         private final String senderId;
         private final String messageId;
@@ -183,7 +155,7 @@ public class BleMessagingService extends Service {
             this.timestamp = System.currentTimeMillis();
         }
 
-        public boolean addChunk(int chunkIndex, int totalChunks, byte[] chunkData) {
+        public synchronized boolean addChunk(int chunkIndex, int totalChunks, byte[] chunkData) {
             if (this.totalChunks == -1) {
                 this.totalChunks = totalChunks;
             } else if (this.totalChunks != totalChunks) {
@@ -203,7 +175,6 @@ public class BleMessagingService extends Service {
         }
 
         public String reassemble() {
-            // Calculate total size first
             int totalSize = 0;
             for (int i = 0; i < totalChunks; i++) {
                 byte[] chunk = chunks.get(i);
@@ -214,7 +185,6 @@ public class BleMessagingService extends Service {
                 }
             }
 
-            // Combine all bytes
             byte[] fullBytes = new byte[totalSize];
             int offset = 0;
             for (int i = 0; i < totalChunks; i++) {
@@ -223,12 +193,17 @@ public class BleMessagingService extends Service {
                 offset += chunk.length;
             }
 
-            // Convert to string only once
             return new String(fullBytes, StandardCharsets.UTF_8);
         }
 
         public boolean isExpired(long timeoutMs) {
             return System.currentTimeMillis() - timestamp > timeoutMs;
+        }
+    }
+
+    public class LocalBinder extends Binder {
+        public BleMessagingService getService() {
+            return BleMessagingService.this;
         }
     }
 
@@ -238,7 +213,6 @@ public class BleMessagingService extends Service {
         Log.d(TAG, "Service onCreate");
 
         mainHandler = new Handler(Looper.getMainLooper());
-
         database = AppDatabase.getInstance(this);
         messageDao = database.messageDao();
 
@@ -248,22 +222,14 @@ public class BleMessagingService extends Service {
         setupBluetoothReceiver();
         createNotificationChannel();
 
-        // Start periodic cleanup with Runnable
-        Runnable cleanupRunnable = new Runnable() {
-            @Override
-            public void run() {
-                cleanupExpiredReassemblers();
-                mainHandler.postDelayed(this, CHUNK_CLEANUP_INTERVAL_MS);
-            }
-        };
-        mainHandler.postDelayed(cleanupRunnable, CHUNK_CLEANUP_INTERVAL_MS);
+        startPeriodicCleanup();
+        startQueueProcessor();
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         Log.d(TAG, "Service onStartCommand");
 
-        // Reload settings each time the service starts (important for restart)
         loadConfigurableSettings();
 
         if (!isServiceRunning) {
@@ -272,246 +238,171 @@ public class BleMessagingService extends Service {
             isServiceRunning = true;
             broadcastServiceState(true);
         } else {
-            // If service is already running but we got new intent, reinitialize BLE
-            // This handles the restart case
-            Log.d(TAG, "Service already running, reinitializing BLE with new settings");
-            stopBleOperations();
-            mainHandler.postDelayed(() -> {
-                initializeBle();
-            }, 1000);
+            restartBle();
         }
 
-        // Handle message sending if intent contains data
-        if (intent != null) {
-            if (intent.hasExtra("message_to_send")) {
-                String message = intent.getStringExtra("message_to_send");
-                if (message != null) {
-                    sendMessageInChunks(message);
-                }
-            } else if (intent.hasExtra("message_to_resend")) {
-                String message = intent.getStringExtra("message_to_resend");
-                if (message != null) {
-                    resendMessageWithoutSaving(message, null);
-                }
-            }
-        }
-
+        handleIntentMessage(intent);
         return START_STICKY;
     }
 
-    private void startForegroundService() {
-        Intent notificationIntent = new Intent(this, MainActivity.class);
-        notificationIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+    private void startQueueProcessor() {
+        mainHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                processSendQueue();
+                mainHandler.postDelayed(this, 50);
+            }
+        });
+    }
 
-        PendingIntent pendingIntent = PendingIntent.getActivity(
-                this, 0, notificationIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+    private void processSendQueue() {
+        if (sendQueue.isEmpty() || isAdvertising.get()) {
+            return;
+        }
+
+        ChunkData chunk = sendQueue.poll();
+        if (chunk != null) {
+            sendChunkWithRetry(chunk);
+        }
+    }
+
+    private void sendChunkWithRetry(ChunkData chunk) {
+        byte[] payload = createChunkPayloadWithSender(
+                chunk.messageId,
+                chunk.chunkIndex,
+                chunk.totalChunks,
+                chunk.data,
+                chunk.senderBits
         );
 
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle("Nearby Chat Active")
-                .setContentText("Scanning for nearby messages...")
-                .setSmallIcon(R.drawable.ic_nearby_chat)
-                .setContentIntent(pendingIntent)
-                .setPriority(NotificationCompat.PRIORITY_LOW)
-                .setOngoing(true)
-                .setShowWhen(false)
-                .setCategory(NotificationCompat.CATEGORY_SERVICE);
+        advertiseData(payload, () -> {
+            if (chunk.retryCount < RETRY_COUNT) {
+                chunk.retryCount++;
+                mainHandler.postDelayed(() -> sendQueue.offer(chunk), RETRY_DELAY);
+            }
+        });
+    }
 
-        Notification notification = builder.build();
-
-        // FIX for Android 14+ (API 34) and Android 15 (API 35) crash
-        if (Build.VERSION.SDK_INT >= 34) {
-            // For Android 14+, combine all foreground service types declared in the manifest.
-            int foregroundServiceType = ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION |
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE;
-            startForeground(NOTIFICATION_ID, notification, foregroundServiceType);
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            // For Android 10 to 13, use the location type as required for BLE scanning.
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION);
-        } else {
-            // For older versions, no type is needed.
-            startForeground(NOTIFICATION_ID, notification);
+    private void advertiseData(byte[] payload, Runnable onComplete) {
+        if (advertiser == null || !hasRequiredPermissions()) {
+            if (onComplete != null) onComplete.run();
+            return;
         }
-    }
 
-    private void createNotificationChannel() {
-        NotificationChannel channel = new NotificationChannel(
-                CHANNEL_ID,
-                "Nearby Chat Service",
-                NotificationManager.IMPORTANCE_LOW
-        );
-        channel.setDescription("Keeps Nearby Chat running in background");
-        channel.setShowBadge(false);
-        channel.setSound(null, null);
-
-        NotificationManager manager = getSystemService(NotificationManager.class);
-        if (manager != null) {
-            manager.createNotificationChannel(channel);
+        if (!isAdvertising.compareAndSet(false, true)) {
+            mainHandler.postDelayed(() -> advertiseData(payload, onComplete), 100);
+            return;
         }
-    }
 
-    private void resetBleState() {
-        isScanning = false;
-        isAdvertising = false;
-        retryCount = 0;
-    }
+        pauseScanning();
 
-    public void forwardMessageWithOriginalSender(String message, String originalSenderId, String originalMessageId) {
-        try {
-            isSending = true;
-            updateNotification("", true); // Update notification to show "Sending..."
+        AdvertiseData data = new AdvertiseData.Builder()
+                .addServiceData(new ParcelUuid(SERVICE_UUID), payload)
+                .build();
 
-            String messageId = (originalMessageId != null && !originalMessageId.isEmpty()) ?
-                    originalMessageId : generateMessageId();
+        AdvertiseSettings settings = new AdvertiseSettings.Builder()
+                .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
+                .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
+                .setConnectable(false)
+                .setTimeout(ADVERTISING_DURATION_MS)
+                .build();
 
-            byte[] messageBytes = message.getBytes(StandardCharsets.UTF_8);
-            List<byte[]> safeChunks = createSafeUtf8Chunks(messageBytes, MAX_CHUNK_DATA_SIZE);
-            int totalChunks = safeChunks.size();
-
-            long originalSenderBits = getUserIdBits(originalSenderId);
-
-            Log.d(TAG, "Forwarding message from " + originalSenderId + " with original message ID: " + messageId);
-
-            for (int i = 0; i < totalChunks; i++) {
-                final int chunkIndex = i;
+        AdvertiseCallback callback = new AdvertiseCallback() {
+            @Override
+            public void onStartSuccess(AdvertiseSettings settingsInEffect) {
+                Log.d(TAG, "Advertise started");
                 mainHandler.postDelayed(() -> {
-                    try {
-                        byte[] chunkData = safeChunks.get(chunkIndex);
-                        byte[] chunkPayload = createChunkPayloadWithSender(messageId, chunkIndex, totalChunks, chunkData, originalSenderBits);
-                        updateAdvertisingData(chunkPayload);
-
-                        // If this is the last chunk, stop showing "Sending..." status
-                        if (chunkIndex == totalChunks - 1) {
-                            mainHandler.postDelayed(() -> {
-                                isSending = false;
-                                updateNotification("", true);
-                            }, ADVERTISING_DURATION_MS + 500);
-                        }
-                    } catch (Exception e) {
-                        Log.e(TAG, "Error forwarding chunk", e);
-                    }
-                }, i * DELAY_BETWEEN_CHUNKS_MS);
+                    stopAdvertising(this);
+                    isAdvertising.set(false);
+                    resumeScanning();
+                    if (onComplete != null) onComplete.run();
+                }, ADVERTISING_DURATION_MS);
             }
 
-        } catch (Exception e) {
-            Log.e(TAG, "Error forwarding message", e);
-            isSending = false;
-            updateNotification("", true);
-        }
-    }
+            @Override
+            public void onStartFailure(int errorCode) {
+                Log.e(TAG, "Advertise failed: " + errorCode);
+                isAdvertising.set(false);
+                resumeScanning();
+                if (onComplete != null) onComplete.run();
+            }
+        };
 
-    private byte[] createChunkPayloadWithSender(String messageId, int chunkIndex, int totalChunks, byte[] chunkData, long senderBits) {
         try {
-            byte[] userIdBytes = toAsciiBytes(senderBits); // Use original sender's bits
-            byte[] messageIdBytes = messageId.getBytes(StandardCharsets.UTF_8);
-
-            if (messageIdBytes.length > 4) {
-                messageIdBytes = Arrays.copyOf(messageIdBytes, 4);
-            } else if (messageIdBytes.length < 4) {
-                byte[] temp = new byte[4];
-                System.arraycopy(messageIdBytes, 0, temp, 0, messageIdBytes.length);
-                messageIdBytes = temp;
-            }
-
-            byte[] payload = new byte[USER_ID_LENGTH + 4 + 2 + chunkData.length];
-
-            System.arraycopy(userIdBytes, 0, payload, 0, USER_ID_LENGTH);
-            System.arraycopy(messageIdBytes, 0, payload, USER_ID_LENGTH, 4);
-            payload[USER_ID_LENGTH + 4] = (byte) chunkIndex;
-            payload[USER_ID_LENGTH + 5] = (byte) totalChunks;
-            System.arraycopy(chunkData, 0, payload, USER_ID_LENGTH + 6, chunkData.length);
-
-            return payload;
+            advertiser.startAdvertising(settings, data, callback);
         } catch (Exception e) {
-            Log.e(TAG, "Error creating chunk payload with sender", e);
-            return new byte[0];
+            Log.e(TAG, "Error starting advertising", e);
+            isAdvertising.set(false);
+            resumeScanning();
+            if (onComplete != null) onComplete.run();
         }
     }
-    private long getUserIdBits(String userId) {
-        // Convert userId string back to bits using the same algorithm
-        if (userId == null || userId.length() != 8) {
-            return System.currentTimeMillis() & ((1L << 40) - 1); // fallback
-        }
 
-        long bits = 0;
-        for (int i = 0; i < 8; i++) {
-            char c = userId.charAt(i);
-            int index = -1;
-            for (int j = 0; j < ALPHABET.length; j++) {
-                if (ALPHABET[j] == c) {
-                    index = j;
-                    break;
-                }
+    private void pauseScanning() {
+        if (scanner != null && scanCallback != null && isScanning.get()) {
+            try {
+                scanner.stopScan(scanCallback);
+                isScanning.set(false);
+            } catch (Exception e) {
+                Log.e(TAG, "Error pausing scan", e);
             }
-            if (index == -1) index = 0; // fallback for invalid char
-            bits = (bits << 5) | index;
-        }
-        return bits;
-    }
-
-    public void resendMessageWithoutSaving(String message, String originalMessageId) {
-        try {
-            isSending = true;
-            updateNotification("", true); // Update notification to show "Sending..."
-
-            String messageId = (originalMessageId != null && !originalMessageId.isEmpty()) ?
-                    originalMessageId : generateMessageId();
-
-            byte[] messageBytes = message.getBytes(StandardCharsets.UTF_8);
-            List<byte[]> safeChunks = createSafeUtf8Chunks(messageBytes, MAX_CHUNK_DATA_SIZE);
-            int totalChunks = safeChunks.size();
-
-            Log.d(TAG, "Resending message with original message ID: " + messageId);
-
-            for (int i = 0; i < totalChunks; i++) {
-                final int chunkIndex = i;
-                mainHandler.postDelayed(() -> {
-                    try {
-                        byte[] chunkData = safeChunks.get(chunkIndex);
-                        byte[] chunkPayload = createChunkPayload(messageId, chunkIndex, totalChunks, chunkData);
-                        updateAdvertisingData(chunkPayload);
-
-                        // If this is the last chunk, stop showing "Sending..." status
-                        if (chunkIndex == totalChunks - 1) {
-                            mainHandler.postDelayed(() -> {
-                                isSending = false;
-                                updateNotification("", true);
-                            }, ADVERTISING_DURATION_MS + 500);
-                        }
-                    } catch (Exception e) {
-                        Log.e(TAG, "Error resending chunk", e);
-                    }
-                }, i * DELAY_BETWEEN_CHUNKS_MS);
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "Error resending message", e);
-            isSending = false;
-            updateNotification("", true);
         }
     }
 
-    private void acquireWakeLock() {
-        PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
-        if (powerManager != null) {
-            wakeLock = powerManager.newWakeLock(
-                    PowerManager.PARTIAL_WAKE_LOCK,
-                    "NearbyChatService::WakeLock"
-            );
-            wakeLock.acquire();
-            Log.d(TAG, "WakeLock acquired");
-        }
-    }
-
-    // ADD this method:
-    private void restartScanning() {
-        resetBleState();
-        stopScanning();
+    private void resumeScanning() {
         mainHandler.postDelayed(() -> {
-            if (!isScanning) {
+            if (!isScanning.get() && !isAdvertising.get()) {
                 startScanning();
             }
-        }, 2000);
+        }, SCAN_RESTART_DELAY);
+    }
+
+    private void restartBle() {
+        stopBleOperations();
+        mainHandler.postDelayed(this::initializeBle, 1000);
+    }
+
+    private void handleIntentMessage(Intent intent) {
+        if (intent == null) return;
+
+        if (intent.hasExtra("message_to_send")) {
+            String message = intent.getStringExtra("message_to_send");
+            if (message != null) {
+                sendMessageInChunks(message);
+            }
+        } else if (intent.hasExtra("message_to_resend")) {
+            String message = intent.getStringExtra("message_to_resend");
+            if (message != null) {
+                resendMessageWithoutSaving(message, null);
+            }
+        }
+    }
+
+    private void loadConfigurableSettings() {
+        try {
+            SharedPreferences prefs = getSharedPreferences("NearbyChatSettings", MODE_PRIVATE);
+
+            MAX_PAYLOAD_SIZE = Math.max(20, prefs.getInt("MAX_PAYLOAD_SIZE", 27));
+            MAX_CHUNK_DATA_SIZE = MAX_PAYLOAD_SIZE - HEADER_SIZE;
+
+            String uuidString = prefs.getString("SERVICE_UUID", "0000aaaa-0000-1000-8000-00805f9b34fb");
+            try {
+                SERVICE_UUID = UUID.fromString(uuidString);
+            } catch (IllegalArgumentException e) {
+                SERVICE_UUID = UUID.fromString("0000aaaa-0000-1000-8000-00805f9b34fb");
+            }
+
+            ADVERTISING_DURATION_MS = prefs.getInt("ADVERTISING_DURATION_MS", 800);
+            DELAY_BETWEEN_CHUNKS_MS = prefs.getInt("DELAY_BETWEEN_CHUNKS_MS", 1000);
+            CHUNK_TIMEOUT_MS = prefs.getInt("CHUNK_TIMEOUT_MS", 60000);
+            CHUNK_CLEANUP_INTERVAL_MS = prefs.getInt("CHUNK_CLEANUP_INTERVAL_MS", 10000);
+            MAX_RECENT_MESSAGES = prefs.getInt("MAX_RECENT_MESSAGES", 1000);
+            MAX_RECENT_CHUNKS = prefs.getInt("MAX_RECENT_CHUNKS", 2000);
+            MAX_MESSAGE_SAVED = prefs.getInt("MAX_MESSAGE_SAVED", 500);
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error loading settings", e);
+        }
     }
 
     private void initializeData() {
@@ -522,7 +413,17 @@ public class BleMessagingService extends Service {
             prefs.edit().putLong(KEY_USER_ID_BITS, userIdBits).apply();
         }
         userId = getUserIdString(userIdBits);
-        //loadChatHistory();
+    }
+
+    private void acquireWakeLock() {
+        PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
+        if (powerManager != null) {
+            wakeLock = powerManager.newWakeLock(
+                    PowerManager.PARTIAL_WAKE_LOCK,
+                    "NearbyChatService::WakeLock"
+            );
+            wakeLock.acquire();
+        }
     }
 
     private void setupBluetoothReceiver() {
@@ -547,13 +448,59 @@ public class BleMessagingService extends Service {
     private void handleBluetoothStateChange(int state) {
         switch (state) {
             case BluetoothAdapter.STATE_ON:
-                Log.d(TAG, "Bluetooth ON - Restarting BLE");
                 mainHandler.postDelayed(this::initializeBle, 500);
                 break;
             case BluetoothAdapter.STATE_OFF:
-                Log.d(TAG, "Bluetooth OFF - Stopping BLE");
                 stopBleOperations();
                 break;
+        }
+    }
+
+    private void createNotificationChannel() {
+        NotificationChannel channel = new NotificationChannel(
+                CHANNEL_ID,
+                "Nearby Chat Service",
+                NotificationManager.IMPORTANCE_LOW
+        );
+        channel.setDescription("Keeps Nearby Chat running in background");
+        channel.setShowBadge(false);
+        channel.setSound(null, null);
+
+        NotificationManager manager = getSystemService(NotificationManager.class);
+        if (manager != null) {
+            manager.createNotificationChannel(channel);
+        }
+    }
+
+    private void startForegroundService() {
+        Intent notificationIntent = new Intent(this, MainActivity.class);
+        notificationIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+
+        PendingIntent pendingIntent = PendingIntent.getActivity(
+                this, 0, notificationIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
+                .setContentTitle("Nearby Chat Active")
+                .setContentText("Scanning for nearby messages...")
+                .setSmallIcon(R.drawable.ic_nearby_chat)
+                .setContentIntent(pendingIntent)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setOngoing(true)
+                .setShowWhen(false)
+                .setCategory(NotificationCompat.CATEGORY_SERVICE);
+
+        Notification notification = builder.build();
+
+        if (Build.VERSION.SDK_INT >= 34) {
+            int foregroundServiceType = ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION |
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE;
+            startForeground(NOTIFICATION_ID, notification, foregroundServiceType);
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION);
+        } else {
+            startForeground(NOTIFICATION_ID, notification);
         }
     }
 
@@ -565,8 +512,7 @@ public class BleMessagingService extends Service {
         }
 
         if (!hasRequiredPermissions()) {
-            Log.w(TAG, "Missing required permissions for BLE operations");
-            updateNotification("Missing Bluetooth permissions", true);
+            Log.w(TAG, "Missing required permissions");
             return;
         }
 
@@ -576,12 +522,7 @@ public class BleMessagingService extends Service {
 
             if (scanner != null) {
                 startScanning();
-            } else {
-                Log.w(TAG, "BLE Scanner not available");
             }
-        } catch (SecurityException e) {
-            Log.e(TAG, "SecurityException when initializing BLE - missing permissions", e);
-            updateNotification("Missing Bluetooth permissions", true);
         } catch (Exception e) {
             Log.e(TAG, "Error initializing BLE", e);
         }
@@ -600,14 +541,13 @@ public class BleMessagingService extends Service {
     }
 
     private void startScanning() {
-        if (scanner == null || isScanning) {
-            Log.d(TAG, "Scanner null or already scanning");
+        if (scanner == null || !isScanning.compareAndSet(false, true)) {
             return;
         }
 
         try {
             if (!hasRequiredPermissions()) {
-                Log.w(TAG, "Missing required permissions for scanning");
+                isScanning.set(false);
                 return;
             }
 
@@ -620,15 +560,8 @@ public class BleMessagingService extends Service {
                 @Override
                 public void onScanFailed(int errorCode) {
                     Log.e(TAG, "Scan failed: " + errorCode);
-                    isScanning = false;
-                    // ADD retry logic:
-                    if (retryCount < MAX_RETRIES) {
-                        retryCount++;
-                        mainHandler.postDelayed(() -> {
-                            Log.d(TAG, "Retrying scan, attempt: " + retryCount);
-                            startScanning();
-                        }, 3000);
-                    }
+                    isScanning.set(false);
+                    mainHandler.postDelayed(() -> startScanning(), 3000);
                 }
             };
 
@@ -636,27 +569,19 @@ public class BleMessagingService extends Service {
                     .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
                     .build();
 
-            // Create filter with the current SERVICE_UUID
             List<ScanFilter> filters = Arrays.asList(
                     new ScanFilter.Builder()
                             .setServiceData(new ParcelUuid(SERVICE_UUID), new byte[0])
                             .build()
             );
 
-            try {
-                scanner.startScan(filters, settings, scanCallback);
-                isScanning = true;
-                Log.d(TAG, "Started scanning with UUID: " + SERVICE_UUID.toString());
-                updateNotification("Scanning for messages...", true);
-            } catch (SecurityException e) {
-                Log.e(TAG, "SecurityException when starting scan - missing permissions", e);
-                isScanning = false;
-                updateNotification("Missing permissions for scanning", true);
-            }
+            scanner.startScan(filters, settings, scanCallback);
+            Log.d(TAG, "Started scanning");
+            updateNotification("Scanning for messages...", true);
 
         } catch (Exception e) {
             Log.e(TAG, "Error starting scan", e);
-            isScanning = false;
+            isScanning.set(false);
         }
     }
 
@@ -669,123 +594,99 @@ public class BleMessagingService extends Service {
             if (serviceData == null) return;
 
             byte[] data = serviceData.get(new ParcelUuid(SERVICE_UUID));
-            if (data == null || data.length < USER_ID_LENGTH + 6) return;
+            if (data == null || data.length < HEADER_SIZE + 1) return;
 
-            byte[] messageIdBytes = Arrays.copyOfRange(data, USER_ID_LENGTH, USER_ID_LENGTH + 4);
-            String actualMessageId = new String(messageIdBytes, StandardCharsets.UTF_8).trim();
-            String senderId = getUserIdString(fromAsciiBytes(Arrays.copyOfRange(data, 0, USER_ID_LENGTH)));
-            String uniqueKey = senderId + "_" + actualMessageId;
-
-            synchronized (processedMessageIds) {
-                if (processedMessageIds.contains(uniqueKey)) return;
-                processedMessageIds.add(uniqueKey);
-            }
-
-            mainHandler.post(() -> processReceivedMessage(data));
+            processReceivedChunk(data);
 
         } catch (Exception e) {
             Log.e(TAG, "Error handling scan result", e);
         }
     }
 
-    private void processReceivedMessage(byte[] receivedData) {
+    private void processReceivedChunk(byte[] data) {
         try {
-            isReceiving = true;
-            updateNotification("", true);
+            byte[] userIdBytes = Arrays.copyOfRange(data, 0, USER_ID_LENGTH);
+            long senderBits = fromAsciiBytes(userIdBytes);
+            String senderId = getUserIdString(senderBits);
 
-            mainHandler.postDelayed(() -> {
-                isReceiving = false;
-                updateNotification("", true);
-            }, 2000);
-
-            byte[] userIdBytes = Arrays.copyOfRange(receivedData, 0, USER_ID_LENGTH);
-            long bits = fromAsciiBytes(userIdBytes);
-            String displayId = getUserIdString(bits);
-
-            byte[] messageIdBytes = Arrays.copyOfRange(receivedData, USER_ID_LENGTH, USER_ID_LENGTH + 4);
+            byte[] messageIdBytes = Arrays.copyOfRange(data, USER_ID_LENGTH, USER_ID_LENGTH + MESSAGE_ID_LENGTH);
             String messageId = new String(messageIdBytes, StandardCharsets.UTF_8).trim();
 
-            int chunkIndex = receivedData[USER_ID_LENGTH + 4] & 0xFF;
-            int totalChunks = receivedData[USER_ID_LENGTH + 5] & 0xFF;
+            int chunkIndex = data[USER_ID_LENGTH + MESSAGE_ID_LENGTH] & 0xFF;
+            int totalChunks = data[USER_ID_LENGTH + MESSAGE_ID_LENGTH + 1] & 0xFF;
 
             if (chunkIndex < 0 || chunkIndex >= totalChunks || totalChunks <= 0) {
                 return;
             }
 
-            byte[] chunkDataBytes = Arrays.copyOfRange(receivedData, USER_ID_LENGTH + 6, receivedData.length);
-            String chunkKey = displayId + "_" + messageId + "_" + chunkIndex;
+            String chunkKey = senderId + "_" + messageId + "_" + chunkIndex;
+            ChunkInfo info = chunkTracker.get(chunkKey);
 
-            synchronized (receivedMessages) {
-                if (receivedMessages.contains(chunkKey)) return;
-                receivedMessages.add(chunkKey);
-                messageTimestamps.put(chunkKey, System.currentTimeMillis());
-
-                // Fixed cleanup logic
-                if (receivedMessages.size() > MAX_RECENT_MESSAGES) {
-                    Iterator<String> it = receivedMessages.iterator();
-                    while (it.hasNext()) {
-                        String msg = it.next();
-                        Long timestamp = messageTimestamps.get(msg);
-                        if (timestamp != null && System.currentTimeMillis() - timestamp > 300000) {
-                            it.remove();
-                            messageTimestamps.remove(msg);
-                        }
-                    }
-                }
+            if (info == null) {
+                info = new ChunkInfo(messageId, chunkIndex);
+                chunkTracker.put(chunkKey, info);
+            } else if (info.receiveCount > 0) {
+                return;
             }
 
-            if (totalChunks > 1) {
-                processMessageChunk(displayId, messageId, chunkIndex, totalChunks, chunkDataBytes);
+            info.receiveCount++;
+
+            byte[] chunkData = Arrays.copyOfRange(data, HEADER_SIZE, data.length);
+
+            if (totalChunks == 1) {
+                String message = new String(chunkData, StandardCharsets.UTF_8);
+                if (!senderId.equals(userId)) {
+                    MessageModel msg = new MessageModel(senderId, message, false, getCurrentTimestamp(1));
+                    addMessage(msg);
+                }
             } else {
-                String message = new String(chunkDataBytes, StandardCharsets.UTF_8);
-                boolean isSelf = displayId.equals(userId);
-                if (!isSelf) {
-                    MessageModel newMsg = new MessageModel(displayId, message, false, getCurrentTimestamp(1));
-                    addMessage(newMsg);
-                }
+                processMultiChunkMessage(senderId, messageId, chunkIndex, totalChunks, chunkData);
             }
+
+            isReceiving = true;
+            updateNotification("", true);
+            mainHandler.postDelayed(() -> {
+                isReceiving = false;
+                updateNotification("", true);
+            }, 2000);
 
         } catch (Exception e) {
-            Log.e(TAG, "Error processing message", e);
-            isReceiving = false;
-            updateNotification("", true);
+            Log.e(TAG, "Error processing chunk", e);
         }
     }
 
-    private void processMessageChunk(String senderId, String messageId, int chunkIndex, int totalChunks, byte[] chunkData) {
+    private void processMultiChunkMessage(String senderId, String messageId, int chunkIndex, int totalChunks, byte[] chunkData) {
         String reassemblerKey = senderId + "_" + messageId;
 
-        synchronized (reassemblers) {
-            MessageReassembler reassembler = reassemblers.get(reassemblerKey);
-            if (reassembler == null) {
-                reassembler = new MessageReassembler(senderId, messageId);
-                reassemblers.put(reassemblerKey, reassembler);
-            }
+        MessageReassembler reassembler = reassemblers.computeIfAbsent(reassemblerKey,
+                k -> new MessageReassembler(senderId, messageId));
 
-            if (reassembler.addChunk(chunkIndex, totalChunks, chunkData)) {
-                Log.d(TAG, "Received chunk " + chunkIndex + "/" + totalChunks);
-            }
+        if (reassembler.addChunk(chunkIndex, totalChunks, chunkData)) {
+            Log.d(TAG, "Chunk " + chunkIndex + "/" + totalChunks + " received");
+        }
 
-            if (reassembler.isComplete()) {
-                String fullMessage = reassembler.reassemble();
-                if (fullMessage != null) {
-                    boolean isSelf = senderId.equals(userId);
-                    if (!isSelf) {
-                        // USE CORRECT CHUNK COUNT FROM REASSEMBLER
-                        MessageModel newMsg = new MessageModel(senderId, fullMessage, false, getCurrentTimestamp(totalChunks));
-                        addMessage(newMsg);
-                        //broadcastMessage(newMsg);
+        if (reassembler.isComplete()) {
+            String fullMessage = reassembler.reassemble();
+            if (fullMessage != null && !senderId.equals(userId)) {
+                String completeKey = senderId + "_" + messageId;
+                if (!completedMessages.contains(completeKey)) {
+                    completedMessages.add(completeKey);
+                    MessageModel msg = new MessageModel(senderId, fullMessage, false, getCurrentTimestamp(totalChunks));
+                    addMessage(msg);
+
+                    if (completedMessages.size() > MAX_RECENT_MESSAGES) {
+                        cleanupOldCompletedMessages();
                     }
                 }
-                reassemblers.remove(reassemblerKey);
             }
+            reassemblers.remove(reassemblerKey);
         }
     }
 
     public void sendMessageInChunks(String message) {
         try {
             isSending = true;
-            updateNotification("", true); // Update notification to show "Sending..."
+            updateNotification("", true);
 
             String messageId = generateMessageId();
             byte[] messageBytes = message.getBytes(StandardCharsets.UTF_8);
@@ -794,33 +695,85 @@ public class BleMessagingService extends Service {
 
             MessageModel sentMsg = new MessageModel(userId, message, true, getCurrentTimestamp(totalChunks));
             addMessage(sentMsg);
-            //broadcastMessage(sentMsg);
-
-            Log.d(TAG, "Sending message in " + totalChunks + " chunks with UUID: " + SERVICE_UUID.toString());
 
             for (int i = 0; i < totalChunks; i++) {
-                final int chunkIndex = i;
-                mainHandler.postDelayed(() -> {
-                    try {
-                        byte[] chunkData = safeChunks.get(chunkIndex);
-                        byte[] chunkPayload = createChunkPayload(messageId, chunkIndex, totalChunks, chunkData);
-                        updateAdvertisingData(chunkPayload);
+                ChunkData chunk = new ChunkData(messageId, i, totalChunks, safeChunks.get(i), userIdBits);
+                sendQueue.offer(chunk);
 
-                        // If this is the last chunk, stop showing "Sending..." status
-                        if (chunkIndex == totalChunks - 1) {
-                            mainHandler.postDelayed(() -> {
-                                isSending = false;
-                                updateNotification("", true);
-                            }, ADVERTISING_DURATION_MS + 500); // Wait for advertising to complete
-                        }
-                    } catch (Exception e) {
-                        Log.e(TAG, "Error sending chunk", e);
-                    }
-                }, i * DELAY_BETWEEN_CHUNKS_MS);
+                if (i > 0 && i % 3 == 0) {
+                    mainHandler.postDelayed(() -> {}, DELAY_BETWEEN_CHUNKS_MS / 2);
+                }
             }
+
+            mainHandler.postDelayed(() -> {
+                isSending = false;
+                updateNotification("", true);
+            }, (totalChunks * DELAY_BETWEEN_CHUNKS_MS) + ADVERTISING_DURATION_MS);
 
         } catch (Exception e) {
             Log.e(TAG, "Error sending message", e);
+            isSending = false;
+            updateNotification("", true);
+        }
+    }
+
+    public void forwardMessageWithOriginalSender(String message, String originalSenderId, String originalMessageId) {
+        try {
+            isSending = true;
+            updateNotification("", true);
+
+            String messageId = (originalMessageId != null && !originalMessageId.isEmpty()) ?
+                    originalMessageId : generateMessageId();
+
+            byte[] messageBytes = message.getBytes(StandardCharsets.UTF_8);
+            List<byte[]> safeChunks = createSafeUtf8Chunks(messageBytes, MAX_CHUNK_DATA_SIZE);
+            int totalChunks = safeChunks.size();
+
+            long originalSenderBits = getUserIdBits(originalSenderId);
+
+            for (int i = 0; i < totalChunks; i++) {
+                ChunkData chunk = new ChunkData(messageId, i, totalChunks, safeChunks.get(i), originalSenderBits);
+                sendQueue.offer(chunk);
+            }
+
+            mainHandler.postDelayed(() -> {
+                isSending = false;
+                updateNotification("", true);
+            }, (totalChunks * DELAY_BETWEEN_CHUNKS_MS) + ADVERTISING_DURATION_MS);
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error forwarding message", e);
+            isSending = false;
+            updateNotification("", true);
+        }
+    }
+
+    public void resendMessageWithoutSaving(String message, String originalMessageId) {
+        try {
+            isSending = true;
+            updateNotification("", true);
+
+            String messageId = (originalMessageId != null && !originalMessageId.isEmpty()) ?
+                    originalMessageId : generateMessageId();
+
+            byte[] messageBytes = message.getBytes(StandardCharsets.UTF_8);
+            List<byte[]> safeChunks = createSafeUtf8Chunks(messageBytes, MAX_CHUNK_DATA_SIZE);
+            int totalChunks = safeChunks.size();
+
+            Log.d(TAG, "Resending message with original message ID: " + messageId);
+
+            for (int i = 0; i < totalChunks; i++) {
+                ChunkData chunk = new ChunkData(messageId, i, totalChunks, safeChunks.get(i), userIdBits);
+                sendQueue.offer(chunk);
+            }
+
+            mainHandler.postDelayed(() -> {
+                isSending = false;
+                updateNotification("", true);
+            }, (totalChunks * DELAY_BETWEEN_CHUNKS_MS) + ADVERTISING_DURATION_MS);
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error resending message", e);
             isSending = false;
             updateNotification("", true);
         }
@@ -832,12 +785,10 @@ public class BleMessagingService extends Service {
         while (offset < data.length) {
             int chunkSize = Math.min(maxChunkSize, data.length - offset);
 
-            // Ensure we don't break UTF-8 characters
             while (chunkSize > 0 && offset + chunkSize < data.length) {
                 byte b = data[offset + chunkSize];
-                // Check if we're in the middle of a UTF-8 character
                 if ((b & 0x80) != 0 && (b & 0x40) == 0) {
-                    chunkSize--; // Move back to avoid breaking character
+                    chunkSize--;
                 } else {
                     break;
                 }
@@ -852,74 +803,40 @@ public class BleMessagingService extends Service {
         return chunks;
     }
 
-    private void updateAdvertisingData(byte[] payload) {
-        if (advertiser == null) return;
-
+    private byte[] createChunkPayloadWithSender(String messageId, int chunkIndex, int totalChunks, byte[] chunkData, long senderBits) {
         try {
-            if (!hasRequiredPermissions()) {
-                Log.w(TAG, "Missing required permissions for advertising");
-                return;
+            byte[] userIdBytes = toAsciiBytes(senderBits);
+            byte[] messageIdBytes = messageId.getBytes(StandardCharsets.UTF_8);
+
+            if (messageIdBytes.length > MESSAGE_ID_LENGTH) {
+                messageIdBytes = Arrays.copyOf(messageIdBytes, MESSAGE_ID_LENGTH);
+            } else if (messageIdBytes.length < MESSAGE_ID_LENGTH) {
+                byte[] temp = new byte[MESSAGE_ID_LENGTH];
+                System.arraycopy(messageIdBytes, 0, temp, 0, messageIdBytes.length);
+                messageIdBytes = temp;
             }
 
-            AdvertiseData data = new AdvertiseData.Builder()
-                    .addServiceData(new ParcelUuid(SERVICE_UUID), payload)
-                    .build();
+            byte[] payload = new byte[HEADER_SIZE + chunkData.length];
 
-            advertiseCallback = new AdvertiseCallback() {
-                @Override
-                public void onStartSuccess(AdvertiseSettings settingsInEffect) {
-                    isAdvertising = true;
-                    lastAdvertiseSuccessful = true;
-                    Log.d(TAG, "Advertise success");
-                }
+            System.arraycopy(userIdBytes, 0, payload, 0, USER_ID_LENGTH);
+            System.arraycopy(messageIdBytes, 0, payload, USER_ID_LENGTH, MESSAGE_ID_LENGTH);
+            payload[USER_ID_LENGTH + MESSAGE_ID_LENGTH] = (byte) chunkIndex;
+            payload[USER_ID_LENGTH + MESSAGE_ID_LENGTH + 1] = (byte) totalChunks;
+            System.arraycopy(chunkData, 0, payload, HEADER_SIZE, chunkData.length);
 
-                @Override
-                public void onStartFailure(int errorCode) {
-                    isAdvertising = false;
-                    lastAdvertiseSuccessful = false;
-                    Log.w(TAG, "Advertise failed: " + errorCode);
-                }
-            };
-
-            try {
-                advertiser.startAdvertising(
-                        new AdvertiseSettings.Builder()
-                                .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
-                                .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
-                                .setConnectable(false)
-                                .setTimeout(ADVERTISING_DURATION_MS)
-                                .build(),
-                        data,
-                        advertiseCallback
-                );
-
-                // ADD timeout for advertising
-                mainHandler.postDelayed(() -> {
-                    if (isAdvertising) {
-                        stopAdvertising();
-                        isAdvertising = false;
-                    }
-                }, ADVERTISING_DURATION_MS + 1000);
-
-            } catch (SecurityException e) {
-                Log.e(TAG, "SecurityException when starting advertising - missing permissions", e);
-            }
-
+            return payload;
         } catch (Exception e) {
-            Log.e(TAG, "Error advertising", e);
+            Log.e(TAG, "Error creating chunk payload", e);
+            return new byte[0];
         }
     }
 
-    private void stopAdvertising() {
-        if (advertiser != null && advertiseCallback != null) {
+    private void stopAdvertising(AdvertiseCallback callback) {
+        if (advertiser != null && callback != null) {
             try {
-                if (!hasRequiredPermissions()) {
-                    Log.w(TAG, "Missing required permissions for stopping advertising");
-                    return;
+                if (hasRequiredPermissions()) {
+                    advertiser.stopAdvertising(callback);
                 }
-                advertiser.stopAdvertising(advertiseCallback);
-            } catch (SecurityException e) {
-                Log.e(TAG, "SecurityException when stopping advertising - missing permissions", e);
             } catch (Exception e) {
                 Log.e(TAG, "Error stopping advertising", e);
             }
@@ -927,17 +844,12 @@ public class BleMessagingService extends Service {
     }
 
     private void stopScanning() {
-        if (scanner != null && scanCallback != null) {
+        if (scanner != null && scanCallback != null && isScanning.get()) {
             try {
-                if (!hasRequiredPermissions()) {
-                    Log.w(TAG, "Missing required permissions for stopping scan");
-                    return;
+                if (hasRequiredPermissions()) {
+                    scanner.stopScan(scanCallback);
+                    isScanning.set(false);
                 }
-                scanner.stopScan(scanCallback);
-                isScanning = false;
-                Log.d(TAG, "Stopped scanning");
-            } catch (SecurityException e) {
-                Log.e(TAG, "SecurityException when stopping scan - missing permissions", e);
             } catch (Exception e) {
                 Log.e(TAG, "Error stopping scan", e);
             }
@@ -945,18 +857,62 @@ public class BleMessagingService extends Service {
     }
 
     private void stopBleOperations() {
-        stopAdvertising();
         stopScanning();
+        isAdvertising.set(false);
+        sendQueue.clear();
+    }
+
+    private void startPeriodicCleanup() {
+        Runnable cleanupRunnable = new Runnable() {
+            @Override
+            public void run() {
+                cleanupExpiredReassemblers();
+                cleanupOldChunks();
+                mainHandler.postDelayed(this, CHUNK_CLEANUP_INTERVAL_MS);
+            }
+        };
+        mainHandler.postDelayed(cleanupRunnable, CHUNK_CLEANUP_INTERVAL_MS);
     }
 
     private void cleanupExpiredReassemblers() {
-        synchronized (reassemblers) {
-            Iterator<Map.Entry<String, MessageReassembler>> it = reassemblers.entrySet().iterator();
-            while (it.hasNext()) {
-                Map.Entry<String, MessageReassembler> entry = it.next();
-                if (entry.getValue().isExpired(CHUNK_TIMEOUT_MS)) {
-                    it.remove();
-                }
+        Iterator<Map.Entry<String, MessageReassembler>> it = reassemblers.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<String, MessageReassembler> entry = it.next();
+            if (entry.getValue().isExpired(CHUNK_TIMEOUT_MS)) {
+                it.remove();
+            }
+        }
+    }
+
+    private void cleanupOldChunks() {
+        long now = System.currentTimeMillis();
+        Iterator<Map.Entry<String, ChunkInfo>> it = chunkTracker.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<String, ChunkInfo> entry = it.next();
+            if (now - entry.getValue().timestamp > CHUNK_TIMEOUT_MS) {
+                it.remove();
+            }
+        }
+
+        if (chunkTracker.size() > MAX_RECENT_CHUNKS) {
+            List<Map.Entry<String, ChunkInfo>> entries = new ArrayList<>(chunkTracker.entrySet());
+            entries.sort((a, b) -> Long.compare(a.getValue().timestamp, b.getValue().timestamp));
+            int toRemove = chunkTracker.size() - MAX_RECENT_CHUNKS;
+            for (int i = 0; i < toRemove && i < entries.size(); i++) {
+                chunkTracker.remove(entries.get(i).getKey());
+            }
+        }
+    }
+
+    private void cleanupOldCompletedMessages() {
+        if (completedMessages.size() > MAX_RECENT_MESSAGES) {
+            int toRemove = completedMessages.size() - MAX_RECENT_MESSAGES;
+            Iterator<String> it = completedMessages.iterator();
+            int removed = 0;
+            while (it.hasNext() && removed < toRemove) {
+                it.next();
+                it.remove();
+                removed++;
             }
         }
     }
@@ -964,20 +920,17 @@ public class BleMessagingService extends Service {
     private void addMessage(MessageModel msg) {
         new Thread(() -> {
             try {
-                // Check if message already exists to prevent duplicates
                 if (messageDao.messageExists(msg.getSenderId(), msg.getMessage(), msg.getTimestamp()) == 0) {
-                    com.antor.nearbychat.Database.MessageEntity entity = com.antor.nearbychat.Database.MessageEntity.fromMessageModel(msg);
+                    com.antor.nearbychat.Database.MessageEntity entity =
+                            com.antor.nearbychat.Database.MessageEntity.fromMessageModel(msg);
                     messageDao.insertMessage(entity);
-
-                    // Cleanup old messages periodically
                     AppDatabase.cleanupOldMessages(this, MAX_MESSAGE_SAVED);
                 }
             } catch (Exception e) {
-                Log.e(TAG, "Error saving message to database", e);
+                Log.e(TAG, "Error saving message", e);
             }
         }).start();
     }
-
 
     private void broadcastServiceState(boolean isRunning) {
         Intent intent = new Intent(ACTION_SERVICE_STATE);
@@ -987,18 +940,16 @@ public class BleMessagingService extends Service {
     }
 
     private void updateNotification(String text, boolean ongoing) {
-        // Build status text based on current operations
         String statusText = buildNotificationStatus();
 
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("Nearby Chat")
-                .setContentText(statusText) // Use dynamic status instead of fixed text
-                .setSmallIcon(R.drawable.ic_nearby_chat) // Changed icon
+                .setContentText(statusText)
+                .setSmallIcon(R.drawable.ic_nearby_chat)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setOngoing(ongoing)
                 .setShowWhen(false);
 
-        // Add click intent to open app
         Intent notificationIntent = new Intent(this, MainActivity.class);
         notificationIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent pendingIntent = PendingIntent.getActivity(
@@ -1030,38 +981,9 @@ public class BleMessagingService extends Service {
         }
     }
 
-    // Helper methods
     private String generateMessageId() {
         int id = (int) (System.currentTimeMillis() % 10000);
         return String.format("%04d", id);
-    }
-
-    private byte[] createChunkPayload(String messageId, int chunkIndex, int totalChunks, byte[] chunkData) {
-        try {
-            byte[] userIdBytes = toAsciiBytes(userIdBits);
-            byte[] messageIdBytes = messageId.getBytes(StandardCharsets.UTF_8);
-
-            if (messageIdBytes.length > 4) {
-                messageIdBytes = Arrays.copyOf(messageIdBytes, 4);
-            } else if (messageIdBytes.length < 4) {
-                byte[] temp = new byte[4];
-                System.arraycopy(messageIdBytes, 0, temp, 0, messageIdBytes.length);
-                messageIdBytes = temp;
-            }
-
-            byte[] payload = new byte[USER_ID_LENGTH + 4 + 2 + chunkData.length];
-
-            System.arraycopy(userIdBytes, 0, payload, 0, USER_ID_LENGTH);
-            System.arraycopy(messageIdBytes, 0, payload, USER_ID_LENGTH, 4);
-            payload[USER_ID_LENGTH + 4] = (byte) chunkIndex;
-            payload[USER_ID_LENGTH + 5] = (byte) totalChunks;
-            System.arraycopy(chunkData, 0, payload, USER_ID_LENGTH + 6, chunkData.length);
-
-            return payload;
-        } catch (Exception e) {
-            Log.e(TAG, "Error creating chunk payload", e);
-            return new byte[0];
-        }
     }
 
     private byte[] toAsciiBytes(long bits40) {
@@ -1081,6 +1003,27 @@ public class BleMessagingService extends Service {
             value = (value << 8) | (b & 0xFF);
         }
         return value;
+    }
+
+    private long getUserIdBits(String userId) {
+        if (userId == null || userId.length() != 8) {
+            return System.currentTimeMillis() & ((1L << 40) - 1);
+        }
+
+        long bits = 0;
+        for (int i = 0; i < 8; i++) {
+            char c = userId.charAt(i);
+            int index = -1;
+            for (int j = 0; j < ALPHABET.length; j++) {
+                if (ALPHABET[j] == c) {
+                    index = j;
+                    break;
+                }
+            }
+            if (index == -1) index = 0;
+            bits = (bits << 5) | index;
+        }
+        return bits;
     }
 
     private String getUserIdString(long bits40) {
@@ -1109,7 +1052,7 @@ public class BleMessagingService extends Service {
             }
             return messages;
         } catch (Exception e) {
-            Log.e(TAG, "Error getting messages from database", e);
+            Log.e(TAG, "Error getting messages", e);
             return new ArrayList<>();
         }
     }
@@ -1137,6 +1080,7 @@ public class BleMessagingService extends Service {
                 Log.e(TAG, "Error unregistering receiver", e);
             }
         }
+
         if (mainHandler != null) {
             mainHandler.removeCallbacksAndMessages(null);
         }
