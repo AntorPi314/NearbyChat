@@ -340,9 +340,8 @@ public class MainActivity extends BaseActivity {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT)
                         != PackageManager.PERMISSION_GRANTED) {
-                    ActivityCompat.requestPermissions(this,
-                            new String[]{Manifest.permission.BLUETOOTH_CONNECT},
-                            PERMISSION_REQUEST_CODE);
+                    // Will be handled by sequential check
+                    checkAndRequestPermissionsSequentially();
                     return;
                 }
             }
@@ -358,52 +357,106 @@ public class MainActivity extends BaseActivity {
         } catch (SecurityException se) {
             Log.e(TAG, "Bluetooth permission missing", se);
             Toast.makeText(this, "Bluetooth permission required", Toast.LENGTH_SHORT).show();
+            checkAndRequestPermissionsSequentially();
         }
     }
 
     private void checkAndRequestPermissionsSequentially() {
+        // Step 1: Check Bluetooth permissions first (Android 12+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED ||
-                    ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED ||
-                    ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADVERTISE) != PackageManager.PERMISSION_GRANTED) {
-
-                ActivityCompat.requestPermissions(this,
-                        new String[]{
-                                Manifest.permission.BLUETOOTH_CONNECT,
-                                Manifest.permission.BLUETOOTH_SCAN,
-                                Manifest.permission.BLUETOOTH_ADVERTISE
-                        },
-                        PERMISSION_REQUEST_CODE);
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                requestSinglePermission(Manifest.permission.BLUETOOTH_CONNECT, "Bluetooth connection required for messaging");
+                return;
+            }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
+                requestSinglePermission(Manifest.permission.BLUETOOTH_SCAN, "Bluetooth scanning required to find nearby devices");
+                return;
+            }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADVERTISE) != PackageManager.PERMISSION_GRANTED) {
+                requestSinglePermission(Manifest.permission.BLUETOOTH_ADVERTISE, "Bluetooth advertising required to be discoverable");
                 return;
             }
         }
 
+        // Step 2: Check location permission
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this,
-                    new String[]{Manifest.permission.ACCESS_FINE_LOCATION},
-                    PERMISSION_REQUEST_CODE);
+            showLocationPermissionDialog();
             return;
         }
 
+        // Step 3: Check notification permission (Android 13+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(this,
-                        new String[]{Manifest.permission.POST_NOTIFICATIONS},
-                        PERMISSION_REQUEST_CODE);
+                requestSinglePermission(Manifest.permission.POST_NOTIFICATIONS, "Notifications required for background service alerts");
                 return;
             }
         }
 
+        // All permissions granted - now start the service
         Log.d(TAG, "All necessary permissions are granted. Starting service.");
-        startBleService();
+
+        // Wait a moment to ensure all permissions are processed
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            startBleService();
+        }, 500);
     }
+
+    private void requestSinglePermission(String permission, String reason) {
+        if (ActivityCompat.shouldShowRequestPermissionRationale(this, permission)) {
+            // Show explanation dialog
+            new AlertDialog.Builder(this)
+                    .setTitle("Permission Required")
+                    .setMessage(reason)
+                    .setPositiveButton("Grant", (dialog, which) -> {
+                        ActivityCompat.requestPermissions(this, new String[]{permission}, PERMISSION_REQUEST_CODE);
+                    })
+                    .setNegativeButton("Cancel", (dialog, which) -> {
+                        Toast.makeText(this, "Permission denied. App may not work properly.", Toast.LENGTH_LONG).show();
+                    })
+                    .show();
+        } else {
+            ActivityCompat.requestPermissions(this, new String[]{permission}, PERMISSION_REQUEST_CODE);
+        }
+    }
+
+
+    private void showLocationPermissionDialog() {
+        new AlertDialog.Builder(this)
+                .setTitle("Location Permission Required")
+                .setMessage("Nearby Chat needs location access to scan for Bluetooth devices. This is required by Android for BLE functionality.")
+                .setPositiveButton("Enable Permission", (dialog, which) -> {
+                    ActivityCompat.requestPermissions(this,
+                            new String[]{Manifest.permission.ACCESS_FINE_LOCATION},
+                            PERMISSION_REQUEST_CODE);
+                })
+                .setNegativeButton("Try Later", (dialog, which) -> {
+                    Toast.makeText(this, "Location permission required for BLE scanning", Toast.LENGTH_LONG).show();
+                })
+                .setCancelable(false)
+                .show();
+    }
+
+
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
 
         if (requestCode == PERMISSION_REQUEST_CODE) {
-            checkAndRequestPermissionsSequentially();
+            // Check if permission was granted
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                // Permission granted, continue checking next permissions
+                checkAndRequestPermissionsSequentially();
+            } else {
+                // Permission denied
+                String permission = permissions.length > 0 ? permissions[0] : "Unknown";
+                Toast.makeText(this, "Permission denied: " + permission, Toast.LENGTH_LONG).show();
+
+                // Still try to continue - some permissions might be optional
+                new Handler().postDelayed(() -> {
+                    checkAndRequestPermissionsSequentially();
+                }, 1000);
+            }
         } else if (requestCode == REQUEST_STORAGE_PERMISSION) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 if (currentUserId != null && currentProfilePic != null) {
@@ -426,7 +479,49 @@ public class MainActivity extends BaseActivity {
         }
     }
 
+    private boolean hasAllRequiredPermissions() {
+        // Check Bluetooth permissions for Android 12+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                Log.d(TAG, "BLUETOOTH_CONNECT permission missing");
+                return false;
+            }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
+                Log.d(TAG, "BLUETOOTH_SCAN permission missing");
+                return false;
+            }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADVERTISE) != PackageManager.PERMISSION_GRANTED) {
+                Log.d(TAG, "BLUETOOTH_ADVERTISE permission missing");
+                return false;
+            }
+        }
+
+        // Check location permission
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            Log.d(TAG, "ACCESS_FINE_LOCATION permission missing");
+            return false;
+        }
+
+        // Check notification permission for Android 13+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                Log.d(TAG, "POST_NOTIFICATIONS permission missing");
+                return false;
+            }
+        }
+
+        Log.d(TAG, "All required permissions are granted");
+        return true;
+    }
+
     private void startBleService() {
+        // Check if ALL required permissions are granted before starting service
+        if (!hasAllRequiredPermissions()) {
+            Log.w(TAG, "Not all permissions granted, cannot start service");
+            Toast.makeText(this, "All permissions required for service", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
         try {
             Intent serviceIntent = new Intent(this, BleMessagingService.class);
 
@@ -437,9 +532,10 @@ public class MainActivity extends BaseActivity {
             }
             bindService(serviceIntent, serviceConnection, Context.BIND_AUTO_CREATE);
             Toast.makeText(this, "Nearby Chat service started", Toast.LENGTH_SHORT).show();
+            Log.d(TAG, "BLE service started successfully");
         } catch (Exception e) {
             Log.e(TAG, "Error starting service", e);
-            Toast.makeText(this, "Error starting service", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "Error starting service: " + e.getMessage(), Toast.LENGTH_LONG).show();
         }
     }
 
@@ -603,35 +699,60 @@ public class MainActivity extends BaseActivity {
         }
     }
 
-    private void onMessageClick(MessageModel msg) {
-        try {
-            ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-            if (clipboard != null) {
-                clipboard.setPrimaryClip(ClipData.newPlainText("Copied Message", msg.getMessage()));
-                Toast.makeText(this, "Message copied", Toast.LENGTH_SHORT).show();
+    public void onMessageClick(MessageModel messageModel) {
+        if (!messageModel.isComplete() && bleService != null && isServiceBound) {
+            // MessageModel msg এর পরিবর্তে আমি messageModel ব্যবহার করছি, তবে আপনার msg ভ্যারিয়েবলটিও ঠিক।
+            MessageModel msg = messageModel;
+
+            List<Integer> missingChunks = msg.getMissingChunks();
+            if (missingChunks != null && !missingChunks.isEmpty()) {
+
+                // FIX: এখানে msg.getSenderId() কে প্রথম আর্গুমেন্ট হিসেবে যোগ করা হলো।
+                bleService.sendMissingPartsRequest(
+                        msg.getSenderId(),          // ১. targetUserId (String)
+                        msg.getMessageId(),         // ২. messageId (String)
+                        missingChunks               // ৩. missingChunkIndices (List<Integer>)
+                );
+
+                Toast.makeText(this, "Missing parts request sent for message: " + msg.getMessageId(), Toast.LENGTH_SHORT).show();
+                return;
             }
-        } catch (Exception e) {
-            Log.e(TAG, "Error copying message", e);
         }
     }
 
     private void onMessageLongClick(MessageModel msg) {
         try {
-            String[] options = msg.isSelf()
-                    ? new String[]{"Copy", "Resend"}
-                    : new String[]{"Copy", "Forward"};
+            List<String> options = new ArrayList<>();
+            options.add("Copy");
+
+            if (msg.isSelf()) {
+                options.add("Resend");
+            } else {
+                options.add("Forward");
+                if (!msg.isComplete()) {
+                    options.add("Request Missing Parts");
+                }
+            }
+
+            String[] optionsArray = options.toArray(new String[0]);
 
             AlertDialog.Builder builder = new AlertDialog.Builder(this);
             builder.setTitle("Message Options")
-                    .setItems(options, (dialog, which) -> {
-                        if (which == 0) {
-                            copyMessageToClipboard(msg);
-                        } else if (which == 1) {
-                            if (msg.isSelf()) {
+                    .setItems(optionsArray, (dialog, which) -> {
+                        String selectedOption = optionsArray[which];
+                        switch (selectedOption) {
+                            case "Copy":
+                                copyMessageToClipboard(msg);
+                                break;
+                            case "Resend":
                                 resendMyMessage(msg);
-                            } else {
+                                break;
+                            case "Forward":
                                 forwardMessage(msg);
-                            }
+                                break;
+                            case "Request Missing Parts":
+                                requestMissingParts(msg);
+                                break;
                         }
                     })
                     .show();
@@ -639,6 +760,23 @@ public class MainActivity extends BaseActivity {
             Log.e(TAG, "Error showing message options", e);
         }
     }
+
+    private void requestMissingParts(MessageModel msg) {
+        try {
+            if (!validateBluetoothAndService()) return;
+
+            Toast.makeText(this, "Requesting missing parts...", Toast.LENGTH_SHORT).show();
+
+            if (isServiceBound && bleService != null) {
+                // New format: "userIdmsgId??" + encoded missing chunks as ASCII
+                bleService.sendMissingPartsRequest(msg.getSenderId(), msg.getMessageId(), msg.getMissingChunks());
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error requesting missing parts", e);
+        }
+    }
+
+
 
     private void resendMyMessage(MessageModel msg) {
         try {
@@ -983,9 +1121,13 @@ public class MainActivity extends BaseActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        if (bluetoothAdapter != null && bluetoothAdapter.isEnabled()) {
-            Log.d(TAG, "Starting service from onResume");
+
+        // Only try to start service if Bluetooth is enabled AND all permissions are granted
+        if (bluetoothAdapter != null && bluetoothAdapter.isEnabled() && hasAllRequiredPermissions()) {
+            Log.d(TAG, "Starting service from onResume - all conditions met");
             startBleService();
+        } else {
+            Log.d(TAG, "Skipping service start from onResume - conditions not met");
         }
     }
 

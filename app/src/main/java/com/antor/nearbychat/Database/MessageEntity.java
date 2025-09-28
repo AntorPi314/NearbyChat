@@ -18,7 +18,10 @@ public class MessageEntity {
     public int chunkCount;
     public String messageId;
     public long timestampMillis;
+    public boolean isComplete = true;
+    public String missingChunksJson = "[]";
 
+    // Default constructor required by Room
     public MessageEntity() {}
 
     @androidx.room.Ignore
@@ -31,8 +34,11 @@ public class MessageEntity {
         this.chunkCount = chunkCount;
         this.messageId = messageId;
         this.timestampMillis = System.currentTimeMillis();
+        this.isComplete = true;
+        this.missingChunksJson = "[]";
     }
 
+    // Rest of methods remain the same...
     public static MessageEntity fromMessageModel(com.antor.nearbychat.MessageModel messageModel) {
         MessageEntity entity = new MessageEntity();
         entity.senderId = messageModel.getSenderId();
@@ -42,6 +48,8 @@ public class MessageEntity {
         entity.chunkCount = messageModel.getChunkCount();
         entity.messageId = messageModel.getMessageId();
         entity.timestampMillis = System.currentTimeMillis();
+        entity.isComplete = messageModel.isComplete();
+        entity.missingChunksJson = new com.google.gson.Gson().toJson(messageModel.getMissingChunks());
         return entity;
     }
 
@@ -51,6 +59,14 @@ public class MessageEntity {
         );
         model.setChunkCount(chunkCount);
         model.setMessageId(messageId);
+        model.setIsComplete(isComplete);
+        try {
+            java.lang.reflect.Type listType = new com.google.gson.reflect.TypeToken<java.util.List<Integer>>(){}.getType();
+            java.util.List<Integer> missingChunks = new com.google.gson.Gson().fromJson(missingChunksJson, listType);
+            model.setMissingChunks(missingChunks != null ? missingChunks : new java.util.ArrayList<>());
+        } catch (Exception e) {
+            model.setMissingChunks(new java.util.ArrayList<>());
+        }
         return model;
     }
 }

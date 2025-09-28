@@ -108,9 +108,9 @@ public class SettingsActivity extends BaseActivity {
     private void loadSettings() {
         Map<String, Integer> defaultValues = new HashMap<>();
         defaultValues.put("MAX_PAYLOAD_SIZE", 27);
-        defaultValues.put("ADVERTISING_DURATION_MS", 800);
-        defaultValues.put("DELAY_BETWEEN_CHUNKS_MS", 1000);
-        defaultValues.put("CHUNK_TIMEOUT_MS", 60000);
+        defaultValues.put("ADVERTISING_DURATION_MS", 1200);
+        defaultValues.put("DELAY_BETWEEN_CHUNKS_MS", 1500);
+        defaultValues.put("CHUNK_TIMEOUT_MS", 120000);
         defaultValues.put("CHUNK_CLEANUP_INTERVAL_MS", 10000);
         defaultValues.put("MAX_RECENT_MESSAGES", 1000);
         defaultValues.put("MAX_RECENT_CHUNKS", 2000);
@@ -189,9 +189,9 @@ public class SettingsActivity extends BaseActivity {
     private void resetToDefaults() {
         uuidEditablePart.setText("aaaa");
         settingInputs.get("MAX_PAYLOAD_SIZE").setText("27");
-        settingInputs.get("ADVERTISING_DURATION_MS").setText("800");
-        settingInputs.get("DELAY_BETWEEN_CHUNKS_MS").setText("1000");
-        settingInputs.get("CHUNK_TIMEOUT_MS").setText("60000");
+        settingInputs.get("ADVERTISING_DURATION_MS").setText("1200");
+        settingInputs.get("DELAY_BETWEEN_CHUNKS_MS").setText("1500");
+        settingInputs.get("CHUNK_TIMEOUT_MS").setText("120000");
         settingInputs.get("CHUNK_CLEANUP_INTERVAL_MS").setText("10000");
         settingInputs.get("MAX_RECENT_MESSAGES").setText("1000");
         settingInputs.get("MAX_RECENT_CHUNKS").setText("2000");
