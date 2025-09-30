@@ -1,3 +1,5 @@
+// Updated MessageEntity.java
+
 package com.antor.nearbychat.Database;
 
 import androidx.room.Entity;
@@ -21,12 +23,17 @@ public class MessageEntity {
     public boolean isComplete = true;
     public String missingChunksJson = "[]";
 
+    // Add fields for timestamp bits
+    public long senderTimestampBits = 0;
+    public long messageTimestampBits = 0;
+
     // Default constructor required by Room
     public MessageEntity() {}
 
     @androidx.room.Ignore
     public MessageEntity(String senderId, String message, boolean isSelf,
-                         String timestamp, int chunkCount, String messageId) {
+                         String timestamp, int chunkCount, String messageId,
+                         long senderTimestampBits, long messageTimestampBits) {
         this.senderId = senderId;
         this.message = message;
         this.isSelf = isSelf;
@@ -36,9 +43,10 @@ public class MessageEntity {
         this.timestampMillis = System.currentTimeMillis();
         this.isComplete = true;
         this.missingChunksJson = "[]";
+        this.senderTimestampBits = senderTimestampBits;
+        this.messageTimestampBits = messageTimestampBits;
     }
 
-    // Rest of methods remain the same...
     public static MessageEntity fromMessageModel(com.antor.nearbychat.MessageModel messageModel) {
         MessageEntity entity = new MessageEntity();
         entity.senderId = messageModel.getSenderId();
@@ -50,12 +58,14 @@ public class MessageEntity {
         entity.timestampMillis = System.currentTimeMillis();
         entity.isComplete = messageModel.isComplete();
         entity.missingChunksJson = new com.google.gson.Gson().toJson(messageModel.getMissingChunks());
+        entity.senderTimestampBits = messageModel.getSenderTimestampBits();
+        entity.messageTimestampBits = messageModel.getMessageTimestampBits();
         return entity;
     }
 
     public com.antor.nearbychat.MessageModel toMessageModel() {
         com.antor.nearbychat.MessageModel model = new com.antor.nearbychat.MessageModel(
-                senderId, message, isSelf, timestamp
+                senderId, message, isSelf, timestamp, senderTimestampBits, messageTimestampBits
         );
         model.setChunkCount(chunkCount);
         model.setMessageId(messageId);

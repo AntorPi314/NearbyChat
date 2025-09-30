@@ -701,21 +701,20 @@ public class MainActivity extends BaseActivity {
 
     public void onMessageClick(MessageModel messageModel) {
         if (!messageModel.isComplete() && bleService != null && isServiceBound) {
-            // MessageModel msg এর পরিবর্তে আমি messageModel ব্যবহার করছি, তবে আপনার msg ভ্যারিয়েবলটিও ঠিক।
             MessageModel msg = messageModel;
 
             List<Integer> missingChunks = msg.getMissingChunks();
             if (missingChunks != null && !missingChunks.isEmpty()) {
 
-                // FIX: এখানে msg.getSenderId() কে প্রথম আর্গুমেন্ট হিসেবে যোগ করা হলো।
+                // *** FIX: Add msg.getSenderId() as the first argument ***
                 bleService.sendMissingPartsRequest(
-                        msg.getSenderId(),          // ১. targetUserId (String)
-                        msg.getMessageId(),         // ২. messageId (String)
-                        missingChunks               // ৩. missingChunkIndices (List<Integer>)
+                        msg.getSenderId(),          // 1. targetUserId (String) - THIS WAS MISSING
+                        msg.getMessageId(),         // 2. messageId (String)
+                        missingChunks               // 3. missingChunkIndices (List<Integer>)
                 );
 
-                Toast.makeText(this, "Missing parts request sent for message: " + msg.getMessageId(), Toast.LENGTH_SHORT).show();
-                return;
+                Toast.makeText(this, "Requesting missing parts for message: " + msg.getMessageId(), Toast.LENGTH_SHORT).show();
+                // The return statement was redundant, but it's okay to keep it.
             }
         }
     }
@@ -724,6 +723,7 @@ public class MainActivity extends BaseActivity {
         try {
             List<String> options = new ArrayList<>();
             options.add("Copy");
+            options.add("Remove"); // *** ADD THIS ***
 
             if (msg.isSelf()) {
                 options.add("Resend");
@@ -744,6 +744,9 @@ public class MainActivity extends BaseActivity {
                             case "Copy":
                                 copyMessageToClipboard(msg);
                                 break;
+                            case "Remove": // *** ADD THIS CASE ***
+                                removeMessage(msg);
+                                break;
                             case "Resend":
                                 resendMyMessage(msg);
                                 break;
@@ -759,6 +762,22 @@ public class MainActivity extends BaseActivity {
         } catch (Exception e) {
             Log.e(TAG, "Error showing message options", e);
         }
+    }
+
+    private void removeMessage(MessageModel msg) {
+        new Thread(() -> {
+            try {
+                messageDao.deleteMessage(msg.getSenderId(), msg.getMessageId(), msg.getTimestamp());
+                runOnUiThread(() -> {
+                    Toast.makeText(this, "Message removed", Toast.LENGTH_SHORT).show();
+                });
+            } catch (Exception e) {
+                Log.e(TAG, "Error removing message", e);
+                runOnUiThread(() -> {
+                    Toast.makeText(this, "Error removing message", Toast.LENGTH_SHORT).show();
+                });
+            }
+        }).start();
     }
 
     private void requestMissingParts(MessageModel msg) {

@@ -1,3 +1,5 @@
+// Updated ChatAdapter.java with click listeners
+
 package com.antor.nearbychat;
 
 import android.content.Context;
@@ -6,9 +8,13 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageView;
 import android.widget.TextView;
+import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 
 public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder> {
 
@@ -16,6 +22,8 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
     private Context context;
     private final MessageClickListener clickListener;
     private final MessageClickListener longClickListener;
+
+    private static final char[] ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ123456".toCharArray();
 
     public interface MessageClickListener {
         void onClick(MessageModel msg);
@@ -51,18 +59,29 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
         if (holder.profilePic != null) {
             main.loadProfilePictureForAdapter(msg.getSenderId(), holder.profilePic);
 
-            // Add click listener to profile picture
+            // Click on profile picture to show account creation time
             holder.profilePic.setOnClickListener(v -> {
-                // Call the same method that's used for long click on messages
-                longClickListener.onClick(msg);
+                long fullTimestamp = reconstructFullTimestamp(msg.getSenderTimestampBits());
+                String formattedTime = formatTimestamp(fullTimestamp);
+                Toast.makeText(context, "Account Created at: " + formattedTime, Toast.LENGTH_LONG).show();
             });
         }
 
-        holder.itemView.setOnClickListener(v -> clickListener.onClick(msg));
-        holder.itemView.setOnLongClickListener(v -> {
+        // Click on timestamp to show message send time
+        holder.timestamp.setOnClickListener(v -> {
+            long fullTimestamp = reconstructFullTimestamp(msg.getMessageTimestampBits());
+            String formattedTime = formatTimestamp(fullTimestamp);
+            Toast.makeText(context, "Sent at: " + formattedTime, Toast.LENGTH_LONG).show();
+        });
+
+        // Only long click on message text triggers options
+        holder.message.setOnLongClickListener(v -> {
             longClickListener.onClick(msg);
             return true;
         });
+
+        // Regular click on message (for incomplete messages)
+        holder.message.setOnClickListener(v -> clickListener.onClick(msg));
     }
 
     @Override
@@ -73,6 +92,18 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
     @Override
     public int getItemViewType(int position) {
         return messageList.get(position).isSelf() ? 1 : 0;
+    }
+
+    // Helper methods
+    private long reconstructFullTimestamp(long timestampBits40) {
+        long currentMs = System.currentTimeMillis();
+        long currentHigh = currentMs & ~((1L << 40) - 1);
+        return currentHigh | timestampBits40;
+    }
+
+    private String formatTimestamp(long timestampMs) {
+        SimpleDateFormat sdf = new SimpleDateFormat("hh:mm a | dd-MM-yyyy", Locale.getDefault());
+        return sdf.format(new Date(timestampMs));
     }
 
     static class ChatViewHolder extends RecyclerView.ViewHolder {

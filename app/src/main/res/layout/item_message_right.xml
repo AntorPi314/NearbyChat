@@ -9,7 +9,7 @@
         android:id="@+id/textTimestamp"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="14:31  |  03-09-2025"
+        android:text="10:31 PM | 03-09-2025 | 1C"
         android:textSize="10sp"
         android:textColor="#888888"
         android:gravity="center"

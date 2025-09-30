@@ -14,6 +14,20 @@ public interface MessageDao {
     @Insert
     void insertMessage(com.antor.nearbychat.Database.MessageEntity message);
 
+    @Query("DELETE FROM messages WHERE senderId = :senderId AND messageId = :messageId")
+    void deletePartialMessage(String senderId, String messageId);
+
+    @Query("SELECT COUNT(*) FROM messages WHERE senderId = :senderId AND messageId = :messageId AND isComplete = 0")
+    int partialMessageExists(String senderId, String messageId);
+
+    @Query("UPDATE messages SET message = :newMessage WHERE senderId = :senderId AND messageId = :messageId AND isComplete = 0")
+    void updatePartialMessage(String senderId, String messageId, String newMessage);
+
+    @Query("DELETE FROM messages WHERE senderId = :senderId AND messageId = :messageId AND timestamp = :timestamp")
+    void deleteMessage(String senderId, String messageId, String timestamp);
+
+
+
     @Query("SELECT * FROM messages ORDER BY timestampMillis ASC")
     LiveData<List<MessageEntity>> getAllMessagesLive();
 

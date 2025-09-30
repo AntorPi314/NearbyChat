@@ -1,27 +1,43 @@
+// Updated MessageModel.java
+
 package com.antor.nearbychat;
 
 import java.util.ArrayList;
 import java.util.List;
 
 public class MessageModel {
-    private String senderId;
+    private String senderId; // 8-character display format
     private String message;
     private boolean isSelf;
     private String timestamp;
     private int chunkCount = 1;
-    private String messageId;
+    private String messageId; // 8-character display format
     private boolean isComplete = true;
     private List<Integer> missingChunks = new ArrayList<>();
+
+    // Store timestamp bits for reconstruction
+    private long senderTimestampBits = 0;
+    private long messageTimestampBits = 0;
 
     public MessageModel(String senderId, String message, boolean isSelf, String timestamp) {
         this.senderId = senderId;
         this.message = message;
         this.isSelf = isSelf;
         this.timestamp = timestamp;
-        this.messageId = extractMessageIdFromTimestamp(timestamp);
     }
 
-    // Existing getters and setters...
+    // New constructor with timestamp bits
+    public MessageModel(String senderId, String message, boolean isSelf, String timestamp,
+                        long senderTimestampBits, long messageTimestampBits) {
+        this.senderId = senderId;
+        this.message = message;
+        this.isSelf = isSelf;
+        this.timestamp = timestamp;
+        this.senderTimestampBits = senderTimestampBits;
+        this.messageTimestampBits = messageTimestampBits;
+    }
+
+    // Existing getters and setters
     public String getMessageId() { return messageId; }
     public void setMessageId(String messageId) { this.messageId = messageId; }
     public String getSenderId() { return senderId; }
@@ -30,12 +46,16 @@ public class MessageModel {
     public String getTimestamp() { return timestamp; }
     public int getChunkCount() { return chunkCount; }
     public void setChunkCount(int chunkCount) { this.chunkCount = chunkCount; }
-
-    // New methods for incomplete messages
     public boolean isComplete() { return isComplete; }
     public void setIsComplete(boolean isComplete) { this.isComplete = isComplete; }
     public List<Integer> getMissingChunks() { return missingChunks; }
     public void setMissingChunks(List<Integer> missingChunks) { this.missingChunks = missingChunks; }
+
+    // New getters/setters for timestamp bits
+    public long getSenderTimestampBits() { return senderTimestampBits; }
+    public void setSenderTimestampBits(long bits) { this.senderTimestampBits = bits; }
+    public long getMessageTimestampBits() { return messageTimestampBits; }
+    public void setMessageTimestampBits(long bits) { this.messageTimestampBits = bits; }
 
     private String extractMessageIdFromTimestamp(String timestamp) {
         return null;
