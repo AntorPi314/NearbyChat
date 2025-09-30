@@ -8,6 +8,7 @@ import android.content.ClipboardManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.widget.LinearLayout;
 import android.content.ServiceConnection;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
@@ -40,6 +41,7 @@ import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
+import androidx.annotation.NonNull;
 
 import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
@@ -52,7 +54,6 @@ import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 
 import java.lang.reflect.Type;
-import java.text.SimpleDateFormat;
 import java.util.*;
 
 public class MainActivity extends BaseActivity {
@@ -62,15 +63,30 @@ public class MainActivity extends BaseActivity {
     private static final int REQUEST_BATTERY_OPTIMIZATION = 103;
     private static final int REQUEST_STORAGE_PERMISSION = 202;
     private static final int REQUEST_CAMERA_PERMISSION = 203;
+    private static final int REQUEST_CODE_SELECT_CHAT = 104;
     private static final int REQUEST_GALLERY = 200;
     private static final int REQUEST_CAMERA = 201;
     private static final String TAG = "NearbyChatMain";
+
+    // ADD new constants for SharedPreferences
+    private static final String PREFS_ACTIVE_CHAT = "ActiveChatInfo";
+    private static final String KEY_CHAT_TYPE = "chatType";
+    private static final String KEY_CHAT_ID = "chatId";
+
+    // Member variables to hold the current chat state
+    private String activeChatType = "N";
+    private String activeChatId = "";
 
     private EditText inputMessage;
     private RecyclerView recyclerView;
     private ChatAdapter chatAdapter;
     private TextView textStatus;
     private List<MessageModel> messageList = new ArrayList<>();
+
+    private ImageView appIcon; // Add variable for app icon
+    private TextView appTitle;
+
+    private SharedPreferences prefs;
 
     private BleMessagingService bleService;
     private boolean isServiceBound = false;
@@ -125,6 +141,10 @@ public class MainActivity extends BaseActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        prefs = getSharedPreferences("ActiveChatInfo", MODE_PRIVATE);
+
+        loadActiveChat();
+
         mainHandler = new Handler(Looper.getMainLooper());
         setupUI();
         initializeData();
@@ -152,14 +172,18 @@ public class MainActivity extends BaseActivity {
         recyclerView.setLayoutManager(new LinearLayoutManager(this));
         recyclerView.setAdapter(chatAdapter);
 
+        appIcon = findViewById(R.id.appIcon); // Initialize
+        appTitle = findViewById(R.id.appTitle); // Initialize
+
         findViewById(R.id.sendButton).setOnClickListener(this::onSendButtonClick);
         setupAppIconClick();
 
-        ImageView appIcon = findViewById(R.id.appIcon);
-        appIcon.setOnClickListener(v -> startActivity(new Intent(this, GroupsActivity.class)));
-
-        TextView appTitle = findViewById(R.id.appTitle);
-        appTitle.setOnClickListener(v -> startActivity(new Intent(this, GroupsActivity.class)));
+        LinearLayout titleContainer = findViewById(R.id.titleContainer);
+        titleContainer.setOnClickListener(v -> {
+            Intent intent = new Intent(this, GroupsFriendsActivity.class);
+            startActivityForResult(intent, REQUEST_CODE_SELECT_CHAT);
+        });
+        updateChatUIForSelection();
     }
 
     private void setupAppIconClick() {
@@ -167,11 +191,72 @@ public class MainActivity extends BaseActivity {
         threeDotIcon.setOnClickListener(v -> showAccountDialog());
     }
 
+    private void updateChatUIForSelection() {
+        if ("N".equals(activeChatType)) {
+            appTitle.setText("Nearby Chat");
+            appIcon.setImageResource(R.drawable.nearby);
+        } else if ("G".equals(activeChatType)) {
+            // Load group name from SharedPreferences
+            SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+            String groupsJson = prefs.getString("groupsList", null);
+            if (groupsJson != null) {
+                Type type = new TypeToken<List<GroupModel>>(){}.getType();
+                List<GroupModel> groups = new Gson().fromJson(groupsJson, type);
+                for (GroupModel g : groups) {
+                    if (g.getId().equals(activeChatId)) {
+                        appTitle.setText(g.getName());
+                        break;
+                    }
+                }
+            }
+            appIcon.setImageResource(R.drawable.profile_pic_round_vector);
+        } else if ("F".equals(activeChatType)) {
+            // Load friend name - convert ASCII to display ID first
+            long bits = 0;
+            if (activeChatId.length() == 5) {
+                for (int i = 0; i < 5; i++) {
+                    bits = (bits << 8) | (activeChatId.charAt(i) & 0xFF);
+                }
+            }
+            String displayId = getUserIdString(bits);
+
+            SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+            String friendsJson = prefs.getString("friendsList", null);
+            if (friendsJson != null) {
+                Type type = new TypeToken<List<FriendModel>>(){}.getType();
+                List<FriendModel> friends = new Gson().fromJson(friendsJson, type);
+                for (FriendModel f : friends) {
+                    if (f.getDisplayId().equals(displayId)) {
+                        appTitle.setText(f.getName());
+                        break;
+                    }
+                }
+            }
+            appIcon.setImageResource(R.drawable.profile_pic_round_vector);
+        }
+        setupDatabase(); // Reload messages for new chat
+    }
+
+    private void loadActiveChat() {
+        SharedPreferences prefs = getSharedPreferences(PREFS_ACTIVE_CHAT, MODE_PRIVATE);
+        activeChatType = prefs.getString(KEY_CHAT_TYPE, "N");
+        activeChatId = prefs.getString(KEY_CHAT_ID, "");
+    }
+
+    private void saveActiveChat() {
+        SharedPreferences prefs = getSharedPreferences(PREFS_ACTIVE_CHAT, MODE_PRIVATE);
+        prefs.edit()
+                .putString(KEY_CHAT_TYPE, activeChatType)
+                .putString(KEY_CHAT_ID, activeChatId)
+                .apply();
+    }
+
     private void setupDatabase() {
         database = AppDatabase.getInstance(this);
         messageDao = database.messageDao();
 
-        messageDao.getAllMessagesLive().observe(this, messages -> {
+        // Observe filtered messages for current chat
+        messageDao.getMessagesForChat(activeChatType, activeChatId).observe(this, messages -> {
             if (messages != null) {
                 messageList.clear();
                 for (com.antor.nearbychat.Database.MessageEntity entity : messages) {
@@ -202,9 +287,9 @@ public class MainActivity extends BaseActivity {
 
         TextView textID = dialog.findViewById(R.id.textID);
         ImageView profilePic = dialog.findViewById(R.id.profilePicRound);
-        Button friendsBtn = dialog.findViewById(R.id.id_friends);
-        Button groupsBtn = dialog.findViewById(R.id.id_groups);
+        Button notepadBtn = dialog.findViewById(R.id.id_notepad);
         Button settingsBtn = dialog.findViewById(R.id.id_settings);
+        Button supportDevBtn = dialog.findViewById(R.id.id_support_dev);
         Button aboutBtn = dialog.findViewById(R.id.id_about);
         Button restartBtn = dialog.findViewById(R.id.id_restart_app);
 
@@ -217,19 +302,19 @@ public class MainActivity extends BaseActivity {
             showImagePickerDialog(userId, profilePic);
         });
 
-        friendsBtn.setOnClickListener(v -> {
+        notepadBtn.setOnClickListener(v -> {
             dialog.dismiss();
-            startActivity(new Intent(this, FriendsActivity.class));
-        });
-
-        groupsBtn.setOnClickListener(v -> {
-            dialog.dismiss();
-            startActivity(new Intent(this, GroupsActivity.class));
+            startActivity(new Intent(this, NotepadActivity.class));
         });
 
         settingsBtn.setOnClickListener(v -> {
             dialog.dismiss();
             startActivity(new Intent(this, SettingsActivity.class));
+        });
+
+        supportDevBtn.setOnClickListener(v -> {
+            dialog.dismiss();
+            startActivity(new Intent(this, SupportDevActivity.class));
         });
 
         aboutBtn.setOnClickListener(v -> {
@@ -554,12 +639,16 @@ public class MainActivity extends BaseActivity {
             return;
         }
 
+        // Create 6-char header: 1 char chatType + 5 char chatId (padded/trimmed)
+        String paddedChatId = String.format("%-5s", activeChatId).substring(0, 5);
+        String messageWithHeader = activeChatType + paddedChatId + msg;
+
         if (isServiceBound && bleService != null) {
-            bleService.sendMessageInChunks(msg);
+            bleService.sendMessageInChunks(messageWithHeader);
             inputMessage.setText("");
         } else {
             Intent serviceIntent = new Intent(this, BleMessagingService.class);
-            serviceIntent.putExtra("message_to_send", msg);
+            serviceIntent.putExtra("message_to_send", messageWithHeader);
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 startForegroundService(serviceIntent);
@@ -569,7 +658,6 @@ public class MainActivity extends BaseActivity {
             inputMessage.setText("");
         }
     }
-
     private boolean validateBluetoothAndService() {
         if (bluetoothAdapter == null) {
             Toast.makeText(this, "Bluetooth not supported", Toast.LENGTH_LONG).show();
@@ -599,6 +687,15 @@ public class MainActivity extends BaseActivity {
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
 
+        if (requestCode == REQUEST_CODE_SELECT_CHAT && resultCode == RESULT_OK) {
+            if (data != null) {
+                activeChatType = data.getStringExtra("chatType");
+                activeChatId = data.getStringExtra("chatId");
+                saveActiveChat();
+                updateChatUIForSelection();
+            }
+            return; // Exit after handling
+        }
         if (requestCode == REQUEST_ENABLE_LOCATION) {
             if (isLocationEnabled()) {
                 requestAllPermissions();
@@ -1140,6 +1237,9 @@ public class MainActivity extends BaseActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        // Use the correct variable names: 'activeChatType' and 'activeChatId'
+        activeChatType = prefs.getString("chatType", "N");
+        activeChatId = prefs.getString("chatId", "");
 
         // Only try to start service if Bluetooth is enabled AND all permissions are granted
         if (bluetoothAdapter != null && bluetoothAdapter.isEnabled() && hasAllRequiredPermissions()) {

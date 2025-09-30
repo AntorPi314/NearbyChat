@@ -16,6 +16,7 @@ materialVersion = "1.13.0"
 recyclerview = "1.4.0"
 roomRuntime = "2.7.2"
 roomRuntimeVersion = "2.6.0"
+activityVersion = "1.11.0"
 
 [libraries]
 cardview = { module = "androidx.cardview:cardview", version.ref = "cardview" }
@@ -36,6 +37,7 @@ room-compiler = { module = "androidx.room:room-compiler", version.ref = "roomRun
 room-ktx = { module = "androidx.room:room-ktx", version.ref = "roomRuntimeVersion" }
 room-runtime = { module = "androidx.room:room-runtime", version.ref = "roomRuntime" }
 room-runtime-v260 = { module = "androidx.room:room-runtime", version.ref = "roomRuntimeVersion" }
+androidx-activity = { group = "androidx.activity", name = "activity", version.ref = "activityVersion" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

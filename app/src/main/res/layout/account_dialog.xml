@@ -15,18 +15,21 @@
         android:layout_height="wrap_content"
         android:gravity="center_horizontal"
         android:orientation="vertical"
-        android:padding="20dp">
+        android:paddingTop="12dp"
+        android:paddingStart="22dp"
+        android:paddingEnd="22dp"
+        android:paddingBottom="12dp">
 
         <!-- Profile Image -->
         <ImageView
             android:id="@+id/profilePicRound"
-            android:layout_width="70dp"
-            android:layout_height="70dp"
+            android:layout_width="60dp"
+            android:layout_height="60dp"
             android:layout_marginTop="8dp"
-            android:layout_marginBottom="12dp"
+            android:layout_marginBottom="4dp"
             android:background="@drawable/circle_bg"
             android:contentDescription="Profile Picture"
-            android:padding="4dp"
+            android:padding="0dp"
             android:src="@drawable/profile_pic_round_vector" />
 
         <!-- Title -->
@@ -36,46 +39,54 @@
             android:id="@+id/textID"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
             android:text="YOUR_ID/Name"
-            android:textColor="@android:color/black"
-            android:textSize="16sp"
+            android:textColor="#7A6F6F"
+            android:textSize="14sp"
             android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="#000000"
+            android:textStyle="bold"
+            android:textSize="10sp"
+            android:text="🇵🇸  Free Palestine"/>
 
 
         <Button
-            android:id="@+id/id_friends"
+            android:id="@+id/id_notepad"
             android:layout_width="match_parent"
             android:layout_height="40dp"
             android:layout_marginBottom="12dp"
             android:background="@drawable/btn_bg_round"
-            android:drawableStart="@drawable/ic_friends"
+            android:drawableStart="@drawable/ic_notepad"
             android:drawablePadding="12dp"
             android:gravity="center|start"
             android:paddingStart="12dp"
             android:paddingTop="8dp"
             android:paddingEnd="8dp"
             android:paddingBottom="8dp"
-            android:text="Friends"
+            android:layout_marginTop="16dp"
+            android:text="Notepad"
             android:textAllCaps="false"
             android:textColor="#EFE7E7" />
 
-        <Button
-            android:id="@+id/id_groups"
-            android:layout_width="match_parent"
-            android:layout_height="40dp"
-            android:layout_marginBottom="12dp"
-            android:background="@drawable/btn_bg_round"
-            android:drawableStart="@drawable/ic_group"
-            android:drawablePadding="6dp"
-            android:gravity="center|start"
-            android:paddingStart="12dp"
-            android:paddingTop="8dp"
-            android:paddingEnd="8dp"
-            android:paddingBottom="8dp"
-            android:text="Groups"
-            android:textAllCaps="false"
-            android:textColor="#EFE7E7" />
+<!--        <Button-->
+<!--            android:id="@+id/id_groups"-->
+<!--            android:layout_width="match_parent"-->
+<!--            android:layout_height="40dp"-->
+<!--            android:layout_marginBottom="12dp"-->
+<!--            android:background="@drawable/btn_bg_round"-->
+<!--            android:drawableStart="@drawable/ic_group"-->
+<!--            android:drawablePadding="6dp"-->
+<!--            android:gravity="center|start"-->
+<!--            android:paddingStart="12dp"-->
+<!--            android:paddingTop="8dp"-->
+<!--            android:paddingEnd="8dp"-->
+<!--            android:paddingBottom="8dp"-->
+<!--            android:text="Groups"-->
+<!--            android:textAllCaps="false"-->
+<!--            android:textColor="#EFE7E7" />-->
 
         <Button
             android:id="@+id/id_settings"
@@ -92,6 +103,23 @@
             android:paddingEnd="8dp"
             android:paddingBottom="8dp"
             android:text="Settings"
+            android:textAllCaps="false"
+            android:textColor="#EFE7E7" />
+
+        <Button
+            android:id="@+id/id_support_dev"
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:layout_marginBottom="12dp"
+            android:background="@drawable/btn_bg_round"
+            android:drawableStart="@drawable/ic_support_dev"
+            android:drawablePadding="9dp"
+            android:gravity="center|start"
+            android:paddingStart="12dp"
+            android:paddingTop="8dp"
+            android:paddingEnd="8dp"
+            android:paddingBottom="8dp"
+            android:text="Support Developer"
             android:textAllCaps="false"
             android:textColor="#EFE7E7" />
 
@@ -128,6 +156,8 @@
             android:text="Restart App"
             android:textAllCaps="false"
             android:textColor="#EFE7E7" />
+
+
 
 
     </LinearLayout>

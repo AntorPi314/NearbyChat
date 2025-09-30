@@ -11,6 +11,9 @@ import java.util.List;
 @Dao
 public interface MessageDao {
 
+    @Query("SELECT * FROM messages WHERE chatType = :chatType AND chatId = :chatId ORDER BY timestampMillis ASC")
+    LiveData<List<MessageEntity>> getMessagesForChat(String chatType, String chatId);
+
     @Insert
     void insertMessage(com.antor.nearbychat.Database.MessageEntity message);
 

@@ -194,7 +194,7 @@ public class BleMessagingService extends Service {
         return sb.reverse().toString();
     }
 
-    private String timestampToAsciiId(long timestamp) {
+    public static String timestampToAsciiId(long timestamp) {
         long bits40 = timestamp & ((1L << 40) - 1);
         StringBuilder sb = new StringBuilder();
         for (int i = 4; i >= 0; i--) {
@@ -213,7 +213,7 @@ public class BleMessagingService extends Service {
         return bits40;
     }
 
-    private long displayIdToTimestamp(String displayId) {
+    public static long displayIdToTimestamp(String displayId) {
         if (displayId.length() != 8) return 0;
         long bits40 = 0;
         for (int i = 0; i < 8; i++) {
@@ -238,7 +238,7 @@ public class BleMessagingService extends Service {
     }
 
     private String formatTimestamp(long timestampMs) {
-        SimpleDateFormat sdf = new SimpleDateFormat("hh:mm a | dd-MM-yyyy", Locale.getDefault());
+        SimpleDateFormat sdf = new SimpleDateFormat("hh:mm:ss a | dd-MM-yyyy", Locale.getDefault());
         return sdf.format(new Date(timestampMs));
     }
 
@@ -641,13 +641,13 @@ public class BleMessagingService extends Service {
 
     // ADD this method:
     private void restartScanning() {
-        resetBleState();
+        Log.d(TAG, "Restarting scanning...");
         stopScanning();
         mainHandler.postDelayed(() -> {
             if (!isScanning) {
                 startScanning();
             }
-        }, 2000);
+        }, 1000); // Increased delay to 1 second
     }
 
     private void initializeData() {
@@ -800,13 +800,31 @@ public class BleMessagingService extends Service {
     private void handleScanResult(ScanResult result) {
         try {
             ScanRecord record = result.getScanRecord();
-            if (record == null) return;
+            if (record == null) {
+                Log.d(TAG, "Scan record is null");
+                return;
+            }
 
             Map<ParcelUuid, byte[]> serviceData = record.getServiceData();
-            if (serviceData == null) return;
+            if (serviceData == null) {
+                Log.d(TAG, "Service data is null");
+                return;
+            }
 
             byte[] data = serviceData.get(new ParcelUuid(SERVICE_UUID));
-            if (data == null || data.length < 12) return; // Updated minimum length
+            if (data == null) {
+                Log.d(TAG, "No data for our service UUID");
+                return;
+            }
+
+            if (data.length < 12) {
+                Log.d(TAG, "Data too short: " + data.length + " bytes");
+                return;
+            }
+
+            Log.d(TAG, "=== RECEIVED BLE DATA ===");
+            Log.d(TAG, "Data length: " + data.length + " bytes");
+            Log.d(TAG, "Processing message...");
 
             mainHandler.post(() -> processReceivedMessage(data));
 
@@ -814,6 +832,9 @@ public class BleMessagingService extends Service {
             Log.e(TAG, "Error handling scan result", e);
         }
     }
+
+    // Replace the entire processReceivedMessage method in BleMessagingService.java
+// Starting around line 749
 
     private void processReceivedMessage(byte[] receivedData) {
         try {
@@ -825,15 +846,14 @@ public class BleMessagingService extends Service {
                 updateNotification("", true);
             }, 2000);
 
-            // Extract ASCII user ID (5 bytes)
+            // Extract user ID and message ID (10 bytes total)
             String asciiUserId = new String(receivedData, 0, 5, StandardCharsets.ISO_8859_1);
             long userIdBits40 = asciiIdToTimestamp(asciiUserId);
-            String displayUserId = timestampToDisplayId(userIdBits40); // Convert to 8-char display
+            String displayUserId = timestampToDisplayId(userIdBits40);
 
-            // Extract ASCII message ID (5 bytes)
             String asciiMessageId = new String(receivedData, 5, 5, StandardCharsets.ISO_8859_1);
             long messageIdBits40 = asciiIdToTimestamp(asciiMessageId);
-            String displayMessageId = timestampToDisplayId(messageIdBits40); // Convert to 8-char display
+            String displayMessageId = timestampToDisplayId(messageIdBits40);
 
             int chunkIndex = receivedData[10] & 0xFF;
             int totalChunks = receivedData[11] & 0xFF;
@@ -853,16 +873,25 @@ public class BleMessagingService extends Service {
                 return;
             }
 
-            // Rest of the logic remains similar, but use displayUserId and displayMessageId
-            // for database storage and UI display
-
+            // Handle single-chunk messages
             if (totalChunks == 1) {
-                String message = new String(chunkDataBytes, StandardCharsets.UTF_8);
+                String fullData = new String(chunkDataBytes, StandardCharsets.UTF_8);
+
+                // Parse 6-char header: 1 char type + 5 char ID
+                String chatType = "N";
+                String chatId = "";
+                String actualMessage = fullData;
+
+                if (fullData.length() >= 6) {
+                    chatType = fullData.substring(0, 1);
+                    chatId = fullData.substring(1, 6).trim(); // Trim padding spaces
+                    actualMessage = fullData.substring(6);
+                }
 
                 String chunkKey = displayUserId + "_" + displayMessageId + "_0";
                 synchronized (receivedMessages) {
                     if (receivedMessages.contains(chunkKey)) {
-                        Log.d(TAG, "Duplicate message received: " + chunkKey);
+                        Log.d(TAG, "Duplicate message");
                         return;
                     }
                     receivedMessages.add(chunkKey);
@@ -871,7 +900,7 @@ public class BleMessagingService extends Service {
 
                 MessageModel newMsg = new MessageModel(
                         displayUserId,
-                        message,
+                        actualMessage,
                         false,
                         getCurrentTimestamp(1),
                         userIdBits40,
@@ -879,14 +908,16 @@ public class BleMessagingService extends Service {
                 );
                 newMsg.setMessageId(displayMessageId);
                 newMsg.setIsComplete(true);
+                newMsg.setChatType(chatType);
+                newMsg.setChatId(chatId);
                 addMessage(newMsg);
                 Log.d(TAG, "Single message received from " + displayUserId);
             } else {
-                // Multi-chunk handling (similar updates needed)
+                // Multi-chunk handling
                 String chunkKey = displayUserId + "_" + displayMessageId + "_" + chunkIndex;
                 synchronized (receivedMessages) {
                     if (receivedMessages.contains(chunkKey)) {
-                        Log.d(TAG, "Duplicate chunk received: " + chunkKey);
+                        Log.d(TAG, "Duplicate chunk");
                         return;
                     }
                     receivedMessages.add(chunkKey);
@@ -1026,15 +1057,24 @@ public class BleMessagingService extends Service {
             }
 
             if (reassembler.isComplete()) {
-                String fullMessage = reassembler.reassemble();
-                if (fullMessage != null) {
-                    // *** DELETE THE PARTIAL MESSAGE FIRST ***
+                String fullData = reassembler.reassemble();
+                if (fullData != null) {
+                    // Parse 6-char header from complete message
+                    String chatType = "N";
+                    String chatId = "";
+                    String actualMessage = fullData;
+
+                    if (fullData.length() >= 6) {
+                        chatType = fullData.substring(0, 1);
+                        chatId = fullData.substring(1, 6).trim();
+                        actualMessage = fullData.substring(6);
+                    }
+
                     deletePartialMessage(senderId, messageId);
 
-                    // Then add the complete message
                     MessageModel newMsg = new MessageModel(
                             senderId,
-                            fullMessage,
+                            actualMessage,
                             false,
                             getCurrentTimestamp(totalChunks, messageTimestampBits),
                             senderTimestampBits,
@@ -1042,8 +1082,10 @@ public class BleMessagingService extends Service {
                     );
                     newMsg.setMessageId(messageId);
                     newMsg.setIsComplete(true);
+                    newMsg.setChatType(chatType);
+                    newMsg.setChatId(chatId);
                     addMessage(newMsg);
-                    Log.d(TAG, "Complete message assembled from " + senderId);
+                    Log.d(TAG, "Complete message assembled");
                 }
                 reassemblers.remove(reassemblerKey);
             } else {
@@ -1054,10 +1096,20 @@ public class BleMessagingService extends Service {
                 if (shouldShowPartial) {
                     String partialMessage = reassembler.getPartialMessage();
                     if (partialMessage != null && !partialMessage.isEmpty()) {
-                        // *** CHECK IF PARTIAL ALREADY EXISTS, UPDATE IT ***
+
+                        // Parse header from partial if possible
+                        String chatType = "N";
+                        String chatId = "";
+
+                        if (partialMessage.length() >= 6) {
+                            chatType = partialMessage.substring(0, 1);
+                            chatId = partialMessage.substring(1, 6).trim();
+                            partialMessage = partialMessage.substring(6);
+                        }
+
                         updateOrAddPartialMessage(senderId, messageId, partialMessage,
                                 totalChunks, messageTimestampBits, senderTimestampBits,
-                                reassembler.getMissingChunks());
+                                reassembler.getMissingChunks(), chatType, chatId);
                     }
                 }
             }
@@ -1076,7 +1128,8 @@ public class BleMessagingService extends Service {
 
     private void updateOrAddPartialMessage(String senderId, String messageId, String partialMessage,
                                            int totalChunks, long messageTimestampBits,
-                                           long senderTimestampBits, List<Integer> missingChunks) {
+                                           long senderTimestampBits, List<Integer> missingChunks,
+                                           String chatType, String chatId) {
         new Thread(() -> {
             try {
                 // Check if partial message exists
@@ -1096,6 +1149,8 @@ public class BleMessagingService extends Service {
                     partialMsg.setMessageId(messageId);
                     partialMsg.setIsComplete(false);
                     partialMsg.setMissingChunks(missingChunks);
+                    partialMsg.setChatType(chatType);
+                    partialMsg.setChatId(chatId);
 
                     com.antor.nearbychat.Database.MessageEntity entity =
                             com.antor.nearbychat.Database.MessageEntity.fromMessageModel(partialMsg);
@@ -1106,15 +1161,6 @@ public class BleMessagingService extends Service {
             }
         }).start();
     }
-
-    public void requestMissingParts(String messageId, List<Integer> missingChunks) {
-        requestMissingParts(messageId, missingChunks);
-    }
-
-
-
-
-
 
     public void sendMissingPartsRequest(String targetUserId, String messageId, List<Integer> missingChunkIndices) {
         if (targetUserId == null || targetUserId.length() != USER_ID_LENGTH ||
@@ -1217,28 +1263,49 @@ public class BleMessagingService extends Service {
         return missing;
     }
 
-    public void sendMessageInChunks(String message) {
+    public void sendMessageInChunks(String messageWithHeader) {
         try {
+            Log.d(TAG, "=== SENDING MESSAGE ===");
+            Log.d(TAG, "Full message with header (length " + messageWithHeader.length() + "): " + messageWithHeader);
+
             isSending = true;
             updateNotification("", true);
+
+            if (messageWithHeader.length() < 6) {
+                Log.e(TAG, "Invalid message format, header missing.");
+                isSending = false;
+                return;
+            }
+
+            String chatType = messageWithHeader.substring(0, 1);
+            String chatId = messageWithHeader.substring(1, 6).trim();
+            String actualMessage = messageWithHeader.substring(6);
+
+            Log.d(TAG, "Chat Type: " + chatType);
+            Log.d(TAG, "Chat ID: [" + chatId + "]");
+            Log.d(TAG, "Actual Message: " + actualMessage);
 
             String messageId = generateMessageId();
             long currentTime = System.currentTimeMillis();
             long messageIdBits40 = currentTime & ((1L << 40) - 1);
 
-            byte[] messageBytes = message.getBytes(StandardCharsets.UTF_8);
+            byte[] messageBytes = messageWithHeader.getBytes(StandardCharsets.UTF_8); // Send FULL message with header
             List<byte[]> safeChunks = createSafeUtf8Chunks(messageBytes, MAX_CHUNK_DATA_SIZE);
             int totalChunks = safeChunks.size();
 
+            Log.d(TAG, "Total chunks to send: " + totalChunks);
+
             MessageModel sentMsg = new MessageModel(
                     userId,
-                    message,
+                    actualMessage,
                     true,
                     getCurrentTimestamp(totalChunks, messageIdBits40),
                     userIdBits,
                     messageIdBits40
             );
-            sentMsg.setMessageId(timestampToDisplayId(messageIdBits40)); // Set display ID
+            sentMsg.setMessageId(timestampToDisplayId(messageIdBits40));
+            sentMsg.setChatType(chatType);
+            sentMsg.setChatId(chatId);
             addMessage(sentMsg);
 
             Log.d(TAG, "Sending message in " + totalChunks + " chunks with UUID: " + SERVICE_UUID.toString());
@@ -1249,17 +1316,19 @@ public class BleMessagingService extends Service {
                     try {
                         byte[] chunkData = safeChunks.get(chunkIndex);
                         byte[] chunkPayload = createChunkPayload(messageId, chunkIndex, totalChunks, chunkData);
+                        Log.d(TAG, "Sending chunk " + chunkIndex + "/" + totalChunks + " (size: " + chunkPayload.length + " bytes)");
                         updateAdvertisingData(chunkPayload);
 
                         if (chunkIndex == totalChunks - 1) {
                             mainHandler.postDelayed(() -> {
                                 isSending = false;
                                 updateNotification("", true);
+                                Log.d(TAG, "All chunks sent, restarting scanning");
                                 restartScanning();
-                            }, ADVERTISING_DURATION_MS + 500);
+                            }, ADVERTISING_DURATION_MS + 1000);
                         }
                     } catch (Exception e) {
-                        Log.e(TAG, "Error sending chunk", e);
+                        Log.e(TAG, "Error sending chunk " + chunkIndex, e);
                     }
                 }, i * DELAY_BETWEEN_CHUNKS_MS);
             }
@@ -1306,6 +1375,16 @@ public class BleMessagingService extends Service {
                 return;
             }
 
+            // Stop any existing advertising first
+            if (isAdvertising && advertiseCallback != null) {
+                try {
+                    advertiser.stopAdvertising(advertiseCallback);
+                    isAdvertising = false;
+                } catch (Exception e) {
+                    Log.e(TAG, "Error stopping previous advertising", e);
+                }
+            }
+
             AdvertiseData data = new AdvertiseData.Builder()
                     .addServiceData(new ParcelUuid(SERVICE_UUID), payload)
                     .build();
@@ -1315,14 +1394,14 @@ public class BleMessagingService extends Service {
                 public void onStartSuccess(AdvertiseSettings settingsInEffect) {
                     isAdvertising = true;
                     lastAdvertiseSuccessful = true;
-                    Log.d(TAG, "Advertise success");
+                    Log.d(TAG, "Advertise success for payload size: " + payload.length);
                 }
 
                 @Override
                 public void onStartFailure(int errorCode) {
                     isAdvertising = false;
                     lastAdvertiseSuccessful = false;
-                    Log.w(TAG, "Advertise failed: " + errorCode);
+                    Log.e(TAG, "Advertise failed with error: " + errorCode);
                 }
             };
 
@@ -1338,16 +1417,16 @@ public class BleMessagingService extends Service {
                         advertiseCallback
                 );
 
-                // ADD timeout for advertising
+                // Stop advertising after timeout
                 mainHandler.postDelayed(() -> {
                     if (isAdvertising) {
                         stopAdvertising();
                         isAdvertising = false;
                     }
-                }, ADVERTISING_DURATION_MS + 1000);
+                }, ADVERTISING_DURATION_MS + 500);
 
             } catch (SecurityException e) {
-                Log.e(TAG, "SecurityException when starting advertising - missing permissions", e);
+                Log.e(TAG, "SecurityException when starting advertising", e);
             }
 
         } catch (Exception e) {
@@ -1536,13 +1615,13 @@ public class BleMessagingService extends Service {
 
     private String getCurrentTimestamp(int chunkCount, long messageIdBits40) {
         long fullTimestamp = reconstructFullTimestamp(messageIdBits40);
-        SimpleDateFormat sdf = new SimpleDateFormat("hh:mm a | dd-MM-yyyy", Locale.getDefault());
+        SimpleDateFormat sdf = new SimpleDateFormat("hh:mm:ss a | dd-MM-yyyy", Locale.getDefault());
         String baseTime = sdf.format(new Date(fullTimestamp));
         return baseTime + " | " + chunkCount + "C";
     }
 
     private String getCurrentTimestamp(int chunkCount) {
-        SimpleDateFormat sdf = new SimpleDateFormat("hh:mm a | dd-MM-yyyy", Locale.getDefault());
+        SimpleDateFormat sdf = new SimpleDateFormat("hh:mm:ss a | dd-MM-yyyy", Locale.getDefault());
         String baseTime = sdf.format(new Date());
         return baseTime + " | " + chunkCount + "C";
     }

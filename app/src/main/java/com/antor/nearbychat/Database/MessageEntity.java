@@ -7,12 +7,16 @@ import androidx.room.PrimaryKey;
 import androidx.room.Index;
 
 @Entity(tableName = "messages",
-        indices = {@Index(value = {"senderId", "timestamp"}),
-                @Index(value = {"messageId"})})
+        indices = {
+                @Index(value = {"senderId", "timestamp"}),
+                @Index(value = {"messageId"}),
+                @Index(value = {"chatType", "chatId"}) // ADD THIS NEW INDEX
+        })
 public class MessageEntity {
     @PrimaryKey(autoGenerate = true)
     public int id;
-
+    public String chatType;
+    public String chatId;
     public String senderId;
     public String message;
     public boolean isSelf;
@@ -60,6 +64,8 @@ public class MessageEntity {
         entity.missingChunksJson = new com.google.gson.Gson().toJson(messageModel.getMissingChunks());
         entity.senderTimestampBits = messageModel.getSenderTimestampBits();
         entity.messageTimestampBits = messageModel.getMessageTimestampBits();
+        entity.chatType = messageModel.getChatType();
+        entity.chatId = messageModel.getChatId();
         return entity;
     }
 
@@ -77,6 +83,8 @@ public class MessageEntity {
         } catch (Exception e) {
             model.setMissingChunks(new java.util.ArrayList<>());
         }
+        model.setChatType(chatType);
+        model.setChatId(chatId);
         return model;
     }
 }

@@ -15,6 +15,9 @@ public class MessageModel {
     private boolean isComplete = true;
     private List<Integer> missingChunks = new ArrayList<>();
 
+    private String chatType; // "N", "G", or "F"
+    private String chatId;   // group_id or friend_id (5-char ASCI
+
     // Store timestamp bits for reconstruction
     private long senderTimestampBits = 0;
     private long messageTimestampBits = 0;
@@ -60,4 +63,9 @@ public class MessageModel {
     private String extractMessageIdFromTimestamp(String timestamp) {
         return null;
     }
+
+    public String getChatType() { return chatType; }
+    public void setChatType(String chatType) { this.chatType = chatType; }
+    public String getChatId() { return chatId; }
+    public void setChatId(String chatId) { this.chatId = chatId; }
 }

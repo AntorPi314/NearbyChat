@@ -1,10 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
-
-
     <!-- Replace the permission section in your AndroidManifest.xml with this: -->
-
     <!-- Bluetooth permissions for Android 12+ -->
     <uses-permission
         android:name="android.permission.BLUETOOTH_SCAN"
@@ -12,47 +9,28 @@
     <uses-permission
         android:name="android.permission.BLUETOOTH_CONNECT"
         android:usesPermissionFlags="neverForLocation" />
-    <uses-permission
-        android:name="android.permission.BLUETOOTH_ADVERTISE" />
-
-    <!-- Legacy Bluetooth permissions for older Android versions -->
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" /> <!-- Legacy Bluetooth permissions for older Android versions -->
     <uses-permission
         android:name="android.permission.BLUETOOTH"
         android:maxSdkVersion="30" />
     <uses-permission
         android:name="android.permission.BLUETOOTH_ADMIN"
-        android:maxSdkVersion="30" />
-
-    <!-- Location permissions - required for BLE scanning on Android -->
+        android:maxSdkVersion="30" /> <!-- Location permissions - required for BLE scanning on Android -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-
-    <!-- Background location only if you need it -->
-    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
-
-    <!-- Service and notification permissions -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" /> <!-- Background location only if you need it -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" /> <!-- Service and notification permissions -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.WAKE_LOCK" />
-
-    <!-- Battery optimization -->
-    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-
-    <!-- Media permissions -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" /> <!-- Battery optimization -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" /> <!-- Media permissions -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission
         android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
-
-
-
-
-
-
 
     <uses-feature
         android:name="android.hardware.bluetooth_le"
@@ -78,39 +56,42 @@
         android:theme="@style/AppTheme"
         tools:targetApi="35">
         <activity
+            android:name=".SupportDevActivity"
+            android:exported="false" />
+        <activity
+            android:name=".NotepadActivity"
+            android:exported="false" />
+        <activity
             android:name=".GithubLinkActivity"
             android:exported="false"
-            android:windowSoftInputMode="adjustResize"/>
+            android:windowSoftInputMode="adjustResize" />
         <activity
             android:name=".NoteActivity"
             android:exported="false"
-            android:windowSoftInputMode="adjustResize"/>
+            android:windowSoftInputMode="adjustResize" />
         <activity
             android:name=".AboutActivity"
             android:exported="false"
-            android:windowSoftInputMode="adjustResize"/>
+            android:windowSoftInputMode="adjustResize" />
         <activity
-            android:name=".GroupsActivity"
+            android:name=".GroupsFriendsActivity"
             android:exported="false"
             android:theme="@style/ActivityDialogTheme"
-            android:windowSoftInputMode="adjustResize"/>
-        <activity
-            android:name=".FriendsActivity"
-            android:exported="false"
-            android:windowSoftInputMode="adjustResize"/>
+            android:windowSoftInputMode="adjustResize" />
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
+
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
         <activity
             android:name=".SettingsActivity"
-            android:theme="@style/AppThemeSettings"
             android:exported="false"
+            android:theme="@style/AppThemeSettings"
             android:windowSoftInputMode="stateHidden|adjustResize" />
 
         <service

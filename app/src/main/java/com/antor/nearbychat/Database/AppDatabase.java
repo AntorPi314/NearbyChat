@@ -12,7 +12,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase;
 
 @Database(
         entities = {MessageEntity.class},
-        version = 3, // Increment version
+        version = 4, // Increment version
         exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -24,9 +24,16 @@ public abstract class AppDatabase extends RoomDatabase {
     static final Migration MIGRATION_2_3 = new Migration(2, 3) {
         @Override
         public void migrate(@NonNull SupportSQLiteDatabase database) {
-            // Add new columns for timestamp bits
             database.execSQL("ALTER TABLE messages ADD COLUMN senderTimestampBits INTEGER NOT NULL DEFAULT 0");
             database.execSQL("ALTER TABLE messages ADD COLUMN messageTimestampBits INTEGER NOT NULL DEFAULT 0");
+        }
+    };
+
+    static final Migration MIGRATION_3_4 = new Migration(3, 4) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase database) {
+            database.execSQL("ALTER TABLE messages ADD COLUMN chatType TEXT");
+            database.execSQL("ALTER TABLE messages ADD COLUMN chatId TEXT");
         }
     };
 
@@ -39,7 +46,7 @@ public abstract class AppDatabase extends RoomDatabase {
                                     AppDatabase.class,
                                     "nearby_chat_database"
                             )
-                            .addMigrations(MIGRATION_2_3)
+                            .addMigrations(MIGRATION_2_3, MIGRATION_3_4) // ADD THE NEW MIGRATION HERE
                             .fallbackToDestructiveMigration()
                             .build();
                 }
