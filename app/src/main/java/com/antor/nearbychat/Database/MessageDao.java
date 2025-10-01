@@ -11,7 +11,15 @@ import java.util.List;
 @Dao
 public interface MessageDao {
 
-    @Query("SELECT * FROM messages WHERE chatType = :chatType AND chatId = :chatId ORDER BY timestampMillis ASC")
+    @Query("DELETE FROM messages WHERE chatType = :chatType AND chatId = :chatId")
+    void deleteMessagesForChat(String chatType, String chatId);
+
+    @Query("SELECT * FROM messages WHERE chatType = :chatType AND chatId = :chatId ORDER BY timestampMillis DESC LIMIT 1")
+    MessageEntity getLastMessageForChat(String chatType, String chatId);
+
+    @Query("SELECT * FROM messages WHERE " +
+            "chatType = :chatType AND chatId = :chatId " +
+            "ORDER BY timestampMillis ASC")
     LiveData<List<MessageEntity>> getMessagesForChat(String chatType, String chatId);
 
     @Insert

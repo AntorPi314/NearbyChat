@@ -61,9 +61,10 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
 
             // Click on profile picture to show account creation time
             holder.profilePic.setOnClickListener(v -> {
-                long fullTimestamp = reconstructFullTimestamp(msg.getSenderTimestampBits());
-                String formattedTime = formatTimestamp(fullTimestamp);
-                Toast.makeText(context, "Account Created at: " + formattedTime, Toast.LENGTH_LONG).show();
+//                long fullTimestamp = reconstructFullTimestamp(msg.getSenderTimestampBits());
+//                String formattedTime = formatTimestamp(fullTimestamp);
+//                Toast.makeText(context, "Account Created at: " + formattedTime, Toast.LENGTH_LONG).show();
+                ((MainActivity) context).openFriendChat(msg.getSenderId());
             });
         }
 

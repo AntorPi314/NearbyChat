@@ -53,32 +53,63 @@
                 android:textColor="#756A6A"
                 android:textSize="20sp"
                 android:singleLine="true"
+                android:ellipsize="end"
+                android:maxLength="17"
                 android:paddingTop="6dp"
                 android:paddingBottom="6dp"
                 android:textStyle="bold" />
 
-            <ImageView
-                android:id="@+id/downIcon"
-                android:layout_width="19dp"
-                android:layout_height="19dp"
-                android:layout_marginTop="2dp"
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:gravity="center|start"
+                android:layout_weight="1"
                 android:layout_marginStart="2dp"
-                android:padding="6dp"
-                android:tint="#8E7E7E"
-                android:scaleType="centerCrop"
-                android:layout_gravity="center_vertical"
-                android:src="@drawable/ic_down" />
+                android:orientation="horizontal">
 
-<!--            <TextView-->
-<!--                android:id="@+id/appSubtitle"-->
-<!--                android:layout_width="match_parent"-->
-<!--                android:layout_height="match_parent"-->
-<!--                android:clickable="true"-->
-<!--                android:ellipsize="end"-->
-<!--                android:singleLine="true"-->
-<!--                android:text="https://github.com/AntorPi314/NearbyChat"-->
-<!--                android:textColor="#756C6C"-->
-<!--                android:textSize="11sp" />-->
+                <ImageView
+                    android:id="@+id/downIcon"
+                    android:layout_width="14dp"
+                    android:layout_height="10dp"
+                    android:paddingTop="4dp"
+                    android:tint="#8E7E7E"
+                    android:scaleType="centerInside"
+                    android:src="@drawable/ic_down" />
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="match_parent"
+                    android:orientation="horizontal"
+                    android:gravity="start">
+
+                    <TextView
+                        android:id="@+id/unseenMsg"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:text="99+"
+                        android:textSize="10sp"
+                        android:textColor="#FFFFFF"
+                        android:gravity="center"
+                        android:background="@drawable/bg_round_unseen_msg"/>
+                </LinearLayout>
+
+            </LinearLayout>
+
+
+
+
+
+
+            <!--            <TextView-->
+            <!--                android:id="@+id/appSubtitle"-->
+            <!--                android:layout_width="match_parent"-->
+            <!--                android:layout_height="match_parent"-->
+            <!--                android:clickable="true"-->
+            <!--                android:ellipsize="end"-->
+            <!--                android:singleLine="true"-->
+            <!--                android:text="https://github.com/AntorPi314/NearbyChat"-->
+            <!--                android:textColor="#756C6C"-->
+            <!--                android:textSize="11sp" />-->
 
         </LinearLayout>
 
@@ -126,13 +157,13 @@
 
 
 
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/chatRecyclerView"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:padding="8dp"
-        android:clipToPadding="false" />
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/chatRecyclerView"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:padding="8dp"
+            android:clipToPadding="false" />
 
         <TextView
             android:id="@+id/textStatus"

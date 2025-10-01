@@ -1,58 +1,44 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools"
-    android:layout_width="320dp"
-    android:layout_height="450dp"
+    android:layout_width="match_parent"
+    android:layout_height="400dp"
     android:orientation="vertical"
-    android:background="@drawable/dialog_background"
-    android:layout_gravity="center"
-    tools:context=".GroupsFriendsActivity">
+    android:background="@drawable/bottom_sheet_background">
 
     <LinearLayout
-        android:id="@+id/topBar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="#EAEAF1"
-        android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:padding="12dp">
+        android:padding="16dp"
+        android:gravity="center_vertical">
 
         <ImageView
             android:id="@+id/btnBack"
             android:layout_width="32dp"
             android:layout_height="32dp"
             android:src="@drawable/ic_arrow_back"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
             android:padding="4dp" />
 
-        <LinearLayout
+        <EditText
+            android:id="@+id/searchBar"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center"
-            android:layout_weight="1">
-
-            <Button
-                android:id="@+id/groupsBtn"
-                android:layout_width="wrap_content"
-                android:layout_height="40dp"
-                android:text="Groups"/>
-
-            <Button
-                android:id="@+id/friendsBtn"
-                android:layout_width="wrap_content"
-                android:layout_height="40dp"
-                android:layout_marginStart="8dp"
-                android:text="Friends"/>
-
-        </LinearLayout>
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:layout_marginEnd="8dp"
+            android:hint="Search"
+            android:textColor="#000000"
+            android:textColorHint="#857C7C"
+            android:background="@drawable/rounded_edittext"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp" />
 
         <ImageView
             android:id="@+id/btnAdd"
             android:layout_width="32dp"
             android:layout_height="32dp"
             android:src="@drawable/ic_add"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:tint="#4B4444"
             android:padding="4dp" />
     </LinearLayout>
 
@@ -63,5 +49,4 @@
         android:layout_weight="1"
         android:padding="8dp"
         android:clipToPadding="false"/>
-
 </LinearLayout>

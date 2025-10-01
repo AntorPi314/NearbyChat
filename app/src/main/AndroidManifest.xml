@@ -66,18 +66,16 @@
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
         <activity
-            android:name=".NoteActivity"
-            android:exported="false"
-            android:windowSoftInputMode="adjustResize" />
-        <activity
             android:name=".AboutActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
         <activity
             android:name=".GroupsFriendsActivity"
             android:exported="false"
-            android:theme="@style/ActivityDialogTheme"
-            android:windowSoftInputMode="adjustResize" />
+            android:windowSoftInputMode="stateHidden|adjustResize"
+            android:theme="@style/BottomSheetActivityTheme"/>
+
+<!--        android:theme="@style/ActivityDialogTheme"-->
         <activity
             android:name=".MainActivity"
             android:exported="true"

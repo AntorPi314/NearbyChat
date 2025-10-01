@@ -69,20 +69,21 @@ public class GroupFriendAdapter extends RecyclerView.Adapter<GroupFriendAdapter.
                 itemName.setText(group.getName());
                 if (group.getId().isEmpty()) { // Nearby Chat
                     profilePic.setImageResource(R.drawable.nearby);
-                    editIcon.setVisibility(View.GONE); // Can't edit Nearby Chat
                 } else {
                     profilePic.setImageResource(R.drawable.profile_pic_round_vector);
-                    editIcon.setVisibility(View.VISIBLE);
                 }
             } else { // FRIENDS
                 FriendModel friend = (FriendModel) item;
                 itemName.setText(friend.getName());
                 profilePic.setImageResource(R.drawable.profile_pic_round_vector);
-                editIcon.setVisibility(View.VISIBLE);
             }
 
+            // **FIX START**: Hide the edit icon and remove its click listener.
+            editIcon.setVisibility(View.GONE);
             itemContainer.setOnClickListener(v -> listener.onItemClick(position));
-            editIcon.setOnClickListener(v -> listener.onEditClick(position));
+            // The editIcon listener is no longer needed.
+            // editIcon.setOnClickListener(v -> listener.onEditClick(position));
+            // **FIX END**
         }
     }
 }

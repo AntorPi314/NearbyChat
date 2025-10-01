@@ -3,7 +3,7 @@
     android:layout_width="280dp"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:layout_gravity="center"
+    android:layout_gravity="center_horizontal"
     android:background="@drawable/dialog_background"
     android:padding="20dp">
 
@@ -18,28 +18,87 @@
         android:textStyle="bold"
         android:layout_marginBottom="16dp"/>
 
+    <ImageView
+        android:id="@+id/profilePicRound"
+        android:layout_width="70dp"
+        android:layout_height="70dp"
+        android:layout_marginBottom="0dp"
+        android:layout_gravity="center_horizontal"
+        android:background="@drawable/circle_bg"
+        android:contentDescription="Profile Picture"
+        android:padding="4dp"
+        android:src="@drawable/profile_pic_round_vector" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:text="Friend's Name"
+        android:textColor="#0A5EDE"
+        android:textSize="10sp"
+        android:layout_marginTop="10dp"
+        android:layout_marginBottom="4dp"
+        android:textStyle="bold"/>
+
     <EditText
         android:id="@+id/editName"
         android:layout_width="match_parent"
         android:layout_height="40dp"
         android:hint="Friend's Name"
+        android:textColorHint="#857C7C"
+        android:textColor="#000000"
         android:inputType="textPersonName"
         android:background="@drawable/edittext_bg"
         android:paddingStart="12dp"
         android:paddingEnd="12dp"
         android:textSize="14sp" />
 
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:text="Friend's 8-Digit ID"
+        android:textColor="#0A5EDE"
+        android:textSize="10sp"
+        android:layout_marginTop="10dp"
+        android:layout_marginBottom="4dp"
+        android:textStyle="bold"/>
+
     <EditText
         android:id="@+id/editFriendId"
         android:layout_width="match_parent"
         android:layout_height="40dp"
-        android:layout_marginTop="10dp"
         android:background="@drawable/edittext_bg"
         android:hint="Friend's 8-Digit ID"
+        android:textColorHint="#857C7C"
+        android:textColor="#000000"
         android:inputType="text"
         android:maxLength="8"
         android:paddingStart="12dp"
         android:paddingEnd="12dp"
+        android:textSize="14sp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:text="Encryption Key"
+        android:textColor="#0A5EDE"
+        android:textSize="10sp"
+        android:layout_marginTop="10dp"
+        android:layout_marginBottom="4dp"
+        android:textStyle="bold"/>
+
+    <EditText
+        android:id="@+id/editEncryptionKey"
+        android:layout_width="match_parent"
+        android:layout_height="40dp"
+
+        android:background="@drawable/edittext_bg"
+        android:hint="Encryption Key"
+        android:textColorHint="#857C7C"
+        android:textColor="#000000"
+        android:inputType="text"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:textColor="@android:color/black"
         android:textSize="14sp" />
 
     <LinearLayout

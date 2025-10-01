@@ -16,10 +16,12 @@ import android.bluetooth.le.ScanCallback;
 import android.bluetooth.le.ScanFilter;
 import android.bluetooth.le.ScanRecord;
 import android.bluetooth.le.ScanResult;
+
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Set;
 import java.util.HashSet;
+
 import android.bluetooth.le.ScanSettings;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -182,7 +184,7 @@ public class BleMessagingService extends Service {
         }
     }
 
-    private String timestampToDisplayId(long timestamp) {
+    public static String timestampToDisplayId(long timestamp) {
         long bits40 = timestamp & ((1L << 40) - 1);
         StringBuilder sb = new StringBuilder();
         long temp = bits40;
@@ -560,6 +562,7 @@ public class BleMessagingService extends Service {
             return new byte[0];
         }
     }
+
     private long getUserIdBits(String userId) {
         // Convert userId string back to bits using the same algorithm
         if (userId == null || userId.length() != 8) {
@@ -833,8 +836,6 @@ public class BleMessagingService extends Service {
         }
     }
 
-    // Replace the entire processReceivedMessage method in BleMessagingService.java
-// Starting around line 749
 
     private void processReceivedMessage(byte[] receivedData) {
         try {
@@ -896,6 +897,10 @@ public class BleMessagingService extends Service {
                     }
                     receivedMessages.add(chunkKey);
                     messageTimestamps.put(chunkKey, System.currentTimeMillis());
+                }
+
+                if (chatType.equals("F")) {
+                    chatId = asciiUserId; // 5-char ASCII format
                 }
 
                 MessageModel newMsg = new MessageModel(
@@ -1070,6 +1075,12 @@ public class BleMessagingService extends Service {
                         actualMessage = fullData.substring(6);
                     }
 
+                    if (chatType.equals("F")) {
+                        // **FIX START**: Use the 5-char ASCII ID derived from senderTimestampBits.
+                        // The original code incorrectly used 'senderId', which is the 8-char display ID.
+                        chatId = timestampToAsciiId(senderTimestampBits);
+                        // **FIX END**
+                    }
                     deletePartialMessage(senderId, messageId);
 
                     MessageModel newMsg = new MessageModel(
@@ -1089,7 +1100,7 @@ public class BleMessagingService extends Service {
                 }
                 reassemblers.remove(reassemblerKey);
             } else {
-                // Show partial message after 8 seconds or if we have significant progress
+                // ... (rest of the method is unchanged)
                 boolean shouldShowPartial = (System.currentTimeMillis() - reassembler.timestamp > 8000) ||
                         (reassembler.receivedCount >= Math.max(1, totalChunks / 2));
 
@@ -1097,7 +1108,6 @@ public class BleMessagingService extends Service {
                     String partialMessage = reassembler.getPartialMessage();
                     if (partialMessage != null && !partialMessage.isEmpty()) {
 
-                        // Parse header from partial if possible
                         String chatType = "N";
                         String chatId = "";
 
@@ -1105,6 +1115,11 @@ public class BleMessagingService extends Service {
                             chatType = partialMessage.substring(0, 1);
                             chatId = partialMessage.substring(1, 6).trim();
                             partialMessage = partialMessage.substring(6);
+                        }
+
+                        // Also apply the fix here for consistency with partial messages.
+                        if (chatType.equals("F")) {
+                            chatId = timestampToAsciiId(senderTimestampBits);
                         }
 
                         updateOrAddPartialMessage(senderId, messageId, partialMessage,

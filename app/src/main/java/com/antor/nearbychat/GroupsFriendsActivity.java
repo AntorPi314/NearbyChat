@@ -1,13 +1,18 @@
 package com.antor.nearbychat;
 
+import android.app.AlertDialog;
 import android.app.Dialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.os.Bundle;
+import android.text.Editable;
+import android.text.TextWatcher;
+import android.view.Gravity;
 import android.view.View;
 import android.view.Window;
+import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageView;
@@ -18,12 +23,16 @@ import android.app.Activity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.antor.nearbychat.Database.AppDatabase;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 
 import java.lang.reflect.Type;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class GroupsFriendsActivity extends Activity {
 
@@ -31,15 +40,17 @@ public class GroupsFriendsActivity extends Activity {
     private static final String KEY_GROUPS_LIST = "groupsList";
     private static final String KEY_FRIENDS_LIST = "friendsList";
 
+    private EditText searchBar;
+    private List<ChatItem> allChats = new ArrayList<>();
+    private ChatListAdapter chatAdapter;
+
     private RecyclerView recyclerView;
-    private Button groupsBtn, friendsBtn;
     private ImageView btnBack, btnAdd;
 
     private List<GroupModel> groupsList = new ArrayList<>();
     private List<FriendModel> friendsList = new ArrayList<>();
-    private GroupFriendAdapter adapter;
-    private boolean showingGroups = true;
     private final Gson gson = new Gson();
+    private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -47,157 +58,233 @@ public class GroupsFriendsActivity extends Activity {
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         setContentView(R.layout.activity_groups_friends);
         getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-
+        if (getWindow() != null) {
+            getWindow().setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.WRAP_CONTENT);
+            getWindow().setGravity(Gravity.BOTTOM);
+        }
+        setFinishOnTouchOutside(true);
         loadData();
         setupUI();
-        showGroups();
     }
 
     private void setupUI() {
+        searchBar = findViewById(R.id.searchBar);
         recyclerView = findViewById(R.id.recyclerView);
-        recyclerView.setLayoutManager(new LinearLayoutManager(this));
-
-        groupsBtn = findViewById(R.id.groupsBtn);
-        friendsBtn = findViewById(R.id.friendsBtn);
         btnBack = findViewById(R.id.btnBack);
         btnAdd = findViewById(R.id.btnAdd);
 
         btnBack.setOnClickListener(v -> finish());
+        btnAdd.setOnClickListener(v -> showAddDialog());
 
-        groupsBtn.setOnClickListener(v -> {
-            if (!showingGroups) {
-                showGroups();
+        searchBar.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {}
+            @Override public void afterTextChanged(Editable s) {
+                filterChats(s.toString());
             }
         });
 
-        friendsBtn.setOnClickListener(v -> {
-            if (showingGroups) {
-                showFriends();
+        recyclerView.setLayoutManager(new LinearLayoutManager(this));
+        loadAndDisplayAllChats();
+    }
+
+    private long parseTimeToMillis(String timeStr) {
+        if (timeStr == null || timeStr.isEmpty()) return 0;
+        try {
+            if (timeStr.contains("|")) {
+                return new java.text.SimpleDateFormat("dd.MM.yy", java.util.Locale.getDefault()).parse(timeStr.split("\\|")[1].trim()).getTime();
+            } else if (timeStr.matches("\\d{2}:\\d{2} (AM|PM)")) {
+                return System.currentTimeMillis();
+            } else if (timeStr.matches("[A-Za-z]{3} \\d{1,2}")) {
+                java.util.Date date = new java.text.SimpleDateFormat("MMM dd", java.util.Locale.getDefault()).parse(timeStr);
+                java.util.Calendar cal = java.util.Calendar.getInstance();
+                cal.setTime(date);
+                cal.set(java.util.Calendar.YEAR, java.util.Calendar.getInstance().get(java.util.Calendar.YEAR));
+                return cal.getTimeInMillis();
+            } else if (timeStr.matches("[A-Za-z]{3}")) {
+                return System.currentTimeMillis() - (24 * 60 * 60 * 1000);
             }
-        });
+        } catch (Exception e) { e.printStackTrace(); }
+        return System.currentTimeMillis();
+    }
 
-        btnAdd.setOnClickListener(v -> {
-            if (showingGroups) {
-                showAddEditGroupDialog(null, -1);
-            } else {
-                showAddEditFriendDialog(null, -1);
+    private void loadAndDisplayAllChats() {
+        executor.execute(() -> {
+            List<ChatItem> loadedChats = new ArrayList<>();
+            loadedChats.add(new ChatItem("", "Nearby Chat", "N", getLastMessageForChat("N", ""), getLastMessageTimeForChat("N", ""), false, ""));
+
+            SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+            String groupsJson = prefs.getString(KEY_GROUPS_LIST, null);
+            if (groupsJson != null) {
+                Type type = new TypeToken<ArrayList<GroupModel>>() {}.getType();
+                List<GroupModel> groups = gson.fromJson(groupsJson, type);
+                for (GroupModel g : groups) {
+                    loadedChats.add(new ChatItem(g.getId(), g.getName(), "G", getLastMessageForChat("G", g.getId()), getLastMessageTimeForChat("G", g.getId()), false, ""));
+                }
             }
+
+            String friendsJson = prefs.getString(KEY_FRIENDS_LIST, null);
+            if (friendsJson != null) {
+                Type type = new TypeToken<ArrayList<FriendModel>>() {}.getType();
+                List<FriendModel> friends = gson.fromJson(friendsJson, type);
+                for (FriendModel f : friends) {
+                    String asciiId = BleMessagingService.timestampToAsciiId(BleMessagingService.displayIdToTimestamp(f.getDisplayId()));
+                    loadedChats.add(new ChatItem(asciiId, f.getName(), "F", getLastMessageForChat("F", asciiId), getLastMessageTimeForChat("F", asciiId), false, f.getDisplayId()));
+                }
+            }
+
+            if (loadedChats.size() > 1) {
+                ChatItem nearbyItem = loadedChats.get(0);
+                List<ChatItem> restOfChats = new ArrayList<>(loadedChats.subList(1, loadedChats.size()));
+                Collections.sort(restOfChats, (a, b) -> Long.compare(parseTimeToMillis(b.lastMessageTime), parseTimeToMillis(a.lastMessageTime)));
+                loadedChats.clear();
+                loadedChats.add(nearbyItem);
+                loadedChats.addAll(restOfChats);
+            }
+
+            runOnUiThread(() -> {
+                allChats.clear();
+                allChats.addAll(loadedChats);
+                chatAdapter = new ChatListAdapter(this, allChats, this::onChatClick, this::onChatLongClick);
+                recyclerView.setAdapter(chatAdapter);
+            });
         });
     }
 
-    private void showGroups() {
-        showingGroups = true;
-        groupsBtn.setEnabled(false);
-        friendsBtn.setEnabled(true);
-
-        adapter = new GroupFriendAdapter(this, groupsList, GroupFriendAdapter.ListType.GROUPS,
-                new GroupFriendAdapter.OnItemClickListener() {
-                    @Override
-                    public void onItemClick(int position) {
-                        selectGroup(groupsList.get(position));
-                    }
-                    @Override
-                    public void onEditClick(int position) {
-                        if (position > 0) { // Can't edit "Nearby Chat"
-                            showAddEditGroupDialog(groupsList.get(position), position);
-                        }
-                    }
-                });
-        recyclerView.setAdapter(adapter);
+    private void showAddDialog() {
+        new AlertDialog.Builder(this).setTitle("Add New")
+                .setItems(new String[]{"Add Group", "Add Friend"}, (dialog, which) -> {
+                    if (which == 0) showAddEditGroupDialog(null, -1);
+                    else showAddEditFriendDialog(null, -1);
+                }).show();
     }
 
-    private void showFriends() {
-        showingGroups = false;
-        friendsBtn.setEnabled(false);
-        groupsBtn.setEnabled(true);
-
-        adapter = new GroupFriendAdapter(this, friendsList, GroupFriendAdapter.ListType.FRIENDS,
-                new GroupFriendAdapter.OnItemClickListener() {
-                    @Override
-                    public void onItemClick(int position) {
-                        selectFriend(friendsList.get(position));
-                    }
-                    @Override
-                    public void onEditClick(int position) {
-                        showAddEditFriendDialog(friendsList.get(position), position);
-                    }
-                });
-        recyclerView.setAdapter(adapter);
+    private String getLastMessageForChat(String chatType, String chatId) {
+        try {
+            com.antor.nearbychat.Database.MessageEntity lastMsg = AppDatabase.getInstance(this).messageDao().getLastMessageForChat(chatType, chatId);
+            return lastMsg != null ? lastMsg.message : "";
+        } catch (Exception e) { return ""; }
     }
 
-    private void selectGroup(GroupModel group) {
+    private String getLastMessageTimeForChat(String chatType, String chatId) {
+        try {
+            com.antor.nearbychat.Database.MessageEntity lastMsg = AppDatabase.getInstance(this).messageDao().getLastMessageForChat(chatType, chatId);
+            if (lastMsg != null) {
+                long time = lastMsg.timestampMillis, now = System.currentTimeMillis(), diff = now - time;
+                if (diff < 24 * 60 * 60 * 1000) return new java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault()).format(new java.util.Date(time));
+                if (diff < 7 * 24 * 60 * 60 * 1000) return new java.text.SimpleDateFormat("EEE", java.util.Locale.getDefault()).format(new java.util.Date(time));
+                if (diff < 365L * 24 * 60 * 60 * 1000L) return new java.text.SimpleDateFormat("MMM dd", java.util.Locale.getDefault()).format(new java.util.Date(time));
+                return new java.text.SimpleDateFormat("dd.MM.yy", java.util.Locale.getDefault()).format(new java.util.Date(time));
+            }
+        } catch (Exception e) { e.printStackTrace(); }
+        return "";
+    }
+
+    private void onChatClick(ChatItem chat) {
         Intent resultIntent = new Intent();
-        resultIntent.putExtra("chatType", group.getId().isEmpty() ? "N" : "G");
-        resultIntent.putExtra("chatId", group.getId()); // Empty string for Nearby, 5-char for groups
+        resultIntent.putExtra("chatType", chat.type);
+        resultIntent.putExtra("chatId", chat.id);
         setResult(RESULT_OK, resultIntent);
         finish();
     }
 
-    private void selectFriend(FriendModel friend) {
-        Intent resultIntent = new Intent();
-        resultIntent.putExtra("chatType", "F");
-        // Convert 8-char display ID to 5-char ASCII for transmission
-        long bits = BleMessagingService.displayIdToTimestamp(friend.getDisplayId());
-        String asciiId = BleMessagingService.timestampToAsciiId(bits);
-        resultIntent.putExtra("chatId", asciiId);
-        setResult(RESULT_OK, resultIntent);
-        finish();
+    private void onChatLongClick(ChatItem chat) {
+        if (chat.type.equals("N")) {
+            Toast.makeText(this, "Cannot delete Nearby Chat", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        new AlertDialog.Builder(this).setTitle("Delete " + chat.name + "?")
+                .setMessage("This will delete the chat and all associated messages.")
+                .setPositiveButton("Delete", (dialog, which) -> deleteChat(chat))
+                .setNegativeButton("Cancel", null).show();
+    }
+
+    private void deleteChat(ChatItem chat) {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        if (chat.type.equals("G")) {
+            String groupsJson = prefs.getString(KEY_GROUPS_LIST, null);
+            if(groupsJson == null) return;
+            List<GroupModel> groups = gson.fromJson(groupsJson, new TypeToken<ArrayList<GroupModel>>() {}.getType());
+            groups.removeIf(g -> g.getId().equals(chat.id));
+            prefs.edit().putString(KEY_GROUPS_LIST, gson.toJson(groups)).apply();
+        } else if (chat.type.equals("F")) {
+            String friendsJson = prefs.getString(KEY_FRIENDS_LIST, null);
+            if(friendsJson == null) return;
+            List<FriendModel> friends = gson.fromJson(friendsJson, new TypeToken<ArrayList<FriendModel>>() {}.getType());
+            friends.removeIf(f -> BleMessagingService.timestampToAsciiId(BleMessagingService.displayIdToTimestamp(f.getDisplayId())).equals(chat.id));
+            prefs.edit().putString(KEY_FRIENDS_LIST, gson.toJson(friends)).apply();
+        }
+        executor.execute(() -> {
+            AppDatabase.getInstance(this).messageDao().deleteMessagesForChat(chat.type, chat.id);
+            runOnUiThread(() -> {
+                loadAndDisplayAllChats();
+                Toast.makeText(this, chat.name + " deleted", Toast.LENGTH_SHORT).show();
+            });
+        });
+    }
+
+    private void filterChats(String query) {
+        if (chatAdapter == null) return;
+        if (query.isEmpty()) {
+            chatAdapter.updateList(allChats);
+            return;
+        }
+        List<ChatItem> filtered = new ArrayList<>();
+        for (ChatItem chat : allChats) {
+            if (chat.name.toLowerCase().contains(query.toLowerCase()) || chat.lastMessage.toLowerCase().contains(query.toLowerCase())) {
+                filtered.add(chat);
+            }
+        }
+        chatAdapter.updateList(filtered);
+    }
+
+    public static class ChatItem {
+        String id, name, type, lastMessage, lastMessageTime, displayId;
+        boolean isUnseenMessage;
+        public ChatItem(String id, String name, String type, String lastMessage, String lastMessageTime, boolean isUnseenMessage, String displayId) {
+            this.id = id; this.name = name; this.type = type; this.lastMessage = lastMessage;
+            this.lastMessageTime = lastMessageTime; this.isUnseenMessage = isUnseenMessage; this.displayId = displayId;
+        }
     }
 
     private void showAddEditGroupDialog(final GroupModel group, final int position) {
         Dialog dialog = new Dialog(this);
         dialog.setContentView(R.layout.dialog_add_edit_groups);
         dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-
-        TextView title = dialog.findViewById(R.id.dia_title);
         EditText editName = dialog.findViewById(R.id.editName);
         EditText editKey = dialog.findViewById(R.id.editEncryptionKey);
         Button btnDelete = dialog.findViewById(R.id.btnDelete);
-        Button btnCancel = dialog.findViewById(R.id.btnCancel);
         Button btnAdd = dialog.findViewById(R.id.btnAdd);
 
         if (group != null) {
-            title.setText("Edit Group");
+            ((TextView)dialog.findViewById(R.id.dia_title)).setText("Edit Group");
             btnAdd.setText("Save");
             editName.setText(group.getName());
             editKey.setText(group.getEncryptionKey());
             btnDelete.setVisibility(View.VISIBLE);
         } else {
-            title.setText("Add New Group");
-            btnAdd.setText("Add");
             btnDelete.setVisibility(View.GONE);
         }
-
-        btnCancel.setOnClickListener(v -> dialog.dismiss());
-
+        dialog.findViewById(R.id.btnCancel).setOnClickListener(v -> dialog.dismiss());
         btnDelete.setOnClickListener(v -> {
             groupsList.remove(position);
             saveGroups();
-            adapter.notifyDataSetChanged();
+            loadAndDisplayAllChats();
             dialog.dismiss();
         });
-
         btnAdd.setOnClickListener(v -> {
             String name = editName.getText().toString().trim();
-            String key = editKey.getText().toString().trim();
-
-            if (name.isEmpty()) {
-                Toast.makeText(this, "Group name cannot be empty", Toast.LENGTH_SHORT).show();
-                return;
-            }
-
+            if (name.isEmpty()) { Toast.makeText(this, "Group name cannot be empty", Toast.LENGTH_SHORT).show(); return; }
             if (group != null) {
                 group.setName(name);
-                group.setEncryptionKey(key);
+                group.setEncryptionKey(editKey.getText().toString().trim());
             } else {
-                String newId = BleMessagingService.timestampToAsciiId(System.currentTimeMillis());
-                groupsList.add(new GroupModel(newId, name, key));
+                groupsList.add(new GroupModel(BleMessagingService.timestampToAsciiId(System.currentTimeMillis()), name, editKey.getText().toString().trim()));
             }
             saveGroups();
-            adapter.notifyDataSetChanged();
+            loadAndDisplayAllChats();
             dialog.dismiss();
         });
-
         dialog.show();
     }
 
@@ -206,94 +293,63 @@ public class GroupsFriendsActivity extends Activity {
         dialog.setContentView(R.layout.dialog_add_edit_friend);
         dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
 
-        TextView title = dialog.findViewById(R.id.dia_title);
         EditText editName = dialog.findViewById(R.id.editName);
         EditText editId = dialog.findViewById(R.id.editFriendId);
+        EditText editKey = dialog.findViewById(R.id.editEncryptionKey);
         Button btnDelete = dialog.findViewById(R.id.btnDelete);
-        Button btnCancel = dialog.findViewById(R.id.btnCancel);
         Button btnAdd = dialog.findViewById(R.id.btnAdd);
 
         if (friend != null) {
-            title.setText("Edit Friend");
+            ((TextView)dialog.findViewById(R.id.dia_title)).setText("Edit Friend");
             btnAdd.setText("Save");
             editName.setText(friend.getName());
             editId.setText(friend.getDisplayId());
+            editKey.setText(friend.getEncryptionKey());
             editId.setEnabled(false);
             btnDelete.setVisibility(View.VISIBLE);
         } else {
-            title.setText("Add New Friend");
-            btnAdd.setText("Add");
             btnDelete.setVisibility(View.GONE);
         }
-
-        btnCancel.setOnClickListener(v -> dialog.dismiss());
-
+        dialog.findViewById(R.id.btnCancel).setOnClickListener(v -> dialog.dismiss());
         btnDelete.setOnClickListener(v -> {
             friendsList.remove(position);
             saveFriends();
-            adapter.notifyDataSetChanged();
+            loadAndDisplayAllChats();
             dialog.dismiss();
         });
-
         btnAdd.setOnClickListener(v -> {
             String name = editName.getText().toString().trim();
             String id = editId.getText().toString().trim();
-
-            if (name.isEmpty() || id.isEmpty()) {
-                Toast.makeText(this, "Fields cannot be empty", Toast.LENGTH_SHORT).show();
-                return;
-            }
-
-            if (id.length() != 8) {
-                Toast.makeText(this, "Friend ID must be 8 characters", Toast.LENGTH_SHORT).show();
-                return;
-            }
+            String key = editKey.getText().toString().trim();
+            if (name.isEmpty() || id.isEmpty()) { Toast.makeText(this, "Fields cannot be empty", Toast.LENGTH_SHORT).show(); return; }
+            if (id.length() != 8) { Toast.makeText(this, "Friend ID must be 8 characters", Toast.LENGTH_SHORT).show(); return; }
 
             if (friend != null) {
                 friend.setName(name);
+                friend.setEncryptionKey(key);
             } else {
-                friendsList.add(new FriendModel(id, name));
+                friendsList.add(new FriendModel(id, name, key));
             }
             saveFriends();
-            adapter.notifyDataSetChanged();
+            loadAndDisplayAllChats();
             dialog.dismiss();
         });
-
         dialog.show();
     }
 
     private void loadData() {
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-
-        // Load Groups
         String groupsJson = prefs.getString(KEY_GROUPS_LIST, null);
-        if (groupsJson != null) {
-            Type type = new TypeToken<ArrayList<GroupModel>>(){}.getType();
-            groupsList = gson.fromJson(groupsJson, type);
-        }
-
-        // Always ensure "Nearby Chat" is first
-        if (groupsList.isEmpty() || !groupsList.get(0).getId().isEmpty()) {
-            groupsList.add(0, new GroupModel("", "Nearby Chat", ""));
-        }
-
-        // Load Friends
+        if (groupsJson != null) groupsList = gson.fromJson(groupsJson, new TypeToken<ArrayList<GroupModel>>() {}.getType());
         String friendsJson = prefs.getString(KEY_FRIENDS_LIST, null);
-        if (friendsJson != null) {
-            Type type = new TypeToken<ArrayList<FriendModel>>(){}.getType();
-            friendsList = gson.fromJson(friendsJson, type);
-        }
+        if (friendsJson != null) friendsList = gson.fromJson(friendsJson, new TypeToken<ArrayList<FriendModel>>() {}.getType());
     }
 
     private void saveGroups() {
-        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        List<GroupModel> savable = new ArrayList<>(groupsList);
-        savable.remove(0); // Don't save "Nearby Chat"
-        prefs.edit().putString(KEY_GROUPS_LIST, gson.toJson(savable)).apply();
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().putString(KEY_GROUPS_LIST, gson.toJson(groupsList)).apply();
     }
 
     private void saveFriends() {
-        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        prefs.edit().putString(KEY_FRIENDS_LIST, gson.toJson(friendsList)).apply();
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().putString(KEY_FRIENDS_LIST, gson.toJson(friendsList)).apply();
     }
 }

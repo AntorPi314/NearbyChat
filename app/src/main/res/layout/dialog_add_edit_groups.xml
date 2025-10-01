@@ -30,13 +30,29 @@
             android:id="@+id/profilePicRound"
             android:layout_width="70dp"
             android:layout_height="70dp"
-            android:layout_marginTop="8dp"
-            android:layout_marginBottom="16dp"
             android:background="@drawable/circle_bg"
             android:contentDescription="Profile Picture"
             android:padding="4dp"
             android:src="@drawable/profile_pic_round_vector" />
 
+        <TextView
+            android:id="@+id/groupID"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="GROUP_ID"
+            android:textColor="#7A6F6F"
+            android:layout_marginBottom="16dp"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:text="Group Name"
+            android:textColor="#0A5EDE"
+            android:textSize="10sp"
+            android:layout_marginBottom="4dp"
+            android:textStyle="bold"/>
 
         <EditText
             android:id="@+id/editName"
@@ -47,20 +63,32 @@
             android:inputType="textPersonName"
             android:paddingStart="12dp"
             android:paddingEnd="12dp"
-            android:textColor="@android:color/black"
+            android:textColorHint="#857C7C"
+            android:textColor="#000000"
             android:textSize="14sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:text="Encryption Key"
+            android:textColor="#0A5EDE"
+            android:textSize="10sp"
+            android:layout_marginTop="10dp"
+            android:layout_marginBottom="4dp"
+            android:textStyle="bold"/>
 
         <EditText
             android:id="@+id/editEncryptionKey"
             android:layout_width="match_parent"
             android:layout_height="40dp"
-            android:layout_marginTop="10dp"
+
             android:background="@drawable/edittext_bg"
             android:hint="Encryption Key"
             android:inputType="text"
             android:paddingStart="12dp"
             android:paddingEnd="12dp"
-            android:textColor="@android:color/black"
+            android:textColorHint="#857C7C"
+            android:textColor="#000000"
             android:textSize="14sp" />
 
         <LinearLayout

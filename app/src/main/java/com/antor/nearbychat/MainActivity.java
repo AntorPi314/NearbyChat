@@ -8,14 +8,13 @@ import android.content.ClipboardManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.util.Base64;
 import android.widget.LinearLayout;
 import android.content.ServiceConnection;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.graphics.Color;
-import android.graphics.Paint;
 import android.location.LocationManager;
 import android.net.Uri;
 import android.os.Build;
@@ -26,7 +25,6 @@ import android.os.Looper;
 import android.os.PowerManager;
 import android.provider.MediaStore;
 import android.provider.Settings;
-import android.util.Base64;
 import android.app.Dialog;
 import android.graphics.drawable.ColorDrawable;
 import android.view.Gravity;
@@ -42,17 +40,13 @@ import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.annotation.NonNull;
-
-import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
-
 import com.antor.nearbychat.Database.AppDatabase;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
-
 import java.lang.reflect.Type;
 import java.util.*;
 
@@ -68,12 +62,10 @@ public class MainActivity extends BaseActivity {
     private static final int REQUEST_CAMERA = 201;
     private static final String TAG = "NearbyChatMain";
 
-    // ADD new constants for SharedPreferences
     private static final String PREFS_ACTIVE_CHAT = "ActiveChatInfo";
     private static final String KEY_CHAT_TYPE = "chatType";
     private static final String KEY_CHAT_ID = "chatId";
 
-    // Member variables to hold the current chat state
     private String activeChatType = "N";
     private String activeChatId = "";
 
@@ -83,29 +75,21 @@ public class MainActivity extends BaseActivity {
     private TextView textStatus;
     private List<MessageModel> messageList = new ArrayList<>();
 
-    private ImageView appIcon; // Add variable for app icon
+    private ImageView appIcon;
     private TextView appTitle;
 
     private SharedPreferences prefs;
-
     private BleMessagingService bleService;
     private boolean isServiceBound = false;
     private AppDatabase database;
     private com.antor.nearbychat.Database.MessageDao messageDao;
 
     private static final String PREFS_NAME = "NearbyChatPrefs";
+    private static final String KEY_GROUPS_LIST = "groupsList";
+    private static final String KEY_FRIENDS_LIST = "friendsList";
     private static final String KEY_USER_ID_BITS = "userIdBits";
     private static final String KEY_NAME_MAP = "nameMap";
     private static final String KEY_BATTERY_OPT_REQUESTED = "batteryOptRequested";
-    private static final char[] ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ123456".toCharArray();
-
-    private static final int[] BACKGROUND_COLORS = {
-            0xFF1ABC9C, 0xFF2ECC71, 0xFF3498DB, 0xFF9B59B6, 0xFFE74C3C, 0xFF2C3E50,
-            0xFF16A085, 0xFF27AE60, 0xFF2980B9, 0xFF8E44AD, 0xFFC0392B, 0xFFD35400,
-            0xFF34495E, 0xFF7F8C8D, 0xFFE67E22, 0xFF6C7B7F, 0xFF8B4513, 0xFF1F2937,
-            0xFF374151, 0xFF4B5563, 0xFF6B7280, 0xFF9CA3AF, 0xFFEF4444, 0xFFF97316,
-            0xFF228B22, 0xFF22C55E, 0xFF3B82F6, 0xFF8B5CF6, 0xFFEC4899, 0xFF06B6D4
-    };
 
     private static final int WARNING_THRESHOLD = 22;
     private static final int MAX_MESSAGE_LENGTH = 500;
@@ -127,7 +111,6 @@ public class MainActivity extends BaseActivity {
             isServiceBound = true;
             Log.d(TAG, "Service connected");
         }
-
         @Override
         public void onServiceDisconnected(ComponentName name) {
             bleService = null;
@@ -140,11 +123,8 @@ public class MainActivity extends BaseActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-
-        prefs = getSharedPreferences("ActiveChatInfo", MODE_PRIVATE);
-
+        prefs = getSharedPreferences(PREFS_ACTIVE_CHAT, MODE_PRIVATE);
         loadActiveChat();
-
         mainHandler = new Handler(Looper.getMainLooper());
         setupUI();
         initializeData();
@@ -172,8 +152,8 @@ public class MainActivity extends BaseActivity {
         recyclerView.setLayoutManager(new LinearLayoutManager(this));
         recyclerView.setAdapter(chatAdapter);
 
-        appIcon = findViewById(R.id.appIcon); // Initialize
-        appTitle = findViewById(R.id.appTitle); // Initialize
+        appIcon = findViewById(R.id.appIcon);
+        appTitle = findViewById(R.id.appTitle);
 
         findViewById(R.id.sendButton).setOnClickListener(this::onSendButtonClick);
         setupAppIconClick();
@@ -183,12 +163,175 @@ public class MainActivity extends BaseActivity {
             Intent intent = new Intent(this, GroupsFriendsActivity.class);
             startActivityForResult(intent, REQUEST_CODE_SELECT_CHAT);
         });
+
+        appIcon.setOnClickListener(v -> {
+            if ("G".equals(activeChatType) && !activeChatId.isEmpty()) {
+                showEditGroupDialog();
+            } else if ("F".equals(activeChatType) && !activeChatId.isEmpty()) {
+                showEditFriendDialog();
+            } else {
+                Toast.makeText(this, "Only custom groups or friends can be edited.", Toast.LENGTH_SHORT).show();
+            }
+        });
         updateChatUIForSelection();
     }
 
     private void setupAppIconClick() {
-        ImageView threeDotIcon = findViewById(R.id.threeDotIcon);
-        threeDotIcon.setOnClickListener(v -> showAccountDialog());
+        findViewById(R.id.threeDotIcon).setOnClickListener(v -> showAccountDialog());
+    }
+
+    private void showEditGroupDialog() {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        String groupsJson = prefs.getString(KEY_GROUPS_LIST, null);
+        Type type = new TypeToken<ArrayList<GroupModel>>(){}.getType();
+        List<GroupModel> groupsList = gson.fromJson(groupsJson, type);
+        if (groupsList == null) groupsList = new ArrayList<>();
+
+        GroupModel groupToEdit = null;
+        int groupPosition = -1;
+        for (int i = 0; i < groupsList.size(); i++) {
+            if (groupsList.get(i).getId().equals(activeChatId)) {
+                groupToEdit = groupsList.get(i);
+                groupPosition = i;
+                break;
+            }
+        }
+        if (groupToEdit == null) {
+            Toast.makeText(this, "Could not find group to edit.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        Dialog dialog = new Dialog(this);
+        dialog.setContentView(R.layout.dialog_add_edit_groups);
+        dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+
+        TextView title = dialog.findViewById(R.id.dia_title);
+        EditText editName = dialog.findViewById(R.id.editName);
+        EditText editKey = dialog.findViewById(R.id.editEncryptionKey);
+        Button btnDelete = dialog.findViewById(R.id.btnDelete);
+        Button btnCancel = dialog.findViewById(R.id.btnCancel);
+        Button btnSave = dialog.findViewById(R.id.btnAdd);
+
+        title.setText("Edit Group");
+        btnSave.setText("Save");
+        editName.setText(groupToEdit.getName());
+        editKey.setText(groupToEdit.getEncryptionKey());
+        btnDelete.setVisibility(View.VISIBLE);
+
+        final List<GroupModel> finalGroupsList = groupsList;
+        final int finalGroupPosition = groupPosition;
+        final GroupModel finalGroupToEdit = groupToEdit;
+
+        btnCancel.setOnClickListener(v -> dialog.dismiss());
+        btnDelete.setOnClickListener(v -> {
+            finalGroupsList.remove(finalGroupPosition);
+            prefs.edit().putString(KEY_GROUPS_LIST, gson.toJson(finalGroupsList)).apply();
+            Toast.makeText(this, "Group deleted. Returning to Nearby Chat.", Toast.LENGTH_SHORT).show();
+            activeChatType = "N";
+            activeChatId = "";
+            saveActiveChat();
+            updateChatUIForSelection();
+            dialog.dismiss();
+        });
+        btnSave.setOnClickListener(v -> {
+            String name = editName.getText().toString().trim();
+            String key = editKey.getText().toString().trim();
+            if (name.isEmpty()) {
+                Toast.makeText(this, "Group name cannot be empty", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            finalGroupToEdit.setName(name);
+            finalGroupToEdit.setEncryptionKey(key);
+            finalGroupsList.set(finalGroupPosition, finalGroupToEdit);
+            prefs.edit().putString(KEY_GROUPS_LIST, gson.toJson(finalGroupsList)).apply();
+            updateChatUIForSelection();
+            dialog.dismiss();
+        });
+        dialog.show();
+    }
+
+    private void showEditFriendDialog() {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        String friendsJson = prefs.getString(KEY_FRIENDS_LIST, null);
+        Type type = new TypeToken<ArrayList<FriendModel>>(){}.getType();
+        List<FriendModel> friendsList = gson.fromJson(friendsJson, type);
+        if (friendsList == null) friendsList = new ArrayList<>();
+
+        // **FIX START**: Use the ASCII ID directly from activeChatId to find the friend.
+        // The displayId is what we need to find, which is generated from the ASCII ID.
+        long bits = asciiIdToTimestamp(activeChatId);
+        String displayIdToFind = getUserIdString(bits);
+        // **FIX END**
+
+        FriendModel friendToEdit = null;
+        int friendPosition = -1;
+        for (int i = 0; i < friendsList.size(); i++) {
+            if (friendsList.get(i).getDisplayId().equals(displayIdToFind)) {
+                friendToEdit = friendsList.get(i);
+                friendPosition = i;
+                break;
+            }
+        }
+        if (friendToEdit == null) {
+            Toast.makeText(this, "Could not find friend to edit.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        Dialog dialog = new Dialog(this);
+        dialog.setContentView(R.layout.dialog_add_edit_friend);
+        dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+
+        TextView title = dialog.findViewById(R.id.dia_title);
+        EditText editName = dialog.findViewById(R.id.editName);
+        EditText editId = dialog.findViewById(R.id.editFriendId);
+        Button btnDelete = dialog.findViewById(R.id.btnDelete);
+        Button btnCancel = dialog.findViewById(R.id.btnCancel);
+        Button btnSave = dialog.findViewById(R.id.btnAdd);
+
+        title.setText("Edit Friend");
+        btnSave.setText("Save");
+        editName.setText(friendToEdit.getName());
+        editId.setText(friendToEdit.getDisplayId());
+        editId.setEnabled(false);
+        btnDelete.setVisibility(View.VISIBLE);
+
+        final List<FriendModel> finalFriendsList = friendsList;
+        final int finalFriendPosition = friendPosition;
+        final FriendModel finalFriendToEdit = friendToEdit;
+
+        btnCancel.setOnClickListener(v -> dialog.dismiss());
+        btnDelete.setOnClickListener(v -> {
+            finalFriendsList.remove(finalFriendPosition);
+            prefs.edit().putString(KEY_FRIENDS_LIST, gson.toJson(finalFriendsList)).apply();
+            Toast.makeText(this, "Friend deleted. Returning to Nearby Chat.", Toast.LENGTH_SHORT).show();
+            activeChatType = "N";
+            activeChatId = "";
+            saveActiveChat();
+            updateChatUIForSelection();
+            dialog.dismiss();
+        });
+        btnSave.setOnClickListener(v -> {
+            String name = editName.getText().toString().trim();
+            if (name.isEmpty()) {
+                Toast.makeText(this, "Name cannot be empty", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            finalFriendToEdit.setName(name);
+            finalFriendsList.set(finalFriendPosition, finalFriendToEdit);
+            prefs.edit().putString(KEY_FRIENDS_LIST, gson.toJson(finalFriendsList)).apply();
+            updateChatUIForSelection();
+            dialog.dismiss();
+        });
+        dialog.show();
+    }
+
+    private long asciiIdToTimestamp(String asciiId) {
+        if (asciiId == null || asciiId.length() != 5) return 0;
+        long bits40 = 0;
+        for (int i = 0; i < 5; i++) {
+            bits40 = (bits40 << 8) | (asciiId.charAt(i) & 0xFF);
+        }
+        return bits40;
     }
 
     private void updateChatUIForSelection() {
@@ -196,55 +339,50 @@ public class MainActivity extends BaseActivity {
             appTitle.setText("Nearby Chat");
             appIcon.setImageResource(R.drawable.nearby);
         } else if ("G".equals(activeChatType)) {
-            // Load group name from SharedPreferences
             SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-            String groupsJson = prefs.getString("groupsList", null);
+            String groupsJson = prefs.getString(KEY_GROUPS_LIST, null);
             if (groupsJson != null) {
                 Type type = new TypeToken<List<GroupModel>>(){}.getType();
-                List<GroupModel> groups = new Gson().fromJson(groupsJson, type);
+                List<GroupModel> groups = gson.fromJson(groupsJson, type);
+                String groupName = "Group";
                 for (GroupModel g : groups) {
                     if (g.getId().equals(activeChatId)) {
-                        appTitle.setText(g.getName());
+                        groupName = g.getName();
                         break;
                     }
                 }
+                appTitle.setText(groupName);
             }
             appIcon.setImageResource(R.drawable.profile_pic_round_vector);
         } else if ("F".equals(activeChatType)) {
-            // Load friend name - convert ASCII to display ID first
-            long bits = 0;
-            if (activeChatId.length() == 5) {
-                for (int i = 0; i < 5; i++) {
-                    bits = (bits << 8) | (activeChatId.charAt(i) & 0xFF);
-                }
-            }
+            long bits = asciiIdToTimestamp(activeChatId);
             String displayId = getUserIdString(bits);
 
             SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-            String friendsJson = prefs.getString("friendsList", null);
+            String friendsJson = prefs.getString(KEY_FRIENDS_LIST, null);
             if (friendsJson != null) {
                 Type type = new TypeToken<List<FriendModel>>(){}.getType();
-                List<FriendModel> friends = new Gson().fromJson(friendsJson, type);
+                List<FriendModel> friends = gson.fromJson(friendsJson, type);
+                String friendName = "Friend";
                 for (FriendModel f : friends) {
                     if (f.getDisplayId().equals(displayId)) {
-                        appTitle.setText(f.getName());
+                        friendName = f.getName();
                         break;
                     }
                 }
+                appTitle.setText(friendName);
             }
-            appIcon.setImageResource(R.drawable.profile_pic_round_vector);
+            ProfilePicLoader.loadProfilePicture(this, displayId, appIcon);
         }
-        setupDatabase(); // Reload messages for new chat
+        setupDatabase();
     }
 
     private void loadActiveChat() {
-        SharedPreferences prefs = getSharedPreferences(PREFS_ACTIVE_CHAT, MODE_PRIVATE);
         activeChatType = prefs.getString(KEY_CHAT_TYPE, "N");
         activeChatId = prefs.getString(KEY_CHAT_ID, "");
     }
 
     private void saveActiveChat() {
-        SharedPreferences prefs = getSharedPreferences(PREFS_ACTIVE_CHAT, MODE_PRIVATE);
         prefs.edit()
                 .putString(KEY_CHAT_TYPE, activeChatType)
                 .putString(KEY_CHAT_ID, activeChatId)
@@ -254,8 +392,6 @@ public class MainActivity extends BaseActivity {
     private void setupDatabase() {
         database = AppDatabase.getInstance(this);
         messageDao = database.messageDao();
-
-        // Observe filtered messages for current chat
         messageDao.getMessagesForChat(activeChatType, activeChatId).observe(this, messages -> {
             if (messages != null) {
                 messageList.clear();
@@ -274,81 +410,60 @@ public class MainActivity extends BaseActivity {
     private void showAccountDialog() {
         Dialog dialog = new Dialog(this);
         dialog.setContentView(R.layout.account_dialog);
-
-        if (dialog.getWindow() != null) {
-            dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-            WindowManager.LayoutParams lp = new WindowManager.LayoutParams();
-            lp.copyFrom(dialog.getWindow().getAttributes());
-            lp.width = dpToPx(this, 280);
-            lp.height = WindowManager.LayoutParams.WRAP_CONTENT;
-            lp.gravity = Gravity.CENTER;
-            dialog.getWindow().setAttributes(lp);
-        }
+        dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        WindowManager.LayoutParams lp = new WindowManager.LayoutParams();
+        lp.copyFrom(dialog.getWindow().getAttributes());
+        lp.width = dpToPx(this, 280);
+        lp.height = WindowManager.LayoutParams.WRAP_CONTENT;
+        lp.gravity = Gravity.CENTER;
+        dialog.getWindow().setAttributes(lp);
 
         TextView textID = dialog.findViewById(R.id.textID);
         ImageView profilePic = dialog.findViewById(R.id.profilePicRound);
-        Button notepadBtn = dialog.findViewById(R.id.id_notepad);
-        Button settingsBtn = dialog.findViewById(R.id.id_settings);
-        Button supportDevBtn = dialog.findViewById(R.id.id_support_dev);
-        Button aboutBtn = dialog.findViewById(R.id.id_about);
-        Button restartBtn = dialog.findViewById(R.id.id_restart_app);
 
         textID.setText(getDisplayName(userId));
-        loadProfilePicture(userId, profilePic);
+        ProfilePicLoader.loadProfilePicture(this, userId, profilePic);
 
         profilePic.setOnClickListener(v -> {
             currentUserId = userId;
             currentProfilePic = profilePic;
             showImagePickerDialog(userId, profilePic);
         });
-
-        notepadBtn.setOnClickListener(v -> {
+        dialog.findViewById(R.id.id_notepad).setOnClickListener(v -> {
             dialog.dismiss();
             startActivity(new Intent(this, NotepadActivity.class));
         });
-
-        settingsBtn.setOnClickListener(v -> {
+        dialog.findViewById(R.id.id_settings).setOnClickListener(v -> {
             dialog.dismiss();
             startActivity(new Intent(this, SettingsActivity.class));
         });
-
-        supportDevBtn.setOnClickListener(v -> {
+        dialog.findViewById(R.id.id_support_dev).setOnClickListener(v -> {
             dialog.dismiss();
             startActivity(new Intent(this, SupportDevActivity.class));
         });
-
-        aboutBtn.setOnClickListener(v -> {
+        dialog.findViewById(R.id.id_about).setOnClickListener(v -> {
             dialog.dismiss();
             startActivity(new Intent(this, AboutActivity.class));
         });
-
-        restartBtn.setOnClickListener(v -> {
+        dialog.findViewById(R.id.id_restart_app).setOnClickListener(v -> {
             dialog.dismiss();
             restartApp();
         });
-
         dialog.show();
     }
 
     private void setupMessageInput() {
         inputMessage.addTextChangedListener(new TextWatcher() {
-            @Override
-            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
-
-            @Override
-            public void onTextChanged(CharSequence s, int start, int before, int count) {}
-
-            @Override
-            public void afterTextChanged(Editable s) {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {}
+            @Override public void afterTextChanged(Editable s) {
                 if (s.length() > WARNING_THRESHOLD) {
                     inputMessage.setTextColor(Color.parseColor("#FF0000"));
                 } else {
                     inputMessage.setTextColor(Color.parseColor("#000000"));
                 }
                 if (s.length() > MAX_MESSAGE_LENGTH) {
-                    Toast.makeText(MainActivity.this,
-                            "Message too long (" + s.length() + "/" + MAX_MESSAGE_LENGTH + ")",
-                            Toast.LENGTH_SHORT).show();
+                    Toast.makeText(MainActivity.this, "Message too long (" + s.length() + "/" + MAX_MESSAGE_LENGTH + ")", Toast.LENGTH_SHORT).show();
                 }
             }
         });
@@ -357,6 +472,28 @@ public class MainActivity extends BaseActivity {
     private void initializeData() {
         initUserId();
         loadNameMap();
+    }
+
+    public void openFriendChat(String friendDisplayId) {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        String friendsJson = prefs.getString(KEY_FRIENDS_LIST, null);
+        List<FriendModel> friends = new ArrayList<>();
+        if (friendsJson != null) {
+            Type type = new TypeToken<List<FriendModel>>(){}.getType();
+            friends = gson.fromJson(friendsJson, type);
+        }
+        boolean exists = friends.stream().anyMatch(f -> f.getDisplayId().equals(friendDisplayId));
+        if (!exists) {
+            friends.add(new FriendModel(friendDisplayId, getDisplayName(friendDisplayId), ""));
+            prefs.edit().putString(KEY_FRIENDS_LIST, gson.toJson(friends)).apply();
+            Toast.makeText(this, "Added to Friends: " + getDisplayName(friendDisplayId), Toast.LENGTH_SHORT).show();
+        }
+        long bits = BleMessagingService.displayIdToTimestamp(friendDisplayId);
+        String asciiId = BleMessagingService.timestampToAsciiId(bits);
+        activeChatType = "F";
+        activeChatId = asciiId;
+        saveActiveChat();
+        updateChatUIForSelection();
     }
 
     private void initUserId() {
@@ -386,21 +523,17 @@ public class MainActivity extends BaseActivity {
             String packageName = getPackageName();
             SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
             boolean hasAsked = prefs.getBoolean(KEY_BATTERY_OPT_REQUESTED, false);
-
             if (!pm.isIgnoringBatteryOptimizations(packageName) && !hasAsked) {
                 new AlertDialog.Builder(this)
                         .setTitle("Disable Battery Optimization")
                         .setMessage("To keep Nearby Chat running smoothly in the background, please disable battery optimization.")
                         .setPositiveButton("Settings", (dialog, which) -> {
                             try {
-                                Intent intent = new Intent();
-                                intent.setAction(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                                Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
                                 intent.setData(Uri.parse("package:" + packageName));
                                 startActivityForResult(intent, REQUEST_BATTERY_OPTIMIZATION);
                             } catch (Exception e) {
-                                Intent intent = new Intent();
-                                intent.setAction(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS);
-                                startActivity(intent);
+                                startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
                             }
                             prefs.edit().putBoolean(KEY_BATTERY_OPT_REQUESTED, true).apply();
                         })
@@ -420,24 +553,16 @@ public class MainActivity extends BaseActivity {
             Toast.makeText(this, "Bluetooth not available", Toast.LENGTH_LONG).show();
             return;
         }
-
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT)
-                        != PackageManager.PERMISSION_GRANTED) {
-                    // Will be handled by sequential check
-                    checkAndRequestPermissionsSequentially();
-                    return;
-                }
-            }
-
-            if (!bluetoothAdapter.isEnabled()) {
-                Toast.makeText(this, "Please turn on Bluetooth", Toast.LENGTH_LONG).show();
-                Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
-                startActivityForResult(enableBtIntent, 101);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                checkAndRequestPermissionsSequentially();
                 return;
             }
-
+            if (!bluetoothAdapter.isEnabled()) {
+                Toast.makeText(this, "Please turn on Bluetooth", Toast.LENGTH_LONG).show();
+                startActivityForResult(new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE), 101);
+                return;
+            }
             checkAndRequestPermissionsSequentially();
         } catch (SecurityException se) {
             Log.e(TAG, "Bluetooth permission missing", se);
@@ -447,117 +572,67 @@ public class MainActivity extends BaseActivity {
     }
 
     private void checkAndRequestPermissionsSequentially() {
-        // Step 1: Check Bluetooth permissions first (Android 12+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
-                requestSinglePermission(Manifest.permission.BLUETOOTH_CONNECT, "Bluetooth connection required for messaging");
-                return;
+                requestSinglePermission(Manifest.permission.BLUETOOTH_CONNECT, "Bluetooth connection required for messaging"); return;
             }
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
-                requestSinglePermission(Manifest.permission.BLUETOOTH_SCAN, "Bluetooth scanning required to find nearby devices");
-                return;
+                requestSinglePermission(Manifest.permission.BLUETOOTH_SCAN, "Bluetooth scanning required to find nearby devices"); return;
             }
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADVERTISE) != PackageManager.PERMISSION_GRANTED) {
-                requestSinglePermission(Manifest.permission.BLUETOOTH_ADVERTISE, "Bluetooth advertising required to be discoverable");
-                return;
+                requestSinglePermission(Manifest.permission.BLUETOOTH_ADVERTISE, "Bluetooth advertising required to be discoverable"); return;
             }
         }
-
-        // Step 2: Check location permission
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            showLocationPermissionDialog();
-            return;
+            showLocationPermissionDialog(); return;
         }
-
-        // Step 3: Check notification permission (Android 13+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                requestSinglePermission(Manifest.permission.POST_NOTIFICATIONS, "Notifications required for background service alerts");
-                return;
+                requestSinglePermission(Manifest.permission.POST_NOTIFICATIONS, "Notifications required for background service alerts"); return;
             }
         }
-
-        // All permissions granted - now start the service
-        Log.d(TAG, "All necessary permissions are granted. Starting service.");
-
-        // Wait a moment to ensure all permissions are processed
-        new Handler(Looper.getMainLooper()).postDelayed(() -> {
-            startBleService();
-        }, 500);
+        new Handler(Looper.getMainLooper()).postDelayed(this::startBleService, 500);
     }
 
     private void requestSinglePermission(String permission, String reason) {
         if (ActivityCompat.shouldShowRequestPermissionRationale(this, permission)) {
-            // Show explanation dialog
-            new AlertDialog.Builder(this)
-                    .setTitle("Permission Required")
-                    .setMessage(reason)
-                    .setPositiveButton("Grant", (dialog, which) -> {
-                        ActivityCompat.requestPermissions(this, new String[]{permission}, PERMISSION_REQUEST_CODE);
-                    })
-                    .setNegativeButton("Cancel", (dialog, which) -> {
-                        Toast.makeText(this, "Permission denied. App may not work properly.", Toast.LENGTH_LONG).show();
-                    })
+            new AlertDialog.Builder(this).setTitle("Permission Required").setMessage(reason)
+                    .setPositiveButton("Grant", (dialog, which) -> ActivityCompat.requestPermissions(this, new String[]{permission}, PERMISSION_REQUEST_CODE))
+                    .setNegativeButton("Cancel", (dialog, which) -> Toast.makeText(this, "Permission denied. App may not work properly.", Toast.LENGTH_LONG).show())
                     .show();
         } else {
             ActivityCompat.requestPermissions(this, new String[]{permission}, PERMISSION_REQUEST_CODE);
         }
     }
 
-
     private void showLocationPermissionDialog() {
-        new AlertDialog.Builder(this)
-                .setTitle("Location Permission Required")
+        new AlertDialog.Builder(this).setTitle("Location Permission Required")
                 .setMessage("Nearby Chat needs location access to scan for Bluetooth devices. This is required by Android for BLE functionality.")
-                .setPositiveButton("Enable Permission", (dialog, which) -> {
-                    ActivityCompat.requestPermissions(this,
-                            new String[]{Manifest.permission.ACCESS_FINE_LOCATION},
-                            PERMISSION_REQUEST_CODE);
-                })
-                .setNegativeButton("Try Later", (dialog, which) -> {
-                    Toast.makeText(this, "Location permission required for BLE scanning", Toast.LENGTH_LONG).show();
-                })
-                .setCancelable(false)
-                .show();
+                .setPositiveButton("Enable Permission", (dialog, which) -> ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, PERMISSION_REQUEST_CODE))
+                .setNegativeButton("Try Later", (dialog, which) -> Toast.makeText(this, "Location permission required for BLE scanning", Toast.LENGTH_LONG).show())
+                .setCancelable(false).show();
     }
-
-
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-
         if (requestCode == PERMISSION_REQUEST_CODE) {
-            // Check if permission was granted
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                // Permission granted, continue checking next permissions
                 checkAndRequestPermissionsSequentially();
             } else {
-                // Permission denied
-                String permission = permissions.length > 0 ? permissions[0] : "Unknown";
-                Toast.makeText(this, "Permission denied: " + permission, Toast.LENGTH_LONG).show();
-
-                // Still try to continue - some permissions might be optional
-                new Handler().postDelayed(() -> {
-                    checkAndRequestPermissionsSequentially();
-                }, 1000);
+                Toast.makeText(this, "Permission denied: " + (permissions.length > 0 ? permissions[0] : "Unknown"), Toast.LENGTH_LONG).show();
+                new Handler().postDelayed(this::checkAndRequestPermissionsSequentially, 1000);
             }
         } else if (requestCode == REQUEST_STORAGE_PERMISSION) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                if (currentUserId != null && currentProfilePic != null) {
-                    showImagePickerDialogInternal(currentUserId, currentProfilePic);
-                }
+                if (currentUserId != null && currentProfilePic != null) showImagePickerDialogInternal(currentUserId, currentProfilePic);
             } else {
                 Toast.makeText(this, "Storage permission required for gallery access", Toast.LENGTH_SHORT).show();
-                if (currentUserId != null && currentProfilePic != null) {
-                    openCamera(currentUserId, currentProfilePic);
-                }
+                if (currentUserId != null && currentProfilePic != null) openCamera(currentUserId, currentProfilePic);
             }
         } else if (requestCode == REQUEST_CAMERA_PERMISSION) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                if (currentUserId != null && currentProfilePic != null) {
-                    openCameraInternal(currentUserId, currentProfilePic);
-                }
+                if (currentUserId != null && currentProfilePic != null) openCameraInternal(currentUserId, currentProfilePic);
             } else {
                 Toast.makeText(this, "Camera permission required", Toast.LENGTH_SHORT).show();
             }
@@ -565,51 +640,25 @@ public class MainActivity extends BaseActivity {
     }
 
     private boolean hasAllRequiredPermissions() {
-        // Check Bluetooth permissions for Android 12+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
-                Log.d(TAG, "BLUETOOTH_CONNECT permission missing");
-                return false;
-            }
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
-                Log.d(TAG, "BLUETOOTH_SCAN permission missing");
-                return false;
-            }
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADVERTISE) != PackageManager.PERMISSION_GRANTED) {
-                Log.d(TAG, "BLUETOOTH_ADVERTISE permission missing");
-                return false;
-            }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) return false;
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) return false;
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADVERTISE) != PackageManager.PERMISSION_GRANTED) return false;
         }
-
-        // Check location permission
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            Log.d(TAG, "ACCESS_FINE_LOCATION permission missing");
-            return false;
-        }
-
-        // Check notification permission for Android 13+
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return false;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                Log.d(TAG, "POST_NOTIFICATIONS permission missing");
-                return false;
-            }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return false;
         }
-
-        Log.d(TAG, "All required permissions are granted");
         return true;
     }
 
     private void startBleService() {
-        // Check if ALL required permissions are granted before starting service
         if (!hasAllRequiredPermissions()) {
-            Log.w(TAG, "Not all permissions granted, cannot start service");
             Toast.makeText(this, "All permissions required for service", Toast.LENGTH_SHORT).show();
             return;
         }
-
         try {
             Intent serviceIntent = new Intent(this, BleMessagingService.class);
-
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 startForegroundService(serviceIntent);
             } else {
@@ -617,7 +666,6 @@ public class MainActivity extends BaseActivity {
             }
             bindService(serviceIntent, serviceConnection, Context.BIND_AUTO_CREATE);
             Toast.makeText(this, "Nearby Chat service started", Toast.LENGTH_SHORT).show();
-            Log.d(TAG, "BLE service started successfully");
         } catch (Exception e) {
             Log.e(TAG, "Error starting service", e);
             Toast.makeText(this, "Error starting service: " + e.getMessage(), Toast.LENGTH_LONG).show();
@@ -627,93 +675,59 @@ public class MainActivity extends BaseActivity {
     private void onSendButtonClick(View v) {
         String msg = inputMessage.getText().toString().trim();
         if (msg.isEmpty()) {
-            Toast.makeText(this, "Message cannot be empty!", Toast.LENGTH_SHORT).show();
-            return;
+            Toast.makeText(this, "Message cannot be empty!", Toast.LENGTH_SHORT).show(); return;
         }
         if (msg.length() > MAX_MESSAGE_LENGTH) {
-            Toast.makeText(this, "Message too long (" + msg.length() + "/" + MAX_MESSAGE_LENGTH + ")",
-                    Toast.LENGTH_SHORT).show();
-            return;
+            Toast.makeText(this, "Message too long (" + msg.length() + "/" + MAX_MESSAGE_LENGTH + ")", Toast.LENGTH_SHORT).show(); return;
         }
-        if (!validateBluetoothAndService()) {
-            return;
-        }
-
-        // Create 6-char header: 1 char chatType + 5 char chatId (padded/trimmed)
+        if (!validateBluetoothAndService()) return;
         String paddedChatId = String.format("%-5s", activeChatId).substring(0, 5);
         String messageWithHeader = activeChatType + paddedChatId + msg;
-
         if (isServiceBound && bleService != null) {
             bleService.sendMessageInChunks(messageWithHeader);
             inputMessage.setText("");
         } else {
             Intent serviceIntent = new Intent(this, BleMessagingService.class);
             serviceIntent.putExtra("message_to_send", messageWithHeader);
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(serviceIntent);
-            } else {
-                startService(serviceIntent);
-            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(serviceIntent); else startService(serviceIntent);
             inputMessage.setText("");
         }
     }
+
     private boolean validateBluetoothAndService() {
         if (bluetoothAdapter == null) {
-            Toast.makeText(this, "Bluetooth not supported", Toast.LENGTH_LONG).show();
-            return false;
+            Toast.makeText(this, "Bluetooth not supported", Toast.LENGTH_LONG).show(); return false;
         }
-
         try {
             if (!bluetoothAdapter.isEnabled()) {
-                Toast.makeText(this, "Turn on Bluetooth", Toast.LENGTH_SHORT).show();
-                return false;
+                Toast.makeText(this, "Turn on Bluetooth", Toast.LENGTH_SHORT).show(); return false;
             }
         } catch (SecurityException se) {
-            Toast.makeText(this, "Bluetooth permission required", Toast.LENGTH_SHORT).show();
-            return false;
+            Toast.makeText(this, "Bluetooth permission required", Toast.LENGTH_SHORT).show(); return false;
         }
-
         if (!isServiceBound || bleService == null) {
             startBleService();
-            Toast.makeText(this, "Starting service, please try again", Toast.LENGTH_SHORT).show();
-            return false;
+            Toast.makeText(this, "Starting service, please try again", Toast.LENGTH_SHORT).show(); return false;
         }
-
         return true;
     }
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-
-        if (requestCode == REQUEST_CODE_SELECT_CHAT && resultCode == RESULT_OK) {
-            if (data != null) {
-                activeChatType = data.getStringExtra("chatType");
-                activeChatId = data.getStringExtra("chatId");
-                saveActiveChat();
-                updateChatUIForSelection();
-            }
-            return; // Exit after handling
+        if (requestCode == REQUEST_CODE_SELECT_CHAT && resultCode == RESULT_OK && data != null) {
+            activeChatType = data.getStringExtra("chatType");
+            activeChatId = data.getStringExtra("chatId");
+            saveActiveChat();
+            updateChatUIForSelection();
+            return;
         }
         if (requestCode == REQUEST_ENABLE_LOCATION) {
-            if (isLocationEnabled()) {
-                requestAllPermissions();
-            } else {
-                Toast.makeText(this, "Location is required", Toast.LENGTH_LONG).show();
-            }
+            if (isLocationEnabled()) requestAllPermissions(); else Toast.makeText(this, "Location is required", Toast.LENGTH_LONG).show();
         } else if (requestCode == 101) {
-            if (bluetoothAdapter != null && bluetoothAdapter.isEnabled()) {
-                requestAllPermissions();
-            } else {
-                Toast.makeText(this, "Bluetooth is required", Toast.LENGTH_LONG).show();
-            }
+            if (bluetoothAdapter != null && bluetoothAdapter.isEnabled()) requestAllPermissions(); else Toast.makeText(this, "Bluetooth is required", Toast.LENGTH_LONG).show();
         } else if (requestCode == REQUEST_BATTERY_OPTIMIZATION) {
-            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-            String packageName = getPackageName();
-            if (pm.isIgnoringBatteryOptimizations(packageName)) {
-                Toast.makeText(this, "Battery optimization disabled", Toast.LENGTH_SHORT).show();
-            }
+            if (((PowerManager) getSystemService(Context.POWER_SERVICE)).isIgnoringBatteryOptimizations(getPackageName())) Toast.makeText(this, "Battery optimization disabled", Toast.LENGTH_SHORT).show();
         } else if (requestCode == REQUEST_GALLERY && resultCode == RESULT_OK) {
             handleGalleryResult(data);
         } else if (requestCode == REQUEST_CAMERA && resultCode == RESULT_OK) {
@@ -724,265 +738,144 @@ public class MainActivity extends BaseActivity {
     private void handleGalleryResult(Intent data) {
         try {
             if (data != null && data.getData() != null && currentProfilePic != null && currentUserId != null) {
-                Uri imageUri = data.getData();
-                Bitmap bitmap = MediaStore.Images.Media.getBitmap(getContentResolver(), imageUri);
+                Bitmap bitmap = MediaStore.Images.Media.getBitmap(getContentResolver(), data.getData());
                 Bitmap resizedBitmap = ImageConverter.resizeAndCrop(bitmap, 94, 94);
-                Bitmap circularBitmap = ImageConverter.createCircularBitmap(resizedBitmap);
-                currentProfilePic.setImageBitmap(circularBitmap);
+                currentProfilePic.setImageBitmap(ImageConverter.createCircularBitmap(resizedBitmap));
                 saveProfilePicture(currentUserId, resizedBitmap);
-            } else {
-                Toast.makeText(this, "No image selected", Toast.LENGTH_SHORT).show();
             }
         } catch (Exception e) {
             Log.e(TAG, "Error processing gallery image", e);
-            Toast.makeText(this, "Error processing image", Toast.LENGTH_SHORT).show();
         }
     }
 
     private void handleCameraResult(Intent data) {
         try {
             if (data != null && data.getExtras() != null) {
-                Bundle extras = data.getExtras();
-                Bitmap bitmap = (Bitmap) extras.get("data");
+                Bitmap bitmap = (Bitmap) data.getExtras().get("data");
                 if (bitmap != null && currentProfilePic != null && currentUserId != null) {
                     Bitmap resizedBitmap = ImageConverter.resizeAndCrop(bitmap, 94, 94);
-                    Bitmap circularBitmap = ImageConverter.createCircularBitmap(resizedBitmap);
-                    currentProfilePic.setImageBitmap(circularBitmap);
+                    currentProfilePic.setImageBitmap(ImageConverter.createCircularBitmap(resizedBitmap));
                     saveProfilePicture(currentUserId, resizedBitmap);
-                } else {
-                    Toast.makeText(this, "Error capturing image", Toast.LENGTH_SHORT).show();
                 }
-            } else {
-                Toast.makeText(this, "No image captured", Toast.LENGTH_SHORT).show();
             }
         } catch (Exception e) {
             Log.e(TAG, "Error processing camera image", e);
-            Toast.makeText(this, "Error processing image", Toast.LENGTH_SHORT).show();
         }
     }
 
     private void requestAllPermissions() {
         List<String> permissionsList = new ArrayList<>();
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
-                permissionsList.add(Manifest.permission.BLUETOOTH_SCAN);
-            }
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
-                permissionsList.add(Manifest.permission.BLUETOOTH_CONNECT);
-            }
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADVERTISE) != PackageManager.PERMISSION_GRANTED) {
-                permissionsList.add(Manifest.permission.BLUETOOTH_ADVERTISE);
-            }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) permissionsList.add(Manifest.permission.BLUETOOTH_SCAN);
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) permissionsList.add(Manifest.permission.BLUETOOTH_CONNECT);
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADVERTISE) != PackageManager.PERMISSION_GRANTED) permissionsList.add(Manifest.permission.BLUETOOTH_ADVERTISE);
         }
-
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            permissionsList.add(Manifest.permission.ACCESS_FINE_LOCATION);
-        }
-
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) permissionsList.add(Manifest.permission.ACCESS_FINE_LOCATION);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                permissionsList.add(Manifest.permission.POST_NOTIFICATIONS);
-            }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) permissionsList.add(Manifest.permission.POST_NOTIFICATIONS);
         }
-
         if (!permissionsList.isEmpty()) {
-            ActivityCompat.requestPermissions(this,
-                    permissionsList.toArray(new String[0]),
-                    PERMISSION_REQUEST_CODE);
+            ActivityCompat.requestPermissions(this, permissionsList.toArray(new String[0]), PERMISSION_REQUEST_CODE);
         } else {
-            Log.d(TAG, "All permissions already granted, starting service");
             startBleService();
         }
     }
 
     public void onMessageClick(MessageModel messageModel) {
         if (!messageModel.isComplete() && bleService != null && isServiceBound) {
-            MessageModel msg = messageModel;
-
-            List<Integer> missingChunks = msg.getMissingChunks();
+            List<Integer> missingChunks = messageModel.getMissingChunks();
             if (missingChunks != null && !missingChunks.isEmpty()) {
-
-                // *** FIX: Add msg.getSenderId() as the first argument ***
-                bleService.sendMissingPartsRequest(
-                        msg.getSenderId(),          // 1. targetUserId (String) - THIS WAS MISSING
-                        msg.getMessageId(),         // 2. messageId (String)
-                        missingChunks               // 3. missingChunkIndices (List<Integer>)
-                );
-
-                Toast.makeText(this, "Requesting missing parts for message: " + msg.getMessageId(), Toast.LENGTH_SHORT).show();
-                // The return statement was redundant, but it's okay to keep it.
+                bleService.sendMissingPartsRequest(messageModel.getSenderId(), messageModel.getMessageId(), missingChunks);
+                Toast.makeText(this, "Requesting missing parts for message: " + messageModel.getMessageId(), Toast.LENGTH_SHORT).show();
             }
         }
     }
 
     private void onMessageLongClick(MessageModel msg) {
-        try {
-            List<String> options = new ArrayList<>();
-            options.add("Copy");
-            options.add("Remove"); // *** ADD THIS ***
-
-            if (msg.isSelf()) {
-                options.add("Resend");
-            } else {
-                options.add("Forward");
-                if (!msg.isComplete()) {
-                    options.add("Request Missing Parts");
-                }
-            }
-
-            String[] optionsArray = options.toArray(new String[0]);
-
-            AlertDialog.Builder builder = new AlertDialog.Builder(this);
-            builder.setTitle("Message Options")
-                    .setItems(optionsArray, (dialog, which) -> {
-                        String selectedOption = optionsArray[which];
-                        switch (selectedOption) {
-                            case "Copy":
-                                copyMessageToClipboard(msg);
-                                break;
-                            case "Remove": // *** ADD THIS CASE ***
-                                removeMessage(msg);
-                                break;
-                            case "Resend":
-                                resendMyMessage(msg);
-                                break;
-                            case "Forward":
-                                forwardMessage(msg);
-                                break;
-                            case "Request Missing Parts":
-                                requestMissingParts(msg);
-                                break;
-                        }
-                    })
-                    .show();
-        } catch (Exception e) {
-            Log.e(TAG, "Error showing message options", e);
+        List<String> options = new ArrayList<>(Arrays.asList("Copy", "Remove"));
+        if (msg.isSelf()) options.add("Resend");
+        else {
+            options.add("Forward");
+            if (!msg.isComplete()) options.add("Request Missing Parts");
         }
+        new AlertDialog.Builder(this).setTitle("Message Options")
+                .setItems(options.toArray(new String[0]), (dialog, which) -> {
+                    switch (options.get(which)) {
+                        case "Copy": copyMessageToClipboard(msg); break;
+                        case "Remove": removeMessage(msg); break;
+                        case "Resend": resendMyMessage(msg); break;
+                        case "Forward": forwardMessage(msg); break;
+                        case "Request Missing Parts": requestMissingParts(msg); break;
+                    }
+                }).show();
     }
 
     private void removeMessage(MessageModel msg) {
         new Thread(() -> {
             try {
                 messageDao.deleteMessage(msg.getSenderId(), msg.getMessageId(), msg.getTimestamp());
-                runOnUiThread(() -> {
-                    Toast.makeText(this, "Message removed", Toast.LENGTH_SHORT).show();
-                });
+                runOnUiThread(() -> Toast.makeText(this, "Message removed", Toast.LENGTH_SHORT).show());
             } catch (Exception e) {
-                Log.e(TAG, "Error removing message", e);
-                runOnUiThread(() -> {
-                    Toast.makeText(this, "Error removing message", Toast.LENGTH_SHORT).show();
-                });
+                runOnUiThread(() -> Toast.makeText(this, "Error removing message", Toast.LENGTH_SHORT).show());
             }
         }).start();
     }
 
     private void requestMissingParts(MessageModel msg) {
-        try {
-            if (!validateBluetoothAndService()) return;
-
-            Toast.makeText(this, "Requesting missing parts...", Toast.LENGTH_SHORT).show();
-
-            if (isServiceBound && bleService != null) {
-                // New format: "userIdmsgId??" + encoded missing chunks as ASCII
-                bleService.sendMissingPartsRequest(msg.getSenderId(), msg.getMessageId(), msg.getMissingChunks());
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "Error requesting missing parts", e);
+        if (!validateBluetoothAndService()) return;
+        Toast.makeText(this, "Requesting missing parts...", Toast.LENGTH_SHORT).show();
+        if (isServiceBound && bleService != null) {
+            bleService.sendMissingPartsRequest(msg.getSenderId(), msg.getMessageId(), msg.getMissingChunks());
         }
     }
 
-
-
     private void resendMyMessage(MessageModel msg) {
-        try {
-            if (!validateBluetoothAndService()) return;
-
-            Toast.makeText(this, "Resending...", Toast.LENGTH_SHORT).show();
-
-            if (isServiceBound && bleService != null) {
-                bleService.resendMessageWithoutSaving(msg.getMessage(), msg.getMessageId());
-            } else {
-                Intent serviceIntent = new Intent(this, BleMessagingService.class);
-                serviceIntent.putExtra("message_to_resend", msg.getMessage());
-                serviceIntent.putExtra("is_resend", true);
-
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    startForegroundService(serviceIntent);
-                } else {
-                    startService(serviceIntent);
-                }
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "Error resending message", e);
+        if (!validateBluetoothAndService()) return;
+        Toast.makeText(this, "Resending...", Toast.LENGTH_SHORT).show();
+        if (isServiceBound && bleService != null) {
+            bleService.resendMessageWithoutSaving(msg.getMessage(), msg.getMessageId());
+        } else {
+            Intent serviceIntent = new Intent(this, BleMessagingService.class);
+            serviceIntent.putExtra("message_to_resend", msg.getMessage());
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(serviceIntent); else startService(serviceIntent);
         }
     }
 
     private void forwardMessage(MessageModel msg) {
-        try {
-            if (!validateBluetoothAndService()) return;
-
-            Toast.makeText(this, "Forwarding...", Toast.LENGTH_SHORT).show();
-
-            if (isServiceBound && bleService != null) {
-                bleService.forwardMessageWithOriginalSender(msg.getMessage(), msg.getSenderId(), msg.getMessageId());
-            } else {
-                Intent serviceIntent = new Intent(this, BleMessagingService.class);
-                serviceIntent.putExtra("message_to_send", msg.getMessage());
-                serviceIntent.putExtra("original_sender_id", msg.getSenderId());
-                serviceIntent.putExtra("is_forward", true);
-
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    startForegroundService(serviceIntent);
-                } else {
-                    startService(serviceIntent);
-                }
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "Error forwarding message", e);
+        if (!validateBluetoothAndService()) return;
+        Toast.makeText(this, "Forwarding...", Toast.LENGTH_SHORT).show();
+        if (isServiceBound && bleService != null) {
+            bleService.forwardMessageWithOriginalSender(msg.getMessage(), msg.getSenderId(), msg.getMessageId());
+        } else {
+            Intent serviceIntent = new Intent(this, BleMessagingService.class);
+            serviceIntent.putExtra("message_to_send", msg.getMessage());
+            serviceIntent.putExtra("original_sender_id", msg.getSenderId());
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(serviceIntent); else startService(serviceIntent);
         }
     }
 
     private void copyMessageToClipboard(MessageModel msg) {
-        try {
-            ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-            if (clipboard != null) {
-                clipboard.setPrimaryClip(ClipData.newPlainText("Copied Message", msg.getMessage()));
-                Toast.makeText(this, "Copied", Toast.LENGTH_SHORT).show();
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "Error copying message", e);
+        ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        if (clipboard != null) {
+            clipboard.setPrimaryClip(ClipData.newPlainText("Copied Message", msg.getMessage()));
+            Toast.makeText(this, "Copied", Toast.LENGTH_SHORT).show();
         }
     }
 
     private void restartApp() {
-        try {
-            Intent serviceIntent = new Intent(this, BleMessagingService.class);
-            stopService(serviceIntent);
-
-            Intent restartIntent = getPackageManager().getLaunchIntentForPackage(getPackageName());
-            if (restartIntent != null) {
-                restartIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
-                startActivity(restartIntent);
-                finish();
-                System.exit(0);
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "Error restarting app", e);
-            Toast.makeText(this, "Error restarting app", Toast.LENGTH_SHORT).show();
+        stopService(new Intent(this, BleMessagingService.class));
+        Intent restartIntent = getPackageManager().getLaunchIntentForPackage(getPackageName());
+        if (restartIntent != null) {
+            restartIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(restartIntent);
+            finish();
+            System.exit(0);
         }
     }
 
     private boolean isLocationEnabled() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            LocationManager lm = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
-            return lm != null && lm.isLocationEnabled();
-        } else {
-            int mode = Settings.Secure.getInt(getContentResolver(),
-                    Settings.Secure.LOCATION_MODE,
-                    Settings.Secure.LOCATION_MODE_OFF);
-            return mode != Settings.Secure.LOCATION_MODE_OFF;
-        }
+        LocationManager lm = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+        return lm != null && (Build.VERSION.SDK_INT < Build.VERSION_CODES.P || lm.isLocationEnabled());
     }
 
     private void showImagePickerDialog(String userId, ImageView profilePic) {
@@ -996,45 +889,26 @@ public class MainActivity extends BaseActivity {
     }
 
     private void requestStoragePermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ActivityCompat.requestPermissions(this,
-                    new String[]{Manifest.permission.READ_MEDIA_IMAGES},
-                    REQUEST_STORAGE_PERMISSION);
-        } else {
-            ActivityCompat.requestPermissions(this,
-                    new String[]{Manifest.permission.READ_EXTERNAL_STORAGE},
-                    REQUEST_STORAGE_PERMISSION);
-        }
+        String permission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ? Manifest.permission.READ_MEDIA_IMAGES : Manifest.permission.READ_EXTERNAL_STORAGE;
+        ActivityCompat.requestPermissions(this, new String[]{permission}, REQUEST_STORAGE_PERMISSION);
     }
 
     private boolean needsStoragePermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            return ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES)
-                    != PackageManager.PERMISSION_GRANTED;
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            return ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)
-                    != PackageManager.PERMISSION_GRANTED;
-        }
-        return false;
+        String permission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ? Manifest.permission.READ_MEDIA_IMAGES : Manifest.permission.READ_EXTERNAL_STORAGE;
+        return ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED;
     }
 
     private void showImagePickerDialogInternal(String userId, ImageView profilePic) {
-        String[] options = hasCustomProfilePicture(userId)
-                ? new String[]{"Gallery", "Camera", "Reset to Default"}
-                : new String[]{"Gallery", "Camera"};
-
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("Select Image")
-                .setItems(options, (dialog, which) -> {
-                    if (which == 0) {
-                        openGallery(userId, profilePic);
-                    } else if (which == 1) {
-                        openCamera(userId, profilePic);
-                    } else if (which == 2) {
-                        resetToGeneratedProfilePic(userId, profilePic);
+        List<String> options = new ArrayList<>(Arrays.asList("Gallery", "Camera"));
+        if (hasCustomProfilePicture(userId)) options.add("Reset to Default");
+        new AlertDialog.Builder(this).setTitle("Select Image")
+                .setItems(options.toArray(new String[0]), (dialog, which) -> {
+                    switch (options.get(which)) {
+                        case "Gallery": openGallery(userId, profilePic); break;
+                        case "Camera": openCamera(userId, profilePic); break;
+                        case "Reset to Default": resetToGeneratedProfilePic(userId, profilePic); break;
                     }
-                })
-                .show();
+                }).show();
     }
 
     private void openGallery(String userId, ImageView profilePic) {
@@ -1049,204 +923,84 @@ public class MainActivity extends BaseActivity {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             currentUserId = userId;
             currentProfilePic = profilePic;
-            ActivityCompat.requestPermissions(this,
-                    new String[]{Manifest.permission.CAMERA},
-                    REQUEST_CAMERA_PERMISSION);
+            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, REQUEST_CAMERA_PERMISSION);
             return;
         }
         openCameraInternal(userId, profilePic);
     }
 
     private void openCameraInternal(String userId, ImageView profilePic) {
-        try {
-            Intent intent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
-            if (intent.resolveActivity(getPackageManager()) != null) {
-                currentUserId = userId;
-                currentProfilePic = profilePic;
-                startActivityForResult(intent, REQUEST_CAMERA);
-            } else {
-                Toast.makeText(this, "Camera not available", Toast.LENGTH_SHORT).show();
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "Error opening camera", e);
-            Toast.makeText(this, "Error opening camera", Toast.LENGTH_SHORT).show();
+        Intent intent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+        if (intent.resolveActivity(getPackageManager()) != null) {
+            currentUserId = userId;
+            currentProfilePic = profilePic;
+            startActivityForResult(intent, REQUEST_CAMERA);
+        } else {
+            Toast.makeText(this, "Camera not available", Toast.LENGTH_SHORT).show();
         }
-    }
-
-    private Bitmap generateProfilePic(String userId) {
-        try {
-            if (userId == null || userId.length() < 8) {
-                return createDefaultProfilePic();
-            }
-
-            String text = userId.substring(6, 8);
-            char colorChar = userId.charAt(5);
-            int colorIndex = getAlphabetIndex(colorChar);
-            int bgColor = BACKGROUND_COLORS[colorIndex];
-            return createTextBitmap(text, bgColor, 0xFFFFFFFF);
-        } catch (Exception e) {
-            Log.e(TAG, "Error generating profile pic", e);
-            return createDefaultProfilePic();
-        }
-    }
-
-    private int getAlphabetIndex(char c) {
-        for (int i = 0; i < ALPHABET.length; i++) {
-            if (ALPHABET[i] == c) {
-                return i;
-            }
-        }
-        return 0;
-    }
-
-    private Bitmap createTextBitmap(String text, int bgColor, int textColor) {
-        int size = 94;
-        Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
-        android.graphics.Canvas canvas = new android.graphics.Canvas(bitmap);
-
-        Paint bgPaint = new Paint();
-        bgPaint.setAntiAlias(true);
-        bgPaint.setColor(bgColor);
-        canvas.drawCircle(size / 2f, size / 2f, size / 2f, bgPaint);
-
-        Paint textPaint = new Paint();
-        textPaint.setAntiAlias(true);
-        textPaint.setColor(textColor);
-        textPaint.setTextSize(size * 0.45f);
-        textPaint.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        textPaint.setTextAlign(Paint.Align.CENTER);
-
-        Paint.FontMetrics fontMetrics = textPaint.getFontMetrics();
-        float textHeight = fontMetrics.bottom - fontMetrics.top;
-        float textY = (size + textHeight) / 2f - fontMetrics.bottom;
-        canvas.drawText(text, size / 2f, textY, textPaint);
-        return bitmap;
-    }
-
-    private Bitmap createDefaultProfilePic() {
-        return createTextBitmap("??", 0xFF95A5A6, 0xFFFFFFFF);
     }
 
     private boolean hasCustomProfilePicture(String userId) {
-        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        String base64Image = prefs.getString("profile_" + userId, null);
-        return base64Image != null;
+        return getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getString("profile_" + userId, null) != null;
     }
 
     private void resetToGeneratedProfilePic(String userId, ImageView imageView) {
-        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        prefs.edit().remove("profile_" + userId).apply();
-        Bitmap generatedBitmap = generateProfilePic(userId);
-        imageView.setImageBitmap(generatedBitmap);
-    }
-
-    private void loadProfilePicture(String userId, ImageView imageView) {
-        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        String base64Image = prefs.getString("profile_" + userId, null);
-
-        if (base64Image != null) {
-            try {
-                byte[] imageBytes = Base64.decode(base64Image, Base64.DEFAULT);
-                Bitmap bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.length);
-                Bitmap circularBitmap = ImageConverter.createCircularBitmap(bitmap);
-                imageView.setImageBitmap(circularBitmap);
-            } catch (Exception e) {
-                Log.e(TAG, "Error loading saved profile picture for " + userId, e);
-                Bitmap generatedBitmap = generateProfilePic(userId);
-                imageView.setImageBitmap(generatedBitmap);
-            }
-        } else {
-            Bitmap generatedBitmap = generateProfilePic(userId);
-            imageView.setImageBitmap(generatedBitmap);
-        }
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().remove("profile_" + userId).apply();
+        ProfilePicLoader.loadProfilePicture(this, userId, imageView);
     }
 
     public void loadProfilePictureForAdapter(String userId, ImageView imageView) {
-        loadProfilePicture(userId, imageView);
+        ProfilePicLoader.loadProfilePicture(this, userId, imageView);
     }
 
     private void saveProfilePicture(String userId, Bitmap bitmap) {
         try {
             Bitmap resizedBitmap = ImageConverter.resizeAndCrop(bitmap, 94, 94);
-            Bitmap circularBitmap = ImageConverter.createCircularBitmap(resizedBitmap);
-
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            circularBitmap.compress(Bitmap.CompressFormat.PNG, 100, baos);
-            byte[] imageBytes = baos.toByteArray();
-            String base64Image = Base64.encodeToString(imageBytes, Base64.DEFAULT);
-
-            SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-            prefs.edit().putString("profile_" + userId, base64Image).apply();
+            resizedBitmap.compress(Bitmap.CompressFormat.PNG, 100, baos);
+            String base64Image = Base64.encodeToString(baos.toByteArray(), Base64.DEFAULT);
+            getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().putString("profile_" + userId, base64Image).apply();
         } catch (Exception e) {
             Log.e(TAG, "Error saving profile picture", e);
         }
     }
 
     private String getUserIdString(long bits40) {
-        StringBuilder sb = new StringBuilder();
-        long temp = bits40;
-        for (int i = 0; i < 8; i++) {
-            int index = (int) (temp & 0b11111);
-            sb.append(ALPHABET[index]);
-            temp >>= 5;
-        }
-        return sb.reverse().toString();
+        return BleMessagingService.timestampToDisplayId(bits40);
     }
 
     public String getDisplayName(String senderId) {
-        try {
-            String name = nameMap.get(senderId);
-            return (name != null && !name.isEmpty()) ? name : senderId;
-        } catch (Exception e) {
-            Log.e(TAG, "Error getting display name", e);
-            return senderId;
-        }
+        return nameMap.getOrDefault(senderId, senderId);
     }
 
     private void loadNameMap() {
         try {
-            SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-            String json = prefs.getString(KEY_NAME_MAP, null);
+            String json = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getString(KEY_NAME_MAP, null);
             if (json != null) {
                 Type type = new TypeToken<Map<String, String>>() {}.getType();
                 nameMap = gson.fromJson(json, type);
             }
-            if (nameMap == null) {
-                nameMap = new HashMap<>();
-            }
+            if (nameMap == null) nameMap = new HashMap<>();
         } catch (Exception e) {
-            Log.e(TAG, "Error loading name map", e);
             nameMap = new HashMap<>();
         }
     }
 
     private void saveNameMap() {
-        try {
-            SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-            prefs.edit().putString(KEY_NAME_MAP, gson.toJson(nameMap)).apply();
-        } catch (Exception e) {
-            Log.e(TAG, "Error saving name map", e);
-        }
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().putString(KEY_NAME_MAP, gson.toJson(nameMap)).apply();
     }
 
     private int dpToPx(Context context, int dp) {
-        float density = context.getResources().getDisplayMetrics().density;
-        return Math.round(dp * density);
+        return Math.round(dp * context.getResources().getDisplayMetrics().density);
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        // Use the correct variable names: 'activeChatType' and 'activeChatId'
-        activeChatType = prefs.getString("chatType", "N");
-        activeChatId = prefs.getString("chatId", "");
-
-        // Only try to start service if Bluetooth is enabled AND all permissions are granted
+        activeChatType = prefs.getString(KEY_CHAT_TYPE, "N");
+        activeChatId = prefs.getString(KEY_CHAT_ID, "");
         if (bluetoothAdapter != null && bluetoothAdapter.isEnabled() && hasAllRequiredPermissions()) {
-            Log.d(TAG, "Starting service from onResume - all conditions met");
             startBleService();
-        } else {
-            Log.d(TAG, "Skipping service start from onResume - conditions not met");
         }
     }
 
