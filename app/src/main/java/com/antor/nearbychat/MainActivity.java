@@ -218,9 +218,28 @@ public class MainActivity extends BaseActivity {
         editKey.setText(groupToEdit.getEncryptionKey());
         btnDelete.setVisibility(View.VISIBLE);
 
+        // MOVE THIS SECTION HERE - after creating final variables
         final List<GroupModel> finalGroupsList = groupsList;
         final int finalGroupPosition = groupPosition;
         final GroupModel finalGroupToEdit = groupToEdit;
+
+        // NOW this section can access finalGroupToEdit
+        TextView groupIdText = dialog.findViewById(R.id.groupID);
+        if (groupIdText != null) {
+            // Convert 5-char ASCII ID to 8-char display ID
+            long bits = asciiIdToTimestamp(finalGroupToEdit.getId());
+            String displayId = getUserIdString(bits);
+            groupIdText.setText(displayId);
+        }
+
+        ImageView dialogProfilePic = dialog.findViewById(R.id.profilePicRound);
+        if (dialogProfilePic != null) {
+            dialogProfilePic.setOnClickListener(v -> {
+                currentUserId = finalGroupToEdit.getId(); // Use group ID as identifier
+                currentProfilePic = dialogProfilePic;
+                showImagePickerDialog(finalGroupToEdit.getId(), dialogProfilePic);
+            });
+        }
 
         btnCancel.setOnClickListener(v -> dialog.dismiss());
         btnDelete.setOnClickListener(v -> {
@@ -257,11 +276,8 @@ public class MainActivity extends BaseActivity {
         List<FriendModel> friendsList = gson.fromJson(friendsJson, type);
         if (friendsList == null) friendsList = new ArrayList<>();
 
-        // **FIX START**: Use the ASCII ID directly from activeChatId to find the friend.
-        // The displayId is what we need to find, which is generated from the ASCII ID.
         long bits = asciiIdToTimestamp(activeChatId);
         String displayIdToFind = getUserIdString(bits);
-        // **FIX END**
 
         FriendModel friendToEdit = null;
         int friendPosition = -1;
@@ -284,6 +300,7 @@ public class MainActivity extends BaseActivity {
         TextView title = dialog.findViewById(R.id.dia_title);
         EditText editName = dialog.findViewById(R.id.editName);
         EditText editId = dialog.findViewById(R.id.editFriendId);
+        EditText editKey = dialog.findViewById(R.id.editEncryptionKey); // ✅ Declare once here
         Button btnDelete = dialog.findViewById(R.id.btnDelete);
         Button btnCancel = dialog.findViewById(R.id.btnCancel);
         Button btnSave = dialog.findViewById(R.id.btnAdd);
@@ -292,12 +309,23 @@ public class MainActivity extends BaseActivity {
         btnSave.setText("Save");
         editName.setText(friendToEdit.getName());
         editId.setText(friendToEdit.getDisplayId());
+        editKey.setText(friendToEdit.getEncryptionKey()); // ✅ Now this works
         editId.setEnabled(false);
         btnDelete.setVisibility(View.VISIBLE);
 
         final List<FriendModel> finalFriendsList = friendsList;
         final int finalFriendPosition = friendPosition;
         final FriendModel finalFriendToEdit = friendToEdit;
+
+        ImageView dialogProfilePic = dialog.findViewById(R.id.profilePicRound);
+        ProfilePicLoader.loadProfilePicture(this, displayIdToFind, dialogProfilePic);
+        if (dialogProfilePic != null) {
+            dialogProfilePic.setOnClickListener(v -> {
+                currentUserId = displayIdToFind;
+                currentProfilePic = dialogProfilePic;
+                showImagePickerDialog(displayIdToFind, dialogProfilePic);
+            });
+        }
 
         btnCancel.setOnClickListener(v -> dialog.dismiss());
         btnDelete.setOnClickListener(v -> {
@@ -312,11 +340,15 @@ public class MainActivity extends BaseActivity {
         });
         btnSave.setOnClickListener(v -> {
             String name = editName.getText().toString().trim();
+            String key = editKey.getText().toString().trim(); // ✅ No redeclaration needed
+
             if (name.isEmpty()) {
                 Toast.makeText(this, "Name cannot be empty", Toast.LENGTH_SHORT).show();
                 return;
             }
             finalFriendToEdit.setName(name);
+            finalFriendToEdit.setEncryptionKey(key);
+
             finalFriendsList.set(finalFriendPosition, finalFriendToEdit);
             prefs.edit().putString(KEY_FRIENDS_LIST, gson.toJson(finalFriendsList)).apply();
             updateChatUIForSelection();
@@ -353,7 +385,10 @@ public class MainActivity extends BaseActivity {
                 }
                 appTitle.setText(groupName);
             }
-            appIcon.setImageResource(R.drawable.profile_pic_round_vector);
+            // CHANGE THIS: Use loadGroupProfilePicture for groups
+            long bits = asciiIdToTimestamp(activeChatId);
+            String displayId = getUserIdString(bits);
+            ProfilePicLoader.loadGroupProfilePicture(this, displayId, appIcon);
         } else if ("F".equals(activeChatType)) {
             long bits = asciiIdToTimestamp(activeChatId);
             String displayId = getUserIdString(bits);
@@ -372,6 +407,7 @@ public class MainActivity extends BaseActivity {
                 }
                 appTitle.setText(friendName);
             }
+            // ALREADY CORRECT: Load friend profile pic
             ProfilePicLoader.loadProfilePicture(this, displayId, appIcon);
         }
         setupDatabase();

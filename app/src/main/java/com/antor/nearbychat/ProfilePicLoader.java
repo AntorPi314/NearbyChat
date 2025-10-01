@@ -47,13 +47,45 @@ public class ProfilePicLoader {
             if (userId == null || userId.length() < 8) {
                 return createDefaultProfilePic();
             }
-            String text = userId.substring(6, 8);
+
+            // CHANGE THIS: Check if this is a group (need to determine somehow)
+            // For now, we'll use 8 chars for all. To differentiate:
+            // - Friends: last 2 chars (single line)
+            // - Groups: all 8 chars (double line)
+
+            // Let's use a simple heuristic: if called with full 8 chars visible context,
+            // show 2 lines. Otherwise show single line.
+            // Better approach: pass an isGroup flag or check character pattern
+
+            // For now, let's create two methods:
+            String text = userId.substring(6, 8); // Last 2 chars for friends
             char colorChar = userId.charAt(5);
             int colorIndex = getAlphabetIndex(colorChar);
             int bgColor = BACKGROUND_COLORS[colorIndex % BACKGROUND_COLORS.length];
-            return createTextBitmap(text, bgColor, 0xFFFFFFFF);
+            return createTextBitmap(text, bgColor, 0xFFFFFFFF, false);
         } catch (Exception e) {
             Log.e("ProfilePicLoader", "Error generating profile pic", e);
+            return createDefaultProfilePic();
+        }
+    }
+
+    private static Bitmap generateGroupProfilePic(String userId) {
+        try {
+            if (userId == null || userId.length() < 8) {
+                return createDefaultProfilePic();
+            }
+
+            // Split into 2 lines: first 5 chars and last 3 chars
+            String line1 = userId.substring(0, 5); // First 5 chars
+            String line2 = userId.substring(5, 8); // Last 3 chars
+
+            char colorChar = userId.charAt(5);
+            int colorIndex = getAlphabetIndex(colorChar);
+            int bgColor = BACKGROUND_COLORS[colorIndex % BACKGROUND_COLORS.length];
+
+            return createTwoLineTextBitmap(line1, line2, bgColor, 0xFFFFFFFF);
+        } catch (Exception e) {
+            Log.e("ProfilePicLoader", "Error generating group profile pic", e);
             return createDefaultProfilePic();
         }
     }
@@ -67,7 +99,7 @@ public class ProfilePicLoader {
         return 0;
     }
 
-    private static Bitmap createTextBitmap(String text, int bgColor, int textColor) {
+    private static Bitmap createTextBitmap(String text, int bgColor, int textColor, boolean isDoubleLine) {
         int size = 94;
         Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
         android.graphics.Canvas canvas = new android.graphics.Canvas(bitmap);
@@ -91,7 +123,65 @@ public class ProfilePicLoader {
         return bitmap;
     }
 
+    private static Bitmap createTwoLineTextBitmap(String line1, String line2, int bgColor, int textColor) {
+        int size = 94;
+        Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+        android.graphics.Canvas canvas = new android.graphics.Canvas(bitmap);
+
+        // Draw background circle
+        Paint bgPaint = new Paint();
+        bgPaint.setAntiAlias(true);
+        bgPaint.setColor(bgColor);
+        canvas.drawCircle(size / 2f, size / 2f, size / 2f, bgPaint);
+
+        // Setup text paint
+        Paint textPaint = new Paint();
+        textPaint.setAntiAlias(true);
+        textPaint.setColor(textColor);
+        textPaint.setTextSize(size * 0.22f); // Smaller font for 2 lines
+        textPaint.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        textPaint.setTextAlign(Paint.Align.CENTER);
+
+        Paint.FontMetrics fontMetrics = textPaint.getFontMetrics();
+        float lineHeight = fontMetrics.bottom - fontMetrics.top;
+        float totalHeight = lineHeight * 2;
+
+        // Calculate Y positions for both lines
+        float startY = (size - totalHeight) / 2f - fontMetrics.top;
+        float line1Y = startY;
+        float line2Y = startY + lineHeight;
+
+        // Draw both lines
+        canvas.drawText(line1, size / 2f, line1Y, textPaint);
+        canvas.drawText(line2, size / 2f, line2Y, textPaint);
+
+        return bitmap;
+    }
+
+    // ADD THIS: New method specifically for groups
+    public static void loadGroupProfilePicture(Context context, String userId, ImageView imageView) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        String base64Image = prefs.getString("profile_" + userId, null);
+
+        if (base64Image != null) {
+            try {
+                byte[] imageBytes = Base64.decode(base64Image, Base64.DEFAULT);
+                Bitmap bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.length);
+                Bitmap circularBitmap = ImageConverter.createCircularBitmap(bitmap);
+                imageView.setImageBitmap(circularBitmap);
+            } catch (Exception e) {
+                Log.e("ProfilePicLoader", "Error loading saved profile picture for " + userId, e);
+                Bitmap generatedBitmap = generateGroupProfilePic(userId);
+                imageView.setImageBitmap(generatedBitmap);
+            }
+        } else {
+            Bitmap generatedBitmap = generateGroupProfilePic(userId);
+            imageView.setImageBitmap(generatedBitmap);
+        }
+    }
+
+
     private static Bitmap createDefaultProfilePic() {
-        return createTextBitmap("??", 0xFF95A5A6, 0xFFFFFFFF);
+        return createTextBitmap("??", 0xFF95A5A6, 0xFFFFFFFF, false);
     }
 }

@@ -98,7 +98,6 @@
         android:inputType="text"
         android:paddingStart="12dp"
         android:paddingEnd="12dp"
-        android:textColor="@android:color/black"
         android:textSize="14sp" />
 
     <LinearLayout

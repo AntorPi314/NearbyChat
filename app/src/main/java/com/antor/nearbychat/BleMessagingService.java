@@ -1,5 +1,6 @@
 package com.antor.nearbychat;
 
+
 import android.Manifest;
 import android.app.Notification;
 import android.app.NotificationChannel;
@@ -17,6 +18,7 @@ import android.bluetooth.le.ScanFilter;
 import android.bluetooth.le.ScanRecord;
 import android.bluetooth.le.ScanResult;
 
+import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Set;
@@ -45,6 +47,7 @@ import androidx.core.content.ContextCompat;
 
 import com.antor.nearbychat.Database.AppDatabase;
 import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
 
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
@@ -66,6 +69,8 @@ public class BleMessagingService extends Service {
     private static final int CHUNK_METADATA_LENGTH = 2;
     private static final int HEADER_SIZE = USER_ID_LENGTH + MESSAGE_ID_LENGTH + CHUNK_METADATA_LENGTH; // Now 12 bytes
 
+    private static final String KEY_GROUPS_LIST = "groupsList"; // Or your desired preference key
+    private static final String KEY_FRIENDS_LIST = "friendsList"; // Or your desired preference key
 
     // Dynamic settings - will be loaded from preferences
     private static int MAX_PAYLOAD_SIZE = 27;
@@ -204,6 +209,46 @@ public class BleMessagingService extends Service {
             sb.append((char) byteValue);
         }
         return sb.toString();
+    }
+
+    // Add this entire method anywhere inside the BleMessagingService class
+    private String getPasswordForChat(String chatType, String chatId) {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        Gson gson = new Gson();
+
+        if ("G".equals(chatType)) {
+            String groupsJson = prefs.getString(KEY_GROUPS_LIST, null);
+            if (groupsJson != null) {
+                Type type = new TypeToken<List<GroupModel>>() {
+                }.getType();
+                List<GroupModel> groups = gson.fromJson(groupsJson, type);
+                for (GroupModel g : groups) {
+                    if (g.getId().equals(chatId)) {
+                        // If the key is empty, use the groupId as the password
+                        return g.getEncryptionKey().isEmpty() ? g.getId() : g.getEncryptionKey();
+                    }
+                }
+            }
+            return chatId; // Fallback to groupId
+        } else if ("F".equals(chatType)) {
+            String friendsJson = prefs.getString(KEY_FRIENDS_LIST, null);
+            if (friendsJson != null) {
+                Type type = new TypeToken<List<FriendModel>>() {
+                }.getType();
+                List<FriendModel> friends = gson.fromJson(friendsJson, type);
+                String friendDisplayId = timestampToDisplayId(asciiIdToTimestamp(chatId));
+
+                for (FriendModel f : friends) {
+                    if (f.getDisplayId().equals(friendDisplayId)) {
+                        // If key is empty, use the SENDER's ID (your own ID) as the password
+                        return f.getEncryptionKey().isEmpty() ? userId : f.getEncryptionKey();
+                    }
+                }
+            }
+            // Fallback for friends is the sender's own ID
+            return userId;
+        }
+        return ""; // No password for Nearby chat
     }
 
     private long asciiIdToTimestamp(String asciiId) {
@@ -1278,6 +1323,8 @@ public class BleMessagingService extends Service {
         return missing;
     }
 
+    // In BleMessagingService.java
+
     public void sendMessageInChunks(String messageWithHeader) {
         try {
             Log.d(TAG, "=== SENDING MESSAGE ===");
@@ -1296,23 +1343,32 @@ public class BleMessagingService extends Service {
             String chatId = messageWithHeader.substring(1, 6).trim();
             String actualMessage = messageWithHeader.substring(6);
 
+            // --- START ENCRYPTION LOGIC ---
+            String password = getPasswordForChat(chatType, chatId);
+            String encryptedMessage = CryptoUtils.encrypt(actualMessage, password);
+            String messageToSend = chatType + String.format("%-5s", chatId) + encryptedMessage;
+            // --- END ENCRYPTION LOGIC ---
+
             Log.d(TAG, "Chat Type: " + chatType);
             Log.d(TAG, "Chat ID: [" + chatId + "]");
-            Log.d(TAG, "Actual Message: " + actualMessage);
+            Log.d(TAG, "Original Message: " + actualMessage);
+            Log.d(TAG, "Encrypted Message: " + encryptedMessage);
 
-            String messageId = generateMessageId();
+            // Generate ID and timestamp ONCE and make them final for the lambda.
+            final String messageId = generateMessageId();
             long currentTime = System.currentTimeMillis();
             long messageIdBits40 = currentTime & ((1L << 40) - 1);
 
-            byte[] messageBytes = messageWithHeader.getBytes(StandardCharsets.UTF_8); // Send FULL message with header
+            // Use the encrypted message to create the byte array for chunking.
+            byte[] messageBytes = messageToSend.getBytes(StandardCharsets.UTF_8);
             List<byte[]> safeChunks = createSafeUtf8Chunks(messageBytes, MAX_CHUNK_DATA_SIZE);
-            int totalChunks = safeChunks.size();
+            final int totalChunks = safeChunks.size();
 
             Log.d(TAG, "Total chunks to send: " + totalChunks);
 
             MessageModel sentMsg = new MessageModel(
                     userId,
-                    actualMessage,
+                    actualMessage, // Save the unencrypted message to the local DB
                     true,
                     getCurrentTimestamp(totalChunks, messageIdBits40),
                     userIdBits,
@@ -1330,6 +1386,7 @@ public class BleMessagingService extends Service {
                 mainHandler.postDelayed(() -> {
                     try {
                         byte[] chunkData = safeChunks.get(chunkIndex);
+                        // Now 'messageId' and 'totalChunks' are final.
                         byte[] chunkPayload = createChunkPayload(messageId, chunkIndex, totalChunks, chunkData);
                         Log.d(TAG, "Sending chunk " + chunkIndex + "/" + totalChunks + " (size: " + chunkPayload.length + " bytes)");
                         updateAdvertisingData(chunkPayload);

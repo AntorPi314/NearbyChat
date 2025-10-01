@@ -44,6 +44,12 @@ public class GroupsFriendsActivity extends Activity {
     private List<ChatItem> allChats = new ArrayList<>();
     private ChatListAdapter chatAdapter;
 
+    private static final String PREFS_ACTIVE_CHAT = "ActiveChatInfo";
+    private static final String KEY_CHAT_TYPE = "chatType";
+    private static final String KEY_CHAT_ID = "chatId";
+    private String activeChatType = "N";
+    private String activeChatId = "";
+
     private RecyclerView recyclerView;
     private ImageView btnBack, btnAdd;
 
@@ -63,6 +69,7 @@ public class GroupsFriendsActivity extends Activity {
             getWindow().setGravity(Gravity.BOTTOM);
         }
         setFinishOnTouchOutside(true);
+        loadActiveChat();
         loadData();
         setupUI();
     }
@@ -145,7 +152,7 @@ public class GroupsFriendsActivity extends Activity {
             runOnUiThread(() -> {
                 allChats.clear();
                 allChats.addAll(loadedChats);
-                chatAdapter = new ChatListAdapter(this, allChats, this::onChatClick, this::onChatLongClick);
+                chatAdapter = new ChatListAdapter(this, allChats, this::onChatClick, this::onChatLongClick, activeChatType, activeChatId);
                 recyclerView.setAdapter(chatAdapter);
             });
         });
@@ -226,7 +233,8 @@ public class GroupsFriendsActivity extends Activity {
     private void filterChats(String query) {
         if (chatAdapter == null) return;
         if (query.isEmpty()) {
-            chatAdapter.updateList(allChats);
+            // UPDATE THIS: Pass activeChatType and activeChatId
+            chatAdapter.updateList(allChats, activeChatType, activeChatId);
             return;
         }
         List<ChatItem> filtered = new ArrayList<>();
@@ -235,7 +243,14 @@ public class GroupsFriendsActivity extends Activity {
                 filtered.add(chat);
             }
         }
-        chatAdapter.updateList(filtered);
+        // UPDATE THIS: Pass activeChatType and activeChatId
+        chatAdapter.updateList(filtered, activeChatType, activeChatId);
+    }
+
+    private void loadActiveChat() {
+        SharedPreferences prefs = getSharedPreferences(PREFS_ACTIVE_CHAT, MODE_PRIVATE);
+        activeChatType = prefs.getString(KEY_CHAT_TYPE, "N");
+        activeChatId = prefs.getString(KEY_CHAT_ID, "");
     }
 
     public static class ChatItem {
@@ -256,13 +271,37 @@ public class GroupsFriendsActivity extends Activity {
         Button btnDelete = dialog.findViewById(R.id.btnDelete);
         Button btnAdd = dialog.findViewById(R.id.btnAdd);
 
+        ImageView profilePic = dialog.findViewById(R.id.profilePicRound);
+        TextView groupIdText = dialog.findViewById(R.id.groupID);
+
         if (group != null) {
             ((TextView)dialog.findViewById(R.id.dia_title)).setText("Edit Group");
             btnAdd.setText("Save");
             editName.setText(group.getName());
             editKey.setText(group.getEncryptionKey());
             btnDelete.setVisibility(View.VISIBLE);
+
+            if (profilePic != null) {
+                profilePic.setVisibility(View.VISIBLE);
+                // Convert 5-char ASCII ID to 8-char display ID
+                long bits = asciiIdToTimestamp(group.getId());
+                String displayId = getUserIdString(bits);
+                ProfilePicLoader.loadProfilePicture(this, displayId, profilePic);
+            }
+            if (groupIdText != null) {
+                groupIdText.setVisibility(View.VISIBLE);
+                // Convert 5-char ASCII ID to 8-char display ID
+                long bits = asciiIdToTimestamp(group.getId());
+                String displayId = getUserIdString(bits);
+                groupIdText.setText(displayId);
+            }
         } else {
+            if (profilePic != null) {
+                profilePic.setVisibility(View.GONE);
+            }
+            if (groupIdText != null) {
+                groupIdText.setVisibility(View.GONE);
+            }
             btnDelete.setVisibility(View.GONE);
         }
         dialog.findViewById(R.id.btnCancel).setOnClickListener(v -> dialog.dismiss());
@@ -288,6 +327,19 @@ public class GroupsFriendsActivity extends Activity {
         dialog.show();
     }
 
+    private long asciiIdToTimestamp(String asciiId) {
+        if (asciiId == null || asciiId.length() != 5) return 0;
+        long bits40 = 0;
+        for (int i = 0; i < 5; i++) {
+            bits40 = (bits40 << 8) | (asciiId.charAt(i) & 0xFF);
+        }
+        return bits40;
+    }
+
+    private String getUserIdString(long bits40) {
+        return BleMessagingService.timestampToDisplayId(bits40);
+    }
+
     private void showAddEditFriendDialog(final FriendModel friend, final int position) {
         Dialog dialog = new Dialog(this);
         dialog.setContentView(R.layout.dialog_add_edit_friend);
@@ -298,6 +350,7 @@ public class GroupsFriendsActivity extends Activity {
         EditText editKey = dialog.findViewById(R.id.editEncryptionKey);
         Button btnDelete = dialog.findViewById(R.id.btnDelete);
         Button btnAdd = dialog.findViewById(R.id.btnAdd);
+        ImageView profilePic = dialog.findViewById(R.id.profilePicRound);
 
         if (friend != null) {
             ((TextView)dialog.findViewById(R.id.dia_title)).setText("Edit Friend");
@@ -307,7 +360,14 @@ public class GroupsFriendsActivity extends Activity {
             editKey.setText(friend.getEncryptionKey());
             editId.setEnabled(false);
             btnDelete.setVisibility(View.VISIBLE);
+            if (profilePic != null) {
+                profilePic.setVisibility(View.VISIBLE);
+                ProfilePicLoader.loadProfilePicture(this, friend.getDisplayId(), profilePic);
+            }
         } else {
+            if (profilePic != null) {
+                profilePic.setVisibility(View.GONE);
+            }
             btnDelete.setVisibility(View.GONE);
         }
         dialog.findViewById(R.id.btnCancel).setOnClickListener(v -> dialog.dismiss());

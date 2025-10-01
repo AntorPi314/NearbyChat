@@ -16,6 +16,8 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.ViewHo
     private List<GroupsFriendsActivity.ChatItem> chatItems;
     private final OnChatClickListener clickListener;
     private final OnChatLongClickListener longClickListener;
+    private String activeChatType;
+    private String activeChatId;
 
     public interface OnChatClickListener {
         void onChatClick(GroupsFriendsActivity.ChatItem chat);
@@ -26,11 +28,15 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.ViewHo
     }
 
     public ChatListAdapter(Context context, List<GroupsFriendsActivity.ChatItem> chatItems,
-                           OnChatClickListener clickListener, OnChatLongClickListener longClickListener) {
+                           OnChatClickListener clickListener, OnChatLongClickListener longClickListener,
+                           String activeChatType, String activeChatId) {
         this.context = context;
         this.chatItems = chatItems;
         this.clickListener = clickListener;
         this.longClickListener = longClickListener;
+        // ADD THESE
+        this.activeChatType = activeChatType;
+        this.activeChatId = activeChatId;
     }
 
     @NonNull
@@ -47,6 +53,19 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.ViewHo
         holder.itemLastMessage.setText(item.lastMessage);
         holder.itemTime.setText(item.lastMessageTime);
 
+        boolean isSelected = item.type.equals(activeChatType) && item.id.equals(activeChatId);
+        if (isSelected) {
+            holder.itemView.setBackgroundColor(0xFF2196F3); // Blue background
+            holder.itemName.setTextColor(0xFFFFFFFF); // White text
+            holder.itemLastMessage.setTextColor(0xFFFFFFFF);
+            holder.itemTime.setTextColor(0xFFFFFFFF);
+        } else {
+            holder.itemView.setBackgroundColor(0xFFFFFFFF); // White background
+            holder.itemName.setTextColor(0xFF000000); // Black text
+            holder.itemLastMessage.setTextColor(0xFF000000);
+            holder.itemTime.setTextColor(0xFF888888); // Gray text
+        }
+
         holder.itemView.setOnClickListener(v -> clickListener.onChatClick(item));
         holder.itemView.setOnLongClickListener(v -> {
             longClickListener.onChatLongClick(item);
@@ -57,24 +76,38 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.ViewHo
         if ("N".equals(item.type)) {
             holder.profilePic.setImageResource(R.drawable.nearby);
         } else if ("G".equals(item.type)) {
-            // Placeholder for group icon, or you can implement custom group pics later
-            holder.profilePic.setImageResource(R.drawable.profile_pic_round_vector);
+            // CHANGE THIS: Use loadGroupProfilePicture for groups
+            long bits = asciiIdToTimestamp(item.id);
+            String displayId = BleMessagingService.timestampToDisplayId(bits);
+            ProfilePicLoader.loadGroupProfilePicture(context, displayId, holder.profilePic);
         } else if ("F".equals(item.type) && item.displayId != null && !item.displayId.isEmpty()) {
             ProfilePicLoader.loadProfilePicture(context, item.displayId, holder.profilePic);
         } else {
             holder.profilePic.setImageResource(R.drawable.profile_pic_round_vector);
         }
-        // **FIX END**
     }
+
+
 
     @Override
     public int getItemCount() {
         return chatItems.size();
     }
 
-    public void updateList(List<GroupsFriendsActivity.ChatItem> newList) {
+    public void updateList(List<GroupsFriendsActivity.ChatItem> newList, String activeChatType, String activeChatId) {
         chatItems = newList;
+        this.activeChatType = activeChatType;
+        this.activeChatId = activeChatId;
         notifyDataSetChanged();
+    }
+
+    private long asciiIdToTimestamp(String asciiId) {
+        if (asciiId == null || asciiId.length() != 5) return 0;
+        long bits40 = 0;
+        for (int i = 0; i < 5; i++) {
+            bits40 = (bits40 << 8) | (asciiId.charAt(i) & 0xFF);
+        }
+        return bits40;
     }
 
     static class ViewHolder extends RecyclerView.ViewHolder {
