@@ -49,6 +49,7 @@ import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import java.lang.reflect.Type;
 import java.util.*;
+import com.antor.nearbychat.Message.MessageHelper;
 
 public class MainActivity extends BaseActivity {
 
@@ -218,16 +219,13 @@ public class MainActivity extends BaseActivity {
         editKey.setText(groupToEdit.getEncryptionKey());
         btnDelete.setVisibility(View.VISIBLE);
 
-        // MOVE THIS SECTION HERE - after creating final variables
         final List<GroupModel> finalGroupsList = groupsList;
         final int finalGroupPosition = groupPosition;
         final GroupModel finalGroupToEdit = groupToEdit;
 
-        // NOW this section can access finalGroupToEdit
         TextView groupIdText = dialog.findViewById(R.id.groupID);
         if (groupIdText != null) {
-            // Convert 5-char ASCII ID to 8-char display ID
-            long bits = asciiIdToTimestamp(finalGroupToEdit.getId());
+            long bits = MessageHelper.asciiIdToTimestamp(finalGroupToEdit.getId());
             String displayId = getUserIdString(bits);
             groupIdText.setText(displayId);
         }
@@ -235,7 +233,7 @@ public class MainActivity extends BaseActivity {
         ImageView dialogProfilePic = dialog.findViewById(R.id.profilePicRound);
         if (dialogProfilePic != null) {
             dialogProfilePic.setOnClickListener(v -> {
-                currentUserId = finalGroupToEdit.getId(); // Use group ID as identifier
+                currentUserId = finalGroupToEdit.getId();
                 currentProfilePic = dialogProfilePic;
                 showImagePickerDialog(finalGroupToEdit.getId(), dialogProfilePic);
             });
@@ -276,7 +274,7 @@ public class MainActivity extends BaseActivity {
         List<FriendModel> friendsList = gson.fromJson(friendsJson, type);
         if (friendsList == null) friendsList = new ArrayList<>();
 
-        long bits = asciiIdToTimestamp(activeChatId);
+        long bits = MessageHelper.asciiIdToTimestamp(activeChatId);
         String displayIdToFind = getUserIdString(bits);
 
         FriendModel friendToEdit = null;
@@ -300,7 +298,7 @@ public class MainActivity extends BaseActivity {
         TextView title = dialog.findViewById(R.id.dia_title);
         EditText editName = dialog.findViewById(R.id.editName);
         EditText editId = dialog.findViewById(R.id.editFriendId);
-        EditText editKey = dialog.findViewById(R.id.editEncryptionKey); // ✅ Declare once here
+        EditText editKey = dialog.findViewById(R.id.editEncryptionKey);
         Button btnDelete = dialog.findViewById(R.id.btnDelete);
         Button btnCancel = dialog.findViewById(R.id.btnCancel);
         Button btnSave = dialog.findViewById(R.id.btnAdd);
@@ -309,7 +307,7 @@ public class MainActivity extends BaseActivity {
         btnSave.setText("Save");
         editName.setText(friendToEdit.getName());
         editId.setText(friendToEdit.getDisplayId());
-        editKey.setText(friendToEdit.getEncryptionKey()); // ✅ Now this works
+        editKey.setText(friendToEdit.getEncryptionKey());
         editId.setEnabled(false);
         btnDelete.setVisibility(View.VISIBLE);
 
@@ -340,7 +338,7 @@ public class MainActivity extends BaseActivity {
         });
         btnSave.setOnClickListener(v -> {
             String name = editName.getText().toString().trim();
-            String key = editKey.getText().toString().trim(); // ✅ No redeclaration needed
+            String key = editKey.getText().toString().trim();
 
             if (name.isEmpty()) {
                 Toast.makeText(this, "Name cannot be empty", Toast.LENGTH_SHORT).show();
@@ -355,15 +353,6 @@ public class MainActivity extends BaseActivity {
             dialog.dismiss();
         });
         dialog.show();
-    }
-
-    private long asciiIdToTimestamp(String asciiId) {
-        if (asciiId == null || asciiId.length() != 5) return 0;
-        long bits40 = 0;
-        for (int i = 0; i < 5; i++) {
-            bits40 = (bits40 << 8) | (asciiId.charAt(i) & 0xFF);
-        }
-        return bits40;
     }
 
     private void updateChatUIForSelection() {
@@ -385,12 +374,11 @@ public class MainActivity extends BaseActivity {
                 }
                 appTitle.setText(groupName);
             }
-            // CHANGE THIS: Use loadGroupProfilePicture for groups
-            long bits = asciiIdToTimestamp(activeChatId);
+            long bits = MessageHelper.asciiIdToTimestamp(activeChatId);
             String displayId = getUserIdString(bits);
             ProfilePicLoader.loadGroupProfilePicture(this, displayId, appIcon);
         } else if ("F".equals(activeChatType)) {
-            long bits = asciiIdToTimestamp(activeChatId);
+            long bits = MessageHelper.asciiIdToTimestamp(activeChatId);
             String displayId = getUserIdString(bits);
 
             SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
@@ -407,7 +395,6 @@ public class MainActivity extends BaseActivity {
                 }
                 appTitle.setText(friendName);
             }
-            // ALREADY CORRECT: Load friend profile pic
             ProfilePicLoader.loadProfilePicture(this, displayId, appIcon);
         }
         setupDatabase();
@@ -524,8 +511,8 @@ public class MainActivity extends BaseActivity {
             prefs.edit().putString(KEY_FRIENDS_LIST, gson.toJson(friends)).apply();
             Toast.makeText(this, "Added to Friends: " + getDisplayName(friendDisplayId), Toast.LENGTH_SHORT).show();
         }
-        long bits = BleMessagingService.displayIdToTimestamp(friendDisplayId);
-        String asciiId = BleMessagingService.timestampToAsciiId(bits);
+        long bits = MessageHelper.displayIdToTimestamp(friendDisplayId);
+        String asciiId = MessageHelper.timestampToAsciiId(bits);
         activeChatType = "F";
         activeChatId = asciiId;
         saveActiveChat();
@@ -711,22 +698,22 @@ public class MainActivity extends BaseActivity {
     private void onSendButtonClick(View v) {
         String msg = inputMessage.getText().toString().trim();
         if (msg.isEmpty()) {
-            Toast.makeText(this, "Message cannot be empty!", Toast.LENGTH_SHORT).show(); return;
+            Toast.makeText(this, "Message cannot be empty!", Toast.LENGTH_SHORT).show();
+            return;
         }
         if (msg.length() > MAX_MESSAGE_LENGTH) {
-            Toast.makeText(this, "Message too long (" + msg.length() + "/" + MAX_MESSAGE_LENGTH + ")", Toast.LENGTH_SHORT).show(); return;
+            Toast.makeText(this, "Message too long (" + msg.length() + "/" + MAX_MESSAGE_LENGTH + ")", Toast.LENGTH_SHORT).show();
+            return;
         }
-        if (!validateBluetoothAndService()) return;
-        String paddedChatId = String.format("%-5s", activeChatId).substring(0, 5);
-        String messageWithHeader = activeChatType + paddedChatId + msg;
+        if (!validateBluetoothAndService()) {
+            return;
+        }
+
         if (isServiceBound && bleService != null) {
-            bleService.sendMessageInChunks(messageWithHeader);
+            bleService.sendMessage(msg, activeChatType, activeChatId);
             inputMessage.setText("");
         } else {
-            Intent serviceIntent = new Intent(this, BleMessagingService.class);
-            serviceIntent.putExtra("message_to_send", messageWithHeader);
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(serviceIntent); else startService(serviceIntent);
-            inputMessage.setText("");
+            Toast.makeText(this, "Service not ready. Please try again.", Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -869,11 +856,7 @@ public class MainActivity extends BaseActivity {
         if (!validateBluetoothAndService()) return;
         Toast.makeText(this, "Resending...", Toast.LENGTH_SHORT).show();
         if (isServiceBound && bleService != null) {
-            bleService.resendMessageWithoutSaving(msg.getMessage(), msg.getMessageId());
-        } else {
-            Intent serviceIntent = new Intent(this, BleMessagingService.class);
-            serviceIntent.putExtra("message_to_resend", msg.getMessage());
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(serviceIntent); else startService(serviceIntent);
+            bleService.sendMessage(msg.getMessage(), msg.getChatType(), msg.getChatId());
         }
     }
 
@@ -881,12 +864,8 @@ public class MainActivity extends BaseActivity {
         if (!validateBluetoothAndService()) return;
         Toast.makeText(this, "Forwarding...", Toast.LENGTH_SHORT).show();
         if (isServiceBound && bleService != null) {
-            bleService.forwardMessageWithOriginalSender(msg.getMessage(), msg.getSenderId(), msg.getMessageId());
-        } else {
-            Intent serviceIntent = new Intent(this, BleMessagingService.class);
-            serviceIntent.putExtra("message_to_send", msg.getMessage());
-            serviceIntent.putExtra("original_sender_id", msg.getSenderId());
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(serviceIntent); else startService(serviceIntent);
+            String forwardMessageText = "[Forwarded from " + getDisplayName(msg.getSenderId()) + "]: " + msg.getMessage();
+            bleService.sendMessage(forwardMessageText, activeChatType, activeChatId);
         }
     }
 
@@ -1002,7 +981,7 @@ public class MainActivity extends BaseActivity {
     }
 
     private String getUserIdString(long bits40) {
-        return BleMessagingService.timestampToDisplayId(bits40);
+        return MessageHelper.timestampToDisplayId(bits40);
     }
 
     public String getDisplayName(String senderId) {

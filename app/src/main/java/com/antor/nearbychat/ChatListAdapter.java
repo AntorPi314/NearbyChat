@@ -1,21 +1,25 @@
 package com.antor.nearbychat;
 
 import android.content.Context;
+import android.graphics.Color;
+import android.graphics.Typeface;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageView;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
+import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.RecyclerView;
+import com.antor.nearbychat.Message.MessageHelper;
 import java.util.List;
 
-public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.ViewHolder> {
+public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.ChatViewHolder> {
 
     private final Context context;
-    private List<GroupsFriendsActivity.ChatItem> chatItems;
+    private List<GroupsFriendsActivity.ChatItem> chatList;
     private final OnChatClickListener clickListener;
-    private final OnChatLongClickListener longClickListener;
+    private final OnChatClickListener longClickListener;
     private String activeChatType;
     private String activeChatId;
 
@@ -23,103 +27,79 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.ViewHo
         void onChatClick(GroupsFriendsActivity.ChatItem chat);
     }
 
-    public interface OnChatLongClickListener {
-        void onChatLongClick(GroupsFriendsActivity.ChatItem chat);
-    }
-
-    public ChatListAdapter(Context context, List<GroupsFriendsActivity.ChatItem> chatItems,
-                           OnChatClickListener clickListener, OnChatLongClickListener longClickListener,
-                           String activeChatType, String activeChatId) {
+    public ChatListAdapter(Context context, List<GroupsFriendsActivity.ChatItem> chatList, OnChatClickListener clickListener, OnChatClickListener longClickListener, String activeChatType, String activeChatId) {
         this.context = context;
-        this.chatItems = chatItems;
+        this.chatList = chatList;
         this.clickListener = clickListener;
         this.longClickListener = longClickListener;
-        // ADD THESE
         this.activeChatType = activeChatType;
         this.activeChatId = activeChatId;
     }
 
     @NonNull
     @Override
-    public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+    public ChatViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
         View view = LayoutInflater.from(context).inflate(R.layout.item_chat_list, parent, false);
-        return new ViewHolder(view);
+        return new ChatViewHolder(view);
     }
 
     @Override
-    public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
-        GroupsFriendsActivity.ChatItem item = chatItems.get(position);
-        holder.itemName.setText(item.name);
-        holder.itemLastMessage.setText(item.lastMessage);
-        holder.itemTime.setText(item.lastMessageTime);
+    public void onBindViewHolder(@NonNull ChatViewHolder holder, int position) {
+        GroupsFriendsActivity.ChatItem chat = chatList.get(position);
 
-        boolean isSelected = item.type.equals(activeChatType) && item.id.equals(activeChatId);
-        if (isSelected) {
-            holder.itemView.setBackgroundColor(0xFF2196F3); // Blue background
-            holder.itemName.setTextColor(0xFFFFFFFF); // White text
-            holder.itemLastMessage.setTextColor(0xFFFFFFFF);
-            holder.itemTime.setTextColor(0xFFFFFFFF);
-        } else {
-            holder.itemView.setBackgroundColor(0xFFFFFFFF); // White background
-            holder.itemName.setTextColor(0xFF000000); // Black text
-            holder.itemLastMessage.setTextColor(0xFF000000);
-            holder.itemTime.setTextColor(0xFF888888); // Gray text
+        holder.chatName.setText(chat.name);
+        holder.lastMessage.setText(chat.lastMessage);
+        holder.timestamp.setText(chat.lastMessageTime);
+
+        if ("N".equals(chat.type)) {
+            holder.profilePic.setImageResource(R.drawable.nearby);
+        } else if ("G".equals(chat.type)) {
+            long bits = MessageHelper.asciiIdToTimestamp(chat.id);
+            String displayId = MessageHelper.timestampToDisplayId(bits);
+            ProfilePicLoader.loadGroupProfilePicture(context, displayId, holder.profilePic);
+        } else if ("F".equals(chat.type)) {
+            ProfilePicLoader.loadProfilePicture(context, chat.displayId, holder.profilePic);
         }
 
-        holder.itemView.setOnClickListener(v -> clickListener.onChatClick(item));
+        boolean isActive = chat.type.equals(activeChatType) && chat.id.equals(activeChatId);
+        if (isActive) {
+            holder.itemView.setBackgroundColor(ContextCompat.getColor(context, R.color.active_chat_background));
+            holder.chatName.setTypeface(null, Typeface.BOLD);
+        } else {
+            holder.itemView.setBackgroundColor(Color.TRANSPARENT);
+            holder.chatName.setTypeface(null, Typeface.NORMAL);
+        }
+
+        holder.itemView.setOnClickListener(v -> clickListener.onChatClick(chat));
         holder.itemView.setOnLongClickListener(v -> {
-            longClickListener.onChatLongClick(item);
+            longClickListener.onChatClick(chat);
             return true;
         });
-
-        // **FIX START**: Use the new ProfilePicLoader to avoid ClassCastException.
-        if ("N".equals(item.type)) {
-            holder.profilePic.setImageResource(R.drawable.nearby);
-        } else if ("G".equals(item.type)) {
-            // CHANGE THIS: Use loadGroupProfilePicture for groups
-            long bits = asciiIdToTimestamp(item.id);
-            String displayId = BleMessagingService.timestampToDisplayId(bits);
-            ProfilePicLoader.loadGroupProfilePicture(context, displayId, holder.profilePic);
-        } else if ("F".equals(item.type) && item.displayId != null && !item.displayId.isEmpty()) {
-            ProfilePicLoader.loadProfilePicture(context, item.displayId, holder.profilePic);
-        } else {
-            holder.profilePic.setImageResource(R.drawable.profile_pic_round_vector);
-        }
     }
-
-
 
     @Override
     public int getItemCount() {
-        return chatItems.size();
+        return chatList.size();
     }
 
-    public void updateList(List<GroupsFriendsActivity.ChatItem> newList, String activeChatType, String activeChatId) {
-        chatItems = newList;
-        this.activeChatType = activeChatType;
-        this.activeChatId = activeChatId;
+    public void updateList(List<GroupsFriendsActivity.ChatItem> newList, String newActiveChatType, String newActiveChatId) {
+        this.chatList = newList;
+        this.activeChatType = newActiveChatType;
+        this.activeChatId = newActiveChatId;
         notifyDataSetChanged();
     }
 
-    private long asciiIdToTimestamp(String asciiId) {
-        if (asciiId == null || asciiId.length() != 5) return 0;
-        long bits40 = 0;
-        for (int i = 0; i < 5; i++) {
-            bits40 = (bits40 << 8) | (asciiId.charAt(i) & 0xFF);
-        }
-        return bits40;
-    }
-
-    static class ViewHolder extends RecyclerView.ViewHolder {
+    static class ChatViewHolder extends RecyclerView.ViewHolder {
         ImageView profilePic;
-        TextView itemName, itemLastMessage, itemTime;
+        TextView chatName, lastMessage, timestamp;
 
-        ViewHolder(@NonNull View itemView) {
+        public ChatViewHolder(@NonNull View itemView) {
             super(itemView);
             profilePic = itemView.findViewById(R.id.profilePic);
-            itemName = itemView.findViewById(R.id.itemName);
-            itemLastMessage = itemView.findViewById(R.id.itemLastMessage);
-            itemTime = itemView.findViewById(R.id.itemTime);
+            // Corrected IDs to match common naming conventions and fix the crash
+            chatName = itemView.findViewById(R.id.textChatName);
+            lastMessage = itemView.findViewById(R.id.textLastMessage);
+            timestamp = itemView.findViewById(R.id.textTime);
         }
     }
 }

@@ -35,7 +35,7 @@ public class GroupFriendAdapter extends RecyclerView.Adapter<GroupFriendAdapter.
     @NonNull
     @Override
     public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-        View view = LayoutInflater.from(context).inflate(R.layout.item_group_friend, parent, false);
+        View view = LayoutInflater.from(context).inflate(R.layout.item_chat_list, parent, false);
         return new ViewHolder(view);
     }
 

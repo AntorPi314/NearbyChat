@@ -24,6 +24,7 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.antor.nearbychat.Database.AppDatabase;
+import com.antor.nearbychat.Message.MessageHelper;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 
@@ -135,7 +136,7 @@ public class GroupsFriendsActivity extends Activity {
                 Type type = new TypeToken<ArrayList<FriendModel>>() {}.getType();
                 List<FriendModel> friends = gson.fromJson(friendsJson, type);
                 for (FriendModel f : friends) {
-                    String asciiId = BleMessagingService.timestampToAsciiId(BleMessagingService.displayIdToTimestamp(f.getDisplayId()));
+                    String asciiId = MessageHelper.timestampToAsciiId(MessageHelper.displayIdToTimestamp(f.getDisplayId()));
                     loadedChats.add(new ChatItem(asciiId, f.getName(), "F", getLastMessageForChat("F", asciiId), getLastMessageTimeForChat("F", asciiId), false, f.getDisplayId()));
                 }
             }
@@ -218,7 +219,7 @@ public class GroupsFriendsActivity extends Activity {
             String friendsJson = prefs.getString(KEY_FRIENDS_LIST, null);
             if(friendsJson == null) return;
             List<FriendModel> friends = gson.fromJson(friendsJson, new TypeToken<ArrayList<FriendModel>>() {}.getType());
-            friends.removeIf(f -> BleMessagingService.timestampToAsciiId(BleMessagingService.displayIdToTimestamp(f.getDisplayId())).equals(chat.id));
+            friends.removeIf(f -> MessageHelper.timestampToAsciiId(MessageHelper.displayIdToTimestamp(f.getDisplayId())).equals(chat.id));
             prefs.edit().putString(KEY_FRIENDS_LIST, gson.toJson(friends)).apply();
         }
         executor.execute(() -> {
@@ -233,7 +234,6 @@ public class GroupsFriendsActivity extends Activity {
     private void filterChats(String query) {
         if (chatAdapter == null) return;
         if (query.isEmpty()) {
-            // UPDATE THIS: Pass activeChatType and activeChatId
             chatAdapter.updateList(allChats, activeChatType, activeChatId);
             return;
         }
@@ -243,7 +243,6 @@ public class GroupsFriendsActivity extends Activity {
                 filtered.add(chat);
             }
         }
-        // UPDATE THIS: Pass activeChatType and activeChatId
         chatAdapter.updateList(filtered, activeChatType, activeChatId);
     }
 
@@ -283,14 +282,12 @@ public class GroupsFriendsActivity extends Activity {
 
             if (profilePic != null) {
                 profilePic.setVisibility(View.VISIBLE);
-                // Convert 5-char ASCII ID to 8-char display ID
                 long bits = asciiIdToTimestamp(group.getId());
                 String displayId = getUserIdString(bits);
                 ProfilePicLoader.loadProfilePicture(this, displayId, profilePic);
             }
             if (groupIdText != null) {
                 groupIdText.setVisibility(View.VISIBLE);
-                // Convert 5-char ASCII ID to 8-char display ID
                 long bits = asciiIdToTimestamp(group.getId());
                 String displayId = getUserIdString(bits);
                 groupIdText.setText(displayId);
@@ -318,7 +315,7 @@ public class GroupsFriendsActivity extends Activity {
                 group.setName(name);
                 group.setEncryptionKey(editKey.getText().toString().trim());
             } else {
-                groupsList.add(new GroupModel(BleMessagingService.timestampToAsciiId(System.currentTimeMillis()), name, editKey.getText().toString().trim()));
+                groupsList.add(new GroupModel(MessageHelper.timestampToAsciiId(System.currentTimeMillis()), name, editKey.getText().toString().trim()));
             }
             saveGroups();
             loadAndDisplayAllChats();
@@ -337,7 +334,7 @@ public class GroupsFriendsActivity extends Activity {
     }
 
     private String getUserIdString(long bits40) {
-        return BleMessagingService.timestampToDisplayId(bits40);
+        return MessageHelper.timestampToDisplayId(bits40);
     }
 
     private void showAddEditFriendDialog(final FriendModel friend, final int position) {

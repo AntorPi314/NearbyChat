@@ -167,7 +167,7 @@
                             android:textColor="#2D3748"
                             android:fontFamily="monospace"
                             android:inputType="textNoSuggestions"
-                            android:maxLength="8"
+                            android:maxLength="4"
                             android:maxLines="1"
                             android:padding="8dp"
                             android:hint="aaaa"

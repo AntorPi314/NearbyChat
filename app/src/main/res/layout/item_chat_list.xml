@@ -11,8 +11,10 @@
         android:layout_width="48dp"
         android:layout_height="48dp"
         android:layout_marginEnd="12dp"
+        android:scaleType="centerInside"
+        android:tint="#8E7E7E"
         android:background="@drawable/circle_bg"
-        android:src="@drawable/profile_pic_round_vector" />
+        android:src="@drawable/nearby" />
 
     <LinearLayout
         android:layout_width="0dp"
@@ -21,7 +23,7 @@
         android:orientation="vertical">
 
         <TextView
-            android:id="@+id/itemName"
+            android:id="@+id/textChatName"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Name"
@@ -30,7 +32,7 @@
             android:textColor="@android:color/black" />
 
         <TextView
-            android:id="@+id/itemLastMessage"
+            android:id="@+id/textLastMessage"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Last message"
@@ -43,7 +45,7 @@
     </LinearLayout>
 
     <TextView
-        android:id="@+id/itemTime"
+        android:id="@+id/textTime"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="09:30 AM"
