@@ -1,26 +1,30 @@
-// Updated MessageModel.java
-
 package com.antor.nearbychat;
 
 import java.util.ArrayList;
 import java.util.List;
 
 public class MessageModel {
-    private String senderId; // 8-character display format
+    private String senderId;
     private String message;
     private boolean isSelf;
     private String timestamp;
+    private String messageId;
+    private String chatType;
+    private String chatId;
+
+    // --- FIXED: Added chunkCount ---
     private int chunkCount = 1;
-    private String messageId; // 8-character display format
+
+    // Fields for new features
     private boolean isComplete = true;
     private List<Integer> missingChunks = new ArrayList<>();
 
-    private String chatType; // "N", "G", or "F"
-    private String chatId;   // group_id or friend_id (5-char ASCI
-
-    // Store timestamp bits for reconstruction
+    // Timestamp bits for reconstruction and identification
     private long senderTimestampBits = 0;
     private long messageTimestampBits = 0;
+
+    // Default constructor
+    public MessageModel() {}
 
     public MessageModel(String senderId, String message, boolean isSelf, String timestamp) {
         this.senderId = senderId;
@@ -29,43 +33,53 @@ public class MessageModel {
         this.timestamp = timestamp;
     }
 
-    // New constructor with timestamp bits
     public MessageModel(String senderId, String message, boolean isSelf, String timestamp,
                         long senderTimestampBits, long messageTimestampBits) {
         this.senderId = senderId;
         this.message = message;
+        this.isSelf = isSelf;
         this.isSelf = isSelf;
         this.timestamp = timestamp;
         this.senderTimestampBits = senderTimestampBits;
         this.messageTimestampBits = messageTimestampBits;
     }
 
-    // Existing getters and setters
+    // --- Getters and Setters ---
+
+    public String getSenderId() { return senderId; }
+    public void setSenderId(String senderId) { this.senderId = senderId; }
+
+    public String getMessage() { return message; }
+    public void setMessage(String message) { this.message = message; }
+
+    public boolean isSelf() { return isSelf; }
+    public void setSelf(boolean self) { isSelf = self; }
+
+    public String getTimestamp() { return timestamp; }
+    public void setTimestamp(String timestamp) { this.timestamp = timestamp; }
+
     public String getMessageId() { return messageId; }
     public void setMessageId(String messageId) { this.messageId = messageId; }
-    public String getSenderId() { return senderId; }
-    public String getMessage() { return message; }
-    public boolean isSelf() { return isSelf; }
-    public String getTimestamp() { return timestamp; }
-    public int getChunkCount() { return chunkCount; }
-    public void setChunkCount(int chunkCount) { this.chunkCount = chunkCount; }
-    public boolean isComplete() { return isComplete; }
-    public void setIsComplete(boolean isComplete) { this.isComplete = isComplete; }
-    public List<Integer> getMissingChunks() { return missingChunks; }
-    public void setMissingChunks(List<Integer> missingChunks) { this.missingChunks = missingChunks; }
-
-    // New getters/setters for timestamp bits
-    public long getSenderTimestampBits() { return senderTimestampBits; }
-    public void setSenderTimestampBits(long bits) { this.senderTimestampBits = bits; }
-    public long getMessageTimestampBits() { return messageTimestampBits; }
-    public void setMessageTimestampBits(long bits) { this.messageTimestampBits = bits; }
-
-    private String extractMessageIdFromTimestamp(String timestamp) {
-        return null;
-    }
 
     public String getChatType() { return chatType; }
     public void setChatType(String chatType) { this.chatType = chatType; }
+
     public String getChatId() { return chatId; }
     public void setChatId(String chatId) { this.chatId = chatId; }
+
+    public boolean isComplete() { return isComplete; }
+    public void setIsComplete(boolean complete) { isComplete = complete; }
+
+    public List<Integer> getMissingChunks() { return missingChunks; }
+    public void setMissingChunks(List<Integer> missingChunks) { this.missingChunks = missingChunks; }
+
+    public long getSenderTimestampBits() { return senderTimestampBits; }
+    public void setSenderTimestampBits(long senderTimestampBits) { this.senderTimestampBits = senderTimestampBits; }
+
+    public long getMessageTimestampBits() { return messageTimestampBits; }
+    public void setMessageTimestampBits(long messageTimestampBits) { this.messageTimestampBits = messageTimestampBits; }
+
+    // --- FIXED: Added getter and setter for chunkCount ---
+    public int getChunkCount() { return chunkCount; }
+    public void setChunkCount(int chunkCount) { this.chunkCount = chunkCount; }
 }

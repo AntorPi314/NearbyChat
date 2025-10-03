@@ -816,19 +816,34 @@ public class MainActivity extends BaseActivity {
 
     private void onMessageLongClick(MessageModel msg) {
         List<String> options = new ArrayList<>(Arrays.asList("Copy", "Remove"));
-        if (msg.isSelf()) options.add("Resend");
-        else {
+        if (msg.isSelf()) {
+            options.add("Resend");
+        } else {
             options.add("Forward");
-            if (!msg.isComplete()) options.add("Request Missing Parts");
+            if (!msg.isComplete()) {
+                options.add("Request Missing Parts");
+            }
         }
+
         new AlertDialog.Builder(this).setTitle("Message Options")
                 .setItems(options.toArray(new String[0]), (dialog, which) -> {
-                    switch (options.get(which)) {
-                        case "Copy": copyMessageToClipboard(msg); break;
-                        case "Remove": removeMessage(msg); break;
-                        case "Resend": resendMyMessage(msg); break;
-                        case "Forward": forwardMessage(msg); break;
-                        case "Request Missing Parts": requestMissingParts(msg); break;
+                    String selectedOption = options.get(which);
+                    switch (selectedOption) {
+                        case "Copy":
+                            copyMessageToClipboard(msg);
+                            break;
+                        case "Remove":
+                            removeMessage(msg);
+                            break;
+                        case "Resend":
+                            resendMyMessage(msg);
+                            break;
+                        case "Forward":
+                            forwardMessage(msg);
+                            break;
+                        case "Request Missing Parts":
+                            requestMissingParts(msg);
+                            break;
                     }
                 }).show();
     }
@@ -846,9 +861,17 @@ public class MainActivity extends BaseActivity {
 
     private void requestMissingParts(MessageModel msg) {
         if (!validateBluetoothAndService()) return;
-        Toast.makeText(this, "Requesting missing parts...", Toast.LENGTH_SHORT).show();
-        if (isServiceBound && bleService != null) {
-            bleService.sendMissingPartsRequest(msg.getSenderId(), msg.getMessageId(), msg.getMissingChunks());
+
+        List<Integer> missing = msg.getMissingChunks();
+        if (missing != null && !missing.isEmpty()) {
+            Toast.makeText(this, "Requesting " + missing.size() + " missing parts...", Toast.LENGTH_SHORT).show();
+            if (isServiceBound && bleService != null) {
+                // You'll need to implement sendMissingPartsRequest in BleMessagingService
+                // This method would create special packets and add them to the sendingQueue
+                bleService.sendMissingPartsRequest(msg.getSenderId(), msg.getMessageId(), missing);
+            }
+        } else {
+            Toast.makeText(this, "No missing parts information available.", Toast.LENGTH_SHORT).show();
         }
     }
 

@@ -32,6 +32,7 @@ import android.os.Looper;
 import android.os.ParcelUuid;
 import android.os.PowerManager;
 import android.util.Log;
+
 import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
 
@@ -40,9 +41,26 @@ import com.antor.nearbychat.Message.MessageConverterForBle;
 import com.antor.nearbychat.Message.MessageHelper;
 import com.antor.nearbychat.Message.MessageProcessor;
 
+import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 
 public class BleMessagingService extends Service {
+
+    private ScheduledExecutorService bleExecutor;
+    private ExecutorService processingExecutor;
+    private final ConcurrentLinkedQueue<byte[]> sendingQueue = new ConcurrentLinkedQueue<>();
+    private final Set<String> receivedMessages = new HashSet<>();
+    private final Set<String> receivedChunks = new HashSet<>();
+    private volatile boolean isCycleRunning = false;
+    private static final int SCAN_INTERVAL_MS = 100;
 
     private AppDatabase database;
     private com.antor.nearbychat.Database.MessageDao messageDao;
@@ -59,8 +77,7 @@ public class BleMessagingService extends Service {
     private static final int HEADER_SIZE = USER_ID_LENGTH + MESSAGE_ID_LENGTH + CHUNK_METADATA_LENGTH;
 
     private static int MAX_PAYLOAD_SIZE = 27;
-    private static int ADVERTISING_DURATION_MS = 1600;
-    private static int DELAY_BETWEEN_CHUNKS_MS = 1800;
+    private static int ADVERTISING_DURATION_MS = 800;
     private static int CHUNK_TIMEOUT_MS = 60000;
     private static int CHUNK_CLEANUP_INTERVAL_MS = 10000;
     private static int MAX_MESSAGE_SAVED = 500;
@@ -68,7 +85,6 @@ public class BleMessagingService extends Service {
     private static final String REQUEST_MARKER = "??";
     private static final int REQUEST_HEADER_SIZE = USER_ID_LENGTH + MESSAGE_ID_LENGTH + 2;
     private static final int MAX_MISSING_CHUNKS = 30;
-    private static final int MAX_REQUEST_MESSAGE_SIZE = REQUEST_HEADER_SIZE + MAX_PAYLOAD_SIZE;
 
     private static final String PREFS_NAME = "NearbyChatPrefs";
     private static final String KEY_USER_ID_BITS = "userIdBits";
@@ -76,24 +92,32 @@ public class BleMessagingService extends Service {
     private BluetoothAdapter bluetoothAdapter;
     private BluetoothLeAdvertiser advertiser;
     private BluetoothLeScanner scanner;
-    private ScanCallback scanCallback;
     private AdvertiseCallback advertiseCallback;
 
     private PowerManager.WakeLock wakeLock;
     private boolean isScanning = false;
     private boolean isServiceRunning = false;
     private Handler mainHandler;
-    private boolean isReceiving = false;
-    private boolean isSending = false;
     private volatile boolean isAdvertising = false;
 
     private long userIdBits;
     private String userId;
     private BroadcastReceiver bluetoothReceiver;
-    private int retryCount = 0;
-    private static final int MAX_RETRIES = 3;
-
     private final IBinder binder = new LocalBinder();
+    private final Random random = new Random();
+
+    private ScanCallback scanCallback = new ScanCallback() {
+        @Override
+        public void onScanResult(int callbackType, ScanResult result) {
+            handleScanResult(result);
+        }
+
+        @Override
+        public void onScanFailed(int errorCode) {
+            Log.e(TAG, "Scan failed with error code: " + errorCode);
+            isScanning = false;
+        }
+    };
 
     public class LocalBinder extends Binder {
         public BleMessagingService getService() {
@@ -101,63 +125,41 @@ public class BleMessagingService extends Service {
         }
     }
 
-    private void loadConfigurableSettings() {
-        try {
-            SharedPreferences prefs = getSharedPreferences("NearbyChatSettings", MODE_PRIVATE);
-            MAX_PAYLOAD_SIZE = prefs.getInt("MAX_PAYLOAD_SIZE", 27);
-            if (MAX_PAYLOAD_SIZE < 20) MAX_PAYLOAD_SIZE = 20;
-
-            String serviceUuidString = prefs.getString("SERVICE_UUID", "0000aaaa-0000-1000-8000-00805f9b34fb");
-            try {
-                SERVICE_UUID = UUID.fromString(serviceUuidString);
-            } catch (IllegalArgumentException e) {
-                Log.e(TAG, "Invalid UUID in preferences, using default", e);
-                SERVICE_UUID = UUID.fromString("0000aaaa-0000-1000-8000-00805f9b34fb");
-            }
-            ADVERTISING_DURATION_MS = prefs.getInt("ADVERTISING_DURATION_MS", 1600);
-            DELAY_BETWEEN_CHUNKS_MS = prefs.getInt("DELAY_BETWEEN_CHUNKS_MS", 1800);
-            CHUNK_TIMEOUT_MS = prefs.getInt("CHUNK_TIMEOUT_MS", 60000);
-            CHUNK_CLEANUP_INTERVAL_MS = prefs.getInt("CHUNK_CLEANUP_INTERVAL_MS", 10000);
-            MAX_MESSAGE_SAVED = prefs.getInt("MAX_MESSAGE_SAVED", 500);
-            Log.d(TAG, "Settings loaded - UUID: " + SERVICE_UUID + ", Payload: " + MAX_PAYLOAD_SIZE);
-        } catch (Exception e) {
-            Log.e(TAG, "Error loading settings, using defaults", e);
-            SERVICE_UUID = UUID.fromString("0000aaaa-0000-1000-8000-00805f9b34fb");
-            MAX_PAYLOAD_SIZE = 27;
-        }
-    }
-
     @Override
     public void onCreate() {
         super.onCreate();
         Log.d(TAG, "Service onCreate");
+        bleExecutor = Executors.newSingleThreadScheduledExecutor();
+        processingExecutor = Executors.newCachedThreadPool();
         mainHandler = new Handler(Looper.getMainLooper());
         database = AppDatabase.getInstance(this);
         messageDao = database.messageDao();
-        messageProcessor = new MessageProcessor(this);
+        messageProcessor = new MessageProcessor(this, processingExecutor);
         loadConfigurableSettings();
         initializeData();
         acquireWakeLock();
         setupBluetoothReceiver();
         createNotificationChannel();
-
-        Runnable cleanupRunnable = new Runnable() {
-            @Override
-            public void run() {
-                if (messageProcessor != null) {
-                    messageProcessor.cleanupExpiredReassemblers(CHUNK_TIMEOUT_MS);
+        processingExecutor.submit(() -> {
+            while (!Thread.currentThread().isInterrupted()) {
+                try {
+                    Thread.sleep(
+                            CHUNK_CLEANUP_INTERVAL_MS);
+                    if (messageProcessor != null) {
+                        messageProcessor.cleanupExpiredReassemblers(CHUNK_TIMEOUT_MS);
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
                 }
-                mainHandler.postDelayed(this, CHUNK_CLEANUP_INTERVAL_MS);
             }
-        };
-        mainHandler.postDelayed(cleanupRunnable, CHUNK_CLEANUP_INTERVAL_MS);
+        });
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         Log.d(TAG, "Service onStartCommand");
         if (!hasAllRequiredServicePermissions()) {
-            Log.e(TAG, "Missing required permissions, cannot start foreground service");
+            Log.e(TAG, "Missing required permissions");
             stopSelf();
             return START_NOT_STICKY;
         }
@@ -168,12 +170,11 @@ public class BleMessagingService extends Service {
                 initializeBle();
                 isServiceRunning = true;
             } catch (SecurityException e) {
-                Log.e(TAG, "SecurityException starting foreground service", e);
+                Log.e(TAG, "SecurityException starting service", e);
                 stopSelf();
                 return START_NOT_STICKY;
             }
         } else {
-            Log.d(TAG, "Service already running, reinitializing BLE with new settings");
             stopBleOperations();
             mainHandler.postDelayed(this::initializeBle, 1000);
         }
@@ -188,23 +189,41 @@ public class BleMessagingService extends Service {
         return START_STICKY;
     }
 
+    private void loadConfigurableSettings() {
+        try {
+            SharedPreferences prefs = getSharedPreferences("NearbyChatSettings", MODE_PRIVATE);
+            MAX_PAYLOAD_SIZE = prefs.getInt("MAX_PAYLOAD_SIZE", 27);
+            if (MAX_PAYLOAD_SIZE < 20) MAX_PAYLOAD_SIZE = 20;
+            String serviceUuidString = prefs.getString("SERVICE_UUID", "0000aaaa-0000-1000-8000-00805f9b34fb");
+            try {
+                SERVICE_UUID = UUID.fromString(serviceUuidString);
+            } catch (IllegalArgumentException e) {
+                SERVICE_UUID = UUID.fromString("0000aaab-0000-1000-8000-00805f9b34fb");
+            }
+            ADVERTISING_DURATION_MS = prefs.getInt("ADVERTISING_DURATION_MS", 800);
+            CHUNK_TIMEOUT_MS = prefs.getInt("CHUNK_TIMEOUT_MS", 60000);
+            CHUNK_CLEANUP_INTERVAL_MS = prefs.getInt("CHUNK_CLEANUP_INTERVAL_MS", 10000);
+            MAX_MESSAGE_SAVED = prefs.getInt("MAX_MESSAGE_SAVED", 500);
+        } catch (Exception e) {
+            Log.e(TAG, "Error loading settings", e);
+        }
+    }
+
     private void startForegroundService() {
         Intent notificationIntent = new Intent(this, MainActivity.class);
         notificationIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("Nearby Chat Active")
-                .setContentText("Scanning for nearby messages...")
+                .setContentText("Scanning for messages...")
                 .setSmallIcon(R.drawable.ic_nearby_chat)
                 .setContentIntent(pendingIntent)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setOngoing(true)
-                .setShowWhen(false)
-                .setCategory(NotificationCompat.CATEGORY_SERVICE);
+                .setShowWhen(false);
         Notification notification = builder.build();
         if (Build.VERSION.SDK_INT >= 34) {
-            int foregroundServiceType = ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION | ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE;
-            startForeground(NOTIFICATION_ID, notification, foregroundServiceType);
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION | ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE);
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION);
         } else {
@@ -214,32 +233,18 @@ public class BleMessagingService extends Service {
 
     private void createNotificationChannel() {
         NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "Nearby Chat Service", NotificationManager.IMPORTANCE_LOW);
-        channel.setDescription("Keeps Nearby Chat running in background");
         channel.setShowBadge(false);
         channel.setSound(null, null);
         NotificationManager manager = getSystemService(NotificationManager.class);
-        if (manager != null) {
-            manager.createNotificationChannel(channel);
-        }
+        if (manager != null) manager.createNotificationChannel(channel);
     }
 
     private void acquireWakeLock() {
-        PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
-        if (powerManager != null) {
-            wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "NearbyChatService::WakeLock");
+        PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+        if (pm != null) {
+            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "NearbyChatService::WakeLock");
             wakeLock.acquire();
-            Log.d(TAG, "WakeLock acquired");
         }
-    }
-
-    private void restartScanning() {
-        Log.d(TAG, "Restarting scanning...");
-        stopScanning();
-        mainHandler.postDelayed(() -> {
-            if (!isScanning) {
-                startScanning();
-            }
-        }, 1000);
     }
 
     private void initializeData() {
@@ -258,7 +263,11 @@ public class BleMessagingService extends Service {
             public void onReceive(Context context, Intent intent) {
                 if (BluetoothAdapter.ACTION_STATE_CHANGED.equals(intent.getAction())) {
                     int state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR);
-                    handleBluetoothStateChange(state);
+                    if (state == BluetoothAdapter.STATE_ON) {
+                        mainHandler.postDelayed(() -> initializeBle(), 500);
+                    } else if (state == BluetoothAdapter.STATE_OFF) {
+                        stopBleOperations();
+                    }
                 }
             }
         };
@@ -270,228 +279,104 @@ public class BleMessagingService extends Service {
         }
     }
 
-    private void handleBluetoothStateChange(int state) {
-        switch (state) {
-            case BluetoothAdapter.STATE_ON:
-                Log.d(TAG, "Bluetooth ON - Restarting BLE");
-                mainHandler.postDelayed(this::initializeBle, 500);
-                break;
-            case BluetoothAdapter.STATE_OFF:
-                Log.d(TAG, "Bluetooth OFF - Stopping BLE");
-                stopBleOperations();
-                break;
-        }
-    }
-
     private void initializeBle() {
         bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
-        if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled()) {
-            Log.w(TAG, "Bluetooth not available or disabled");
-            return;
-        }
-        if (!hasRequiredPermissions()) {
-            Log.w(TAG, "Missing required permissions for BLE operations");
-            updateNotification("Missing Bluetooth permissions", true);
-            return;
-        }
+        if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled()) return;
+        if (!hasRequiredPermissions()) return;
         try {
             advertiser = bluetoothAdapter.getBluetoothLeAdvertiser();
             scanner = bluetoothAdapter.getBluetoothLeScanner();
-            if (scanner != null) {
-                startScanning();
-            } else {
-                Log.w(TAG, "BLE Scanner not available");
+            if (scanner != null && !isCycleRunning) {
+                startBleCycle();
             }
         } catch (SecurityException e) {
-            Log.e(TAG, "SecurityException when initializing BLE - missing permissions", e);
-            updateNotification("Missing Bluetooth permissions", true);
-        } catch (Exception e) {
-            Log.e(TAG, "Error initializing BLE", e);
+            Log.e(TAG, "SecurityException in initializeBle", e);
         }
     }
 
-    private boolean hasRequiredPermissions() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            return ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED
-                    && ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADVERTISE) == PackageManager.PERMISSION_GRANTED
-                    && ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED;
-        } else {
-            return ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-                    && ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH) == PackageManager.PERMISSION_GRANTED
-                    && ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADMIN) == PackageManager.PERMISSION_GRANTED;
-        }
+    private void startBleCycle() {
+        if (isCycleRunning || bleExecutor.isShutdown()) return;
+        isCycleRunning = true;
+        Log.d(TAG, "Starting BLE cycle");
+        bleExecutor.submit(this::bleCycleTask);
     }
 
-    private void startScanning() {
-        if (scanner == null || isScanning) {
-            Log.d(TAG, "Scanner null or already scanning");
+    private void bleCycleTask() {
+        if (!isServiceRunning) {
+            isCycleRunning = false;
             return;
         }
+
         try {
-            if (!hasRequiredPermissions()) {
-                Log.w(TAG, "Missing required permissions for scanning");
-                return;
-            }
-            scanCallback = new ScanCallback() {
-                @Override
-                public void onScanResult(int callbackType, ScanResult result) {
-                    handleScanResult(result);
-                }
-
-                @Override
-                public void onScanFailed(int errorCode) {
-                    Log.e(TAG, "Scan failed: " + errorCode);
-                    isScanning = false;
-                    if (retryCount < MAX_RETRIES) {
-                        retryCount++;
-                        mainHandler.postDelayed(() -> {
-                            Log.d(TAG, "Retrying scan, attempt: " + retryCount);
-                            startScanning();
-                        }, 3000);
-                    }
-                }
-            };
-            ScanSettings settings = new ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build();
-            List<ScanFilter> filters = Collections.singletonList(new ScanFilter.Builder().setServiceData(new ParcelUuid(SERVICE_UUID), new byte[0]).build());
-            scanner.startScan(filters, settings, scanCallback);
-            isScanning = true;
-            Log.d(TAG, "Started scanning with UUID: " + SERVICE_UUID.toString());
-            updateNotification("Scanning for messages...", true);
-        } catch (SecurityException e) {
-            Log.e(TAG, "SecurityException when starting scan - missing permissions", e);
-            isScanning = false;
-            updateNotification("Missing permissions for scanning", true);
-        } catch (Exception e) {
-            Log.e(TAG, "Error starting scan", e);
-            isScanning = false;
-        }
-    }
-
-    private void handleScanResult(ScanResult result) {
-        try {
-            ScanRecord record = result.getScanRecord();
-            if (record == null) return;
-            Map<ParcelUuid, byte[]> serviceData = record.getServiceData();
-            if (serviceData == null) return;
-            byte[] data = serviceData.get(new ParcelUuid(SERVICE_UUID));
-            if (data == null) return;
-
-            isReceiving = true;
-            updateNotification("", true);
-            mainHandler.postDelayed(() -> {
-                isReceiving = false;
-                updateNotification("", true);
-            }, 2000);
-
-            MessageModel newMessage = messageProcessor.processIncomingData(data, userId);
-            if (newMessage != null) {
-                addMessage(newMessage);
-                Log.d(TAG, "Complete message received and processed from " + newMessage.getSenderId());
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "Error handling scan result", e);
-        }
-    }
-
-    public void sendMessage(String message, String chatType, String chatId) {
-        try {
-            isSending = true;
-            updateNotification("", true);
-
-            MessageConverterForBle converter = new MessageConverterForBle(this, message, chatType, chatId, userId, userIdBits, MAX_PAYLOAD_SIZE);
-            converter.process();
-
-            MessageModel messageToSave = converter.getMessageToSave();
-            List<byte[]> packetsToSend = converter.getBlePacketsToSend();
-
-            if (messageToSave != null) {
-                addMessage(messageToSave);
-            }
-
-            if (packetsToSend == null || packetsToSend.isEmpty()) {
-                Log.e(TAG, "No packets generated to send.");
-                isSending = false;
-                updateNotification("", true);
+            if (!hasRequiredPermissions() || !bluetoothAdapter.isEnabled()) {
+                bleExecutor.schedule(this::bleCycleTask, 5000, TimeUnit.MILLISECONDS);
                 return;
             }
 
-            Log.d(TAG, "Sending message in " + packetsToSend.size() + " chunks.");
-            for (int i = 0; i < packetsToSend.size(); i++) {
-                final int chunkIndex = i;
-                final byte[] packet = packetsToSend.get(i);
-                mainHandler.postDelayed(() -> {
-                    try {
-                        updateAdvertisingData(packet);
-                        if (chunkIndex == packetsToSend.size() - 1) {
-                            mainHandler.postDelayed(() -> {
-                                isSending = false;
-                                updateNotification("", true);
-                                Log.d(TAG, "All chunks sent, restarting scanning");
-                                restartScanning();
-                            }, ADVERTISING_DURATION_MS + 500);
-                        }
-                    } catch (Exception e) {
-                        Log.e(TAG, "Error sending chunk " + chunkIndex, e);
-                    }
-                }, i * DELAY_BETWEEN_CHUNKS_MS);
+            // Keep scanning running continuously
+            if (!isScanning) {
+                startScanningInternal();
+                updateNotification("Scanning...", true);
             }
+
+            // Send messages while scanning
+            if (!sendingQueue.isEmpty()) {
+                byte[] payload = sendingQueue.poll();
+                if (payload != null) {
+                    updateNotification("Sending message...", true);
+                    startAdvertising(payload);
+                }
+            }
+
+            // Quick cycle for better responsiveness
+            bleExecutor.schedule(this::bleCycleTask, 100, TimeUnit.MILLISECONDS);
+
         } catch (Exception e) {
-            Log.e(TAG, "Error in sendMessage", e);
-            isSending = false;
-            updateNotification("", true);
+            Log.e(TAG, "Error in cycle", e);
+            bleExecutor.schedule(this::bleCycleTask, 1000, TimeUnit.MILLISECONDS);
         }
     }
 
-    public void sendMissingPartsRequest(String targetUserId, String messageId, List<Integer> missingChunkIndices) {
-    }
-
-    private void updateAdvertisingData(byte[] payload) {
+    private void startAdvertising(byte[] payload) {
         if (advertiser == null) return;
         try {
-            if (!hasRequiredPermissions()) {
-                Log.w(TAG, "Missing required permissions for advertising");
-                return;
-            }
-            if (isAdvertising && advertiseCallback != null) {
-                try {
-                    advertiser.stopAdvertising(advertiseCallback);
-                    isAdvertising = false;
-                } catch (Exception e) {
-                    Log.e(TAG, "Error stopping previous advertising", e);
-                }
-            }
-            AdvertiseData data = new AdvertiseData.Builder().addServiceData(new ParcelUuid(SERVICE_UUID), payload).build();
+            if (!hasRequiredPermissions()) return;
+
+            stopAdvertising();
+
+            AdvertiseSettings settings = new AdvertiseSettings.Builder()
+                    .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
+                    .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
+                    .setConnectable(false)
+                    .setTimeout(ADVERTISING_DURATION_MS)
+                    .build();
+
+            AdvertiseData data = new AdvertiseData.Builder()
+                    .addServiceData(new ParcelUuid(SERVICE_UUID), payload)
+                    .build();
+
             advertiseCallback = new AdvertiseCallback() {
                 @Override
-                public void onStartSuccess(AdvertiseSettings settingsInEffect) {
+                public void onStartSuccess(AdvertiseSettings settings) {
                     isAdvertising = true;
-                    Log.d(TAG, "Advertise success for payload size: " + payload.length);
+                    Log.d(TAG, "Advertise started: " + payload.length + " bytes");
+                    mainHandler.postDelayed(() -> {
+                        isAdvertising = false;
+                        Log.d(TAG, "Advertise completed");
+                    }, ADVERTISING_DURATION_MS + 50);
                 }
+
                 @Override
                 public void onStartFailure(int errorCode) {
                     isAdvertising = false;
-                    Log.e(TAG, "Advertise failed with error: " + errorCode);
+                    Log.e(TAG, "Advertise failed: " + errorCode);
                 }
             };
-            advertiser.startAdvertising(
-                    new AdvertiseSettings.Builder()
-                            .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
-                            .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
-                            .setConnectable(false)
-                            .setTimeout(ADVERTISING_DURATION_MS)
-                            .build(),
-                    data,
-                    advertiseCallback
-            );
-            mainHandler.postDelayed(() -> {
-                if (isAdvertising) {
-                    stopAdvertising();
-                    isAdvertising = false;
-                }
-            }, ADVERTISING_DURATION_MS + 500);
-        } catch (SecurityException e) {
-            Log.e(TAG, "SecurityException when starting advertising", e);
+
+            advertiser.startAdvertising(settings, data, advertiseCallback);
+
         } catch (Exception e) {
+            isAdvertising = false;
             Log.e(TAG, "Error advertising", e);
         }
     }
@@ -499,98 +384,183 @@ public class BleMessagingService extends Service {
     private void stopAdvertising() {
         if (advertiser != null && advertiseCallback != null) {
             try {
-                if (!hasRequiredPermissions()) {
-                    Log.w(TAG, "Missing permissions for stopping advertising");
-                    return;
-                }
+                if (!hasRequiredPermissions()) return;
                 advertiser.stopAdvertising(advertiseCallback);
+                isAdvertising = false;
+                Log.d(TAG, "Advertising stopped");
             } catch (Exception e) {
                 Log.e(TAG, "Error stopping advertising", e);
             }
         }
     }
 
-    private void stopScanning() {
-        if (scanner != null && scanCallback != null) {
+    private void startScanningInternal() {
+        if (scanner == null || isScanning) return;
+        try {
+            ScanSettings settings = new ScanSettings.Builder()
+                    .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+                    .build();
+            List<ScanFilter> filters = Collections.singletonList(
+                    new ScanFilter.Builder()
+                            .setServiceData(new ParcelUuid(SERVICE_UUID), new byte[0], new byte[0])
+                            .build()
+            );
+            scanner.startScan(filters, settings, scanCallback);
+            isScanning = true;
+            Log.d(TAG, "Scanning started");
+        } catch (SecurityException e) {
+            Log.e(TAG, "Security exception scanning", e);
+        }
+    }
+
+    private void stopScanningInternal() {
+        if (scanner != null && isScanning) {
             try {
-                if (!hasRequiredPermissions()) {
-                    Log.w(TAG, "Missing permissions for stopping scan");
-                    return;
-                }
                 scanner.stopScan(scanCallback);
                 isScanning = false;
-                Log.d(TAG, "Stopped scanning");
-            } catch (Exception e) {
-                Log.e(TAG, "Error stopping scan", e);
+                Log.d(TAG, "Scanning stopped");
+            } catch (SecurityException e) {
+                Log.e(TAG, "Security exception stopping scan", e);
             }
         }
+    }
+
+    private void handleScanResult(ScanResult result) {
+        ScanRecord record = result.getScanRecord();
+        if (record == null) return;
+        byte[] data = record.getServiceData(new ParcelUuid(SERVICE_UUID));
+        if (data == null) return;
+
+        String messageId = Arrays.toString(data);
+        synchronized (receivedMessages) {
+            if (receivedMessages.contains(messageId)) return;
+            receivedMessages.add(messageId);
+            if (receivedMessages.size() > 2000) {
+                receivedMessages.clear();
+            }
+        }
+
+        processingExecutor.submit(() -> {
+            MessageModel msg = messageProcessor.processIncomingData(data, userId);
+            if (msg != null) {
+                addMessage(msg);
+            }
+        });
+    }
+
+    public void sendMessage(String message, String chatType, String chatId) {
+        processingExecutor.submit(() -> {
+            try {
+                MessageConverterForBle converter = new MessageConverterForBle(
+                        this, message, chatType, chatId, userId, userIdBits, MAX_PAYLOAD_SIZE);
+                converter.process();
+
+                MessageModel msgToSave = converter.getMessageToSave();
+                List<byte[]> packets = converter.getBlePacketsToSend();
+
+                if (msgToSave != null) addMessage(msgToSave);
+
+                if (packets != null && !packets.isEmpty()) {
+                    // ADD DELAY BETWEEN CHUNKS (like v2.5.2)
+                    for (int i = 0; i < packets.size(); i++) {
+                        final int index = i;
+                        mainHandler.postDelayed(() -> {
+                            sendingQueue.add(packets.get(index));
+                        }, i * 1000); // 1 second delay between chunks
+                    }
+                    Log.d(TAG, "Queued " + packets.size() + " packets with delays");
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Error in sendMessage", e);
+            }
+        });
+    }
+
+    public void sendMissingPartsRequest(String targetUserId, String messageId, List<Integer> missingChunks) {
+        processingExecutor.submit(() -> {
+            try {
+                long targetBits = MessageHelper.displayIdToTimestamp(targetUserId);
+                String targetAscii = MessageHelper.timestampToAsciiId(targetBits);
+                long msgBits = MessageHelper.displayIdToTimestamp(messageId);
+                String msgAscii = MessageHelper.timestampToAsciiId(msgBits);
+
+                byte[] header = (REQUEST_MARKER + targetAscii + msgAscii).getBytes(StandardCharsets.ISO_8859_1);
+                int count = Math.min(missingChunks.size(), MAX_MISSING_CHUNKS);
+                byte[] payload = new byte[header.length + count];
+                System.arraycopy(header, 0, payload, 0, header.length);
+                for (int i = 0; i < count; i++) {
+                    payload[header.length + i] = missingChunks.get(i).byteValue();
+                }
+                sendingQueue.add(payload);
+                Log.d(TAG, "Queued request for " + count + " chunks");
+            } catch (Exception e) {
+                Log.e(TAG, "Error creating request", e);
+            }
+        });
     }
 
     private void stopBleOperations() {
         stopAdvertising();
-        stopScanning();
+        stopScanningInternal();
     }
 
     private void addMessage(MessageModel msg) {
-        new Thread(() -> {
-            try {
+        try {
+            if (msg.isComplete()) {
+                if (messageDao.partialMessageExists(msg.getSenderId(), msg.getMessageId()) > 0) {
+                    messageDao.deletePartialMessage(msg.getSenderId(), msg.getMessageId());
+                }
                 if (messageDao.messageExists(msg.getSenderId(), msg.getMessage(), msg.getTimestamp()) == 0) {
-                    com.antor.nearbychat.Database.MessageEntity entity = com.antor.nearbychat.Database.MessageEntity.fromMessageModel(msg);
-                    messageDao.insertMessage(entity);
+                    messageDao.insertMessage(com.antor.nearbychat.Database.MessageEntity.fromMessageModel(msg));
                     AppDatabase.cleanupOldMessages(this, MAX_MESSAGE_SAVED);
                 }
-            } catch (Exception e) {
-                Log.e(TAG, "Error saving message to database", e);
+            } else {
+                if (messageDao.partialMessageExists(msg.getSenderId(), msg.getMessageId()) > 0) {
+                    messageDao.updatePartialMessage(msg.getSenderId(), msg.getMessageId(), msg.getMessage());
+                } else {
+                    messageDao.insertMessage(com.antor.nearbychat.Database.MessageEntity.fromMessageModel(msg));
+                }
             }
-        }).start();
+        } catch (Exception e) {
+            Log.e(TAG, "Error saving message", e);
+        }
     }
 
     private void updateNotification(String text, boolean ongoing) {
-        String statusText = buildNotificationStatus();
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("Nearby Chat")
-                .setContentText(statusText)
+                .setContentText(text)
                 .setSmallIcon(R.drawable.ic_nearby_chat)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setOngoing(ongoing)
                 .setShowWhen(false);
-        Intent notificationIntent = new Intent(this, MainActivity.class);
-        notificationIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-        PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        Intent intent = new Intent(this, MainActivity.class);
+        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         builder.setContentIntent(pendingIntent);
         NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-        if (manager != null) {
-            manager.notify(NOTIFICATION_ID, builder.build());
-        }
+        if (manager != null) manager.notify(NOTIFICATION_ID, builder.build());
     }
 
-    private String buildNotificationStatus() {
-        List<String> statuses = new ArrayList<>();
-        if (isSending) statuses.add("Sending...");
-        if (isReceiving) statuses.add("Receiving...");
-        if (statuses.isEmpty()) {
-            return "Active";
-        } else {
-            return String.join(", ", statuses);
+    private boolean hasRequiredPermissions() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            return ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED
+                    && ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADVERTISE) == PackageManager.PERMISSION_GRANTED
+                    && ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED;
         }
+        return ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
     }
 
     private boolean hasAllRequiredServicePermissions() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            boolean hasConnect = ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED;
-            boolean hasScan = ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED;
-            boolean hasAdvertise = ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADVERTISE) == PackageManager.PERMISSION_GRANTED;
-            if (!hasConnect || !hasScan || !hasAdvertise) {
-                Log.w(TAG, "Missing Bluetooth permissions - Connect: " + hasConnect + ", Scan: " + hasScan + ", Advertise: " + hasAdvertise);
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED)
                 return false;
-            }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED)
+                return false;
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADVERTISE) != PackageManager.PERMISSION_GRANTED)
+                return false;
         }
-        boolean hasLocation = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
-        if (!hasLocation) {
-            Log.w(TAG, "Missing location permission");
-            return false;
-        }
-        return true;
+        return ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
     }
 
     @Override
@@ -602,10 +572,11 @@ public class BleMessagingService extends Service {
     public void onDestroy() {
         Log.d(TAG, "Service onDestroy");
         isServiceRunning = false;
+        isCycleRunning = false;
+        bleExecutor.shutdownNow();
+        processingExecutor.shutdownNow();
         stopBleOperations();
-        if (wakeLock != null && wakeLock.isHeld()) {
-            wakeLock.release();
-        }
+        if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
         if (bluetoothReceiver != null) {
             try {
                 unregisterReceiver(bluetoothReceiver);
@@ -613,9 +584,7 @@ public class BleMessagingService extends Service {
                 Log.e(TAG, "Error unregistering receiver", e);
             }
         }
-        if (mainHandler != null) {
-            mainHandler.removeCallbacksAndMessages(null);
-        }
+        if (mainHandler != null) mainHandler.removeCallbacksAndMessages(null);
         super.onDestroy();
     }
 }

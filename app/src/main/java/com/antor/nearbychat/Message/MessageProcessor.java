@@ -16,15 +16,19 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
 
 public class MessageProcessor {
     private static final String TAG = "MessageProcessor";
 
+    // Use a thread-safe map for reassemblers
     private final Map<String, MessageReassembler> reassemblers = new HashMap<>();
     private final Context context;
+    private final ExecutorService processingExecutor;
 
-    public MessageProcessor(Context context) {
+    public MessageProcessor(Context context, ExecutorService processingExecutor) {
         this.context = context;
+        this.processingExecutor = processingExecutor;
     }
 
     public MessageModel processIncomingData(byte[] data, String myDisplayId) {
@@ -33,10 +37,12 @@ public class MessageProcessor {
             return null;
         }
 
+        // --- Initial Data Parsing ---
         String senderAsciiId = new String(data, 0, 5, StandardCharsets.ISO_8859_1);
         long senderIdBits = MessageHelper.asciiIdToTimestamp(senderAsciiId);
         String senderDisplayId = MessageHelper.timestampToDisplayId(senderIdBits);
 
+        // Ignore our own messages
         if (senderDisplayId.equals(myDisplayId)) {
             return null;
         }
@@ -51,39 +57,68 @@ public class MessageProcessor {
         byte[] chunkData = new byte[data.length - 12];
         System.arraycopy(data, 12, chunkData, 0, data.length - 12);
 
+        // --- Handle Single-Chunk Messages ---
         if (totalChunks == 1) {
-            return buildMessageModelFromPayload(new String(chunkData, StandardCharsets.UTF_8),
-                    senderDisplayId, messageDisplayId, senderIdBits, messageIdBits, 1);
+            String payload = new String(chunkData, StandardCharsets.UTF_8);
+            return buildMessageModelFromPayload(payload, senderDisplayId, messageDisplayId,
+                    senderIdBits, messageIdBits, 1, true);
         }
 
+        // --- Handle Multi-Chunk Messages ---
         String reassemblerKey = senderDisplayId + "_" + messageDisplayId;
-        MessageReassembler reassembler = reassemblers.get(reassemblerKey);
-        if (reassembler == null) {
-            reassembler = new MessageReassembler(senderDisplayId, messageDisplayId);
-            reassemblers.put(reassemblerKey, reassembler);
-        }
-
-        boolean chunkAdded = reassembler.addChunk(chunkIndex, totalChunks, chunkData);
-        if (chunkAdded) {
-            Log.d(TAG, "Added chunk " + (chunkIndex + 1) + "/" + totalChunks + " for message " + messageDisplayId);
-        }
-
-        if (reassembler.isComplete()) {
-            String fullPayload = reassembler.reassemble();
-            reassemblers.remove(reassemblerKey); // Clean up
-            if (fullPayload != null) {
-                return buildMessageModelFromPayload(fullPayload, senderDisplayId, messageDisplayId,
-                        senderIdBits, messageIdBits, totalChunks);
+        MessageReassembler reassembler;
+        synchronized (reassemblers) { // Synchronize access to the map
+            reassembler = reassemblers.get(reassemblerKey);
+            if (reassembler == null) {
+                reassembler = new MessageReassembler(senderDisplayId, messageDisplayId);
+                reassemblers.put(reassemblerKey, reassembler);
             }
         }
-        
-        // TODO: You can add logic here to create and return a partial MessageModel if desired
-        
+
+        // Ignore duplicate chunks
+        if (reassembler.hasChunk(chunkIndex)) {
+            return null;
+        }
+
+        reassembler.addChunk(chunkIndex, totalChunks, chunkData);
+
+        if (reassembler.isComplete()) {
+            String fullPayload;
+            // Remove from map once complete
+            synchronized (reassemblers) {
+                fullPayload = reassembler.reassemble();
+                reassemblers.remove(reassemblerKey);
+            }
+            if (fullPayload != null) {
+                Log.d(TAG, "Message reassembled successfully: " + messageDisplayId);
+                return buildMessageModelFromPayload(fullPayload, senderDisplayId, messageDisplayId,
+                        senderIdBits, messageIdBits, totalChunks, true);
+            }
+        } else {
+            // --- NEW: Return a partial message model for UI preview ---
+            String partialContent = String.format(Locale.US, "[Receiving... (%d/%d)]",
+                    reassembler.getReceivedCount(), totalChunks);
+
+            MessageModel partialMsg = new MessageModel(
+                    senderDisplayId,
+                    partialContent,
+                    false, // isSelf
+                    createFormattedTimestamp(totalChunks, messageIdBits),
+                    senderIdBits,
+                    messageIdBits
+            );
+            partialMsg.setMessageId(messageDisplayId);
+            partialMsg.setIsComplete(false); // Mark as incomplete
+            partialMsg.setChatType("P"); // Use a temporary chat type for partials
+            partialMsg.setChatId(reassemblerKey); // Use reassembler key as a unique ID
+            partialMsg.setMissingChunks(reassembler.getMissingChunkIndices());
+            return partialMsg;
+        }
         return null;
     }
 
     private MessageModel buildMessageModelFromPayload(String payload, String senderDisplayId, String messageDisplayId,
-                                                      long senderIdBits, long messageIdBits, int totalChunks) {
+                                                      long senderIdBits, long messageIdBits, int totalChunks, boolean isComplete) {
         if (payload == null || payload.length() < 6) {
             Log.e(TAG, "Invalid message payload after reassembly.");
             return null;
@@ -94,27 +129,32 @@ public class MessageProcessor {
         String encryptedMessage = payload.substring(6);
 
         String password = MessageHelper.getPasswordForChat(context, chatType, chatId, senderDisplayId);
-
         String decryptedMessage = CryptoUtils.decrypt(encryptedMessage, password);
+
+        if (decryptedMessage == null) {
+            Log.w(TAG, "Decryption failed for message from " + senderDisplayId);
+            decryptedMessage = "[Decryption Failed]";
+        }
 
         MessageModel newMsg = new MessageModel(
                 senderDisplayId,
                 decryptedMessage,
-                false,
+                false, // isSelf
                 createFormattedTimestamp(totalChunks, messageIdBits),
                 senderIdBits,
                 messageIdBits
         );
         newMsg.setMessageId(messageDisplayId);
-        newMsg.setIsComplete(true);
+        newMsg.setIsComplete(isComplete);
         newMsg.setChatType(chatType);
 
+        // For friend chats, the chatId is the sender's ID
         if ("F".equals(chatType)) {
-             newMsg.setChatId(MessageHelper.timestampToAsciiId(senderIdBits));
+            newMsg.setChatId(MessageHelper.timestampToAsciiId(senderIdBits));
         } else {
-             newMsg.setChatId(chatId);
+            newMsg.setChatId(chatId);
         }
-        
+
         Log.d(TAG, "Successfully processed message from " + senderDisplayId);
         return newMsg;
     }
@@ -126,10 +166,6 @@ public class MessageProcessor {
         return baseTime + " | " + chunkCount + "C";
     }
 
-    /**
-     * Periodically cleans up reassemblers that have not received a chunk recently.
-     * @param timeoutMs The timeout in milliseconds.
-     */
     public void cleanupExpiredReassemblers(long timeoutMs) {
         synchronized (reassemblers) {
             Iterator<Map.Entry<String, MessageReassembler>> it = reassemblers.entrySet().iterator();
@@ -143,21 +179,22 @@ public class MessageProcessor {
         }
     }
 
+    // --- Inner class for reassembling message chunks ---
     private static class MessageReassembler {
-        private final String senderId;
-        private final String messageId;
+        final String senderId;
+        final String messageId;
         private final SparseArray<byte[]> chunks = new SparseArray<>();
         private final long creationTimestamp;
         private int totalChunks = -1;
         private int receivedCount = 0;
 
-        public MessageReassembler(String senderId, String messageId) {
+        MessageReassembler(String senderId, String messageId) {
             this.senderId = senderId;
             this.messageId = messageId;
             this.creationTimestamp = System.currentTimeMillis();
         }
 
-        public boolean addChunk(int chunkIndex, int totalChunks, byte[] chunkData) {
+        synchronized boolean addChunk(int chunkIndex, int totalChunks, byte[] chunkData) {
             if (this.totalChunks == -1) {
                 this.totalChunks = totalChunks;
             } else if (this.totalChunks != totalChunks) {
@@ -170,14 +207,22 @@ public class MessageProcessor {
                 receivedCount++;
                 return true;
             }
-            return false;
+            return false; // Duplicate chunk
         }
 
-        public boolean isComplete() {
+        synchronized boolean hasChunk(int chunkIndex) {
+            return chunks.get(chunkIndex) != null;
+        }
+
+        synchronized boolean isComplete() {
             return totalChunks > 0 && receivedCount == totalChunks;
         }
 
-        public String reassemble() {
+        synchronized int getReceivedCount() {
+            return receivedCount;
+        }
+
+        synchronized String reassemble() {
             if (!isComplete()) return null;
 
             int totalSize = 0;
@@ -196,7 +241,20 @@ public class MessageProcessor {
             return new String(fullBytes, StandardCharsets.UTF_8);
         }
 
-        public boolean isExpired(long timeoutMs) {
+        synchronized List<Integer> getMissingChunkIndices() {
+            if (isComplete() || totalChunks <= 0) {
+                return new ArrayList<>();
+            }
+            List<Integer> missing = new ArrayList<>();
+            for (int i = 0; i < totalChunks; i++) {
+                if (chunks.get(i) == null) {
+                    missing.add(i);
+                }
+            }
+            return missing;
+        }
+
+        boolean isExpired(long timeoutMs) {
             return System.currentTimeMillis() - creationTimestamp > timeoutMs;
         }
     }
