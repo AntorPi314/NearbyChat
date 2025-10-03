@@ -2,19 +2,19 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
+    android:gravity="center_vertical"
     android:orientation="horizontal"
-    android:padding="12dp"
-    android:gravity="center_vertical">
+    android:padding="12dp">
 
     <ImageView
         android:id="@+id/profilePic"
         android:layout_width="48dp"
         android:layout_height="48dp"
         android:layout_marginEnd="12dp"
-        android:scaleType="centerInside"
-        android:tint="#8E7E7E"
         android:background="@drawable/circle_bg"
-        android:src="@drawable/nearby" />
+        android:scaleType="centerInside"
+        android:src="@drawable/nearby"
+        android:tint="#8E7E7E" />
 
     <LinearLayout
         android:layout_width="0dp"
@@ -27,21 +27,21 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Name"
+            android:textColor="@android:color/black"
             android:textSize="16sp"
-            android:textStyle="bold"
-            android:textColor="@android:color/black" />
+            android:textStyle="bold" />
 
         <TextView
             android:id="@+id/textLastMessage"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Last message"
-            android:textSize="12sp"
             android:paddingStart="0dp"
-            android:paddingEnd="8dp"
             android:paddingTop="2dp"
+            android:paddingEnd="8dp"
             android:paddingBottom="2dp"
-            android:textColor="@android:color/black" />
+            android:text="Last message"
+            android:textColor="@android:color/black"
+            android:textSize="12sp" />
     </LinearLayout>
 
     <TextView
@@ -49,6 +49,6 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="09:30 AM"
-        android:textSize="10sp"
-        android:textColor="#888888" />
+        android:textColor="#888888"
+        android:textSize="10sp" />
 </LinearLayout>

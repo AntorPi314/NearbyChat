@@ -3,9 +3,9 @@ package com.antor.nearbychat;
 import java.io.Serializable;
 
 public class FriendModel implements Serializable {
-    private String displayId; // 8-character display ID
+    private String displayId;
     private String name;
-    private String encryptionKey; // Added encryption key
+    private String encryptionKey;
 
     public FriendModel(String displayId, String name, String encryptionKey) {
         this.displayId = displayId;

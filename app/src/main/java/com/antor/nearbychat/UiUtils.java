@@ -28,11 +28,8 @@ public class UiUtils {
             }
         } else {
             int flags = decorView.getSystemUiVisibility();
-
-            // Dark status bar icons
             flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
 
-            // Dark navigation bar icons (from API 26+)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 flags |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
             }

@@ -21,7 +21,6 @@ import java.util.concurrent.ExecutorService;
 public class MessageProcessor {
     private static final String TAG = "MessageProcessor";
 
-    // Use a thread-safe map for reassemblers
     private final Map<String, MessageReassembler> reassemblers = new HashMap<>();
     private final Context context;
     private final ExecutorService processingExecutor;
@@ -36,17 +35,13 @@ public class MessageProcessor {
             Log.w(TAG, "Received data is too short.");
             return null;
         }
-
-        // --- Initial Data Parsing ---
         String senderAsciiId = new String(data, 0, 5, StandardCharsets.ISO_8859_1);
         long senderIdBits = MessageHelper.asciiIdToTimestamp(senderAsciiId);
         String senderDisplayId = MessageHelper.timestampToDisplayId(senderIdBits);
 
-        // Ignore our own messages
         if (senderDisplayId.equals(myDisplayId)) {
             return null;
         }
-
         String messageAsciiId = new String(data, 5, 5, StandardCharsets.ISO_8859_1);
         long messageIdBits = MessageHelper.asciiIdToTimestamp(messageAsciiId);
         String messageDisplayId = MessageHelper.timestampToDisplayId(messageIdBits);
@@ -57,34 +52,27 @@ public class MessageProcessor {
         byte[] chunkData = new byte[data.length - 12];
         System.arraycopy(data, 12, chunkData, 0, data.length - 12);
 
-        // --- Handle Single-Chunk Messages ---
         if (totalChunks == 1) {
             String payload = new String(chunkData, StandardCharsets.UTF_8);
             return buildMessageModelFromPayload(payload, senderDisplayId, messageDisplayId,
                     senderIdBits, messageIdBits, 1, true);
         }
-
-        // --- Handle Multi-Chunk Messages ---
         String reassemblerKey = senderDisplayId + "_" + messageDisplayId;
         MessageReassembler reassembler;
-        synchronized (reassemblers) { // Synchronize access to the map
+        synchronized (reassemblers) {
             reassembler = reassemblers.get(reassemblerKey);
             if (reassembler == null) {
                 reassembler = new MessageReassembler(senderDisplayId, messageDisplayId);
                 reassemblers.put(reassemblerKey, reassembler);
             }
         }
-
-        // Ignore duplicate chunks
         if (reassembler.hasChunk(chunkIndex)) {
             return null;
         }
-
         reassembler.addChunk(chunkIndex, totalChunks, chunkData);
 
         if (reassembler.isComplete()) {
             String fullPayload;
-            // Remove from map once complete
             synchronized (reassemblers) {
                 fullPayload = reassembler.reassemble();
                 reassemblers.remove(reassemblerKey);
@@ -95,22 +83,21 @@ public class MessageProcessor {
                         senderIdBits, messageIdBits, totalChunks, true);
             }
         } else {
-            // --- NEW: Return a partial message model for UI preview ---
             String partialContent = String.format(Locale.US, "[Receiving... (%d/%d)]",
                     reassembler.getReceivedCount(), totalChunks);
 
             MessageModel partialMsg = new MessageModel(
                     senderDisplayId,
                     partialContent,
-                    false, // isSelf
+                    false,
                     createFormattedTimestamp(totalChunks, messageIdBits),
                     senderIdBits,
                     messageIdBits
             );
             partialMsg.setMessageId(messageDisplayId);
-            partialMsg.setIsComplete(false); // Mark as incomplete
-            partialMsg.setChatType("P"); // Use a temporary chat type for partials
-            partialMsg.setChatId(reassemblerKey); // Use reassembler key as a unique ID
+            partialMsg.setIsComplete(false);
+            partialMsg.setChatType("P");
+            partialMsg.setChatId(reassemblerKey);
             partialMsg.setMissingChunks(reassembler.getMissingChunkIndices());
             return partialMsg;
         }
@@ -135,11 +122,10 @@ public class MessageProcessor {
             Log.w(TAG, "Decryption failed for message from " + senderDisplayId);
             decryptedMessage = "[Decryption Failed]";
         }
-
         MessageModel newMsg = new MessageModel(
                 senderDisplayId,
                 decryptedMessage,
-                false, // isSelf
+                false,
                 createFormattedTimestamp(totalChunks, messageIdBits),
                 senderIdBits,
                 messageIdBits
@@ -148,7 +134,6 @@ public class MessageProcessor {
         newMsg.setIsComplete(isComplete);
         newMsg.setChatType(chatType);
 
-        // For friend chats, the chatId is the sender's ID
         if ("F".equals(chatType)) {
             newMsg.setChatId(MessageHelper.timestampToAsciiId(senderIdBits));
         } else {
@@ -179,7 +164,6 @@ public class MessageProcessor {
         }
     }
 
-    // --- Inner class for reassembling message chunks ---
     private static class MessageReassembler {
         final String senderId;
         final String messageId;
@@ -193,7 +177,6 @@ public class MessageProcessor {
             this.messageId = messageId;
             this.creationTimestamp = System.currentTimeMillis();
         }
-
         synchronized boolean addChunk(int chunkIndex, int totalChunks, byte[] chunkData) {
             if (this.totalChunks == -1) {
                 this.totalChunks = totalChunks;
@@ -201,15 +184,13 @@ public class MessageProcessor {
                 Log.w(TAG, "Inconsistent total chunk count for message " + messageId);
                 return false;
             }
-
             if (chunks.get(chunkIndex) == null) {
                 chunks.put(chunkIndex, chunkData);
                 receivedCount++;
                 return true;
             }
-            return false; // Duplicate chunk
+            return false;
         }
-
         synchronized boolean hasChunk(int chunkIndex) {
             return chunks.get(chunkIndex) != null;
         }
@@ -217,7 +198,6 @@ public class MessageProcessor {
         synchronized boolean isComplete() {
             return totalChunks > 0 && receivedCount == totalChunks;
         }
-
         synchronized int getReceivedCount() {
             return receivedCount;
         }
@@ -229,7 +209,6 @@ public class MessageProcessor {
             for (int i = 0; i < totalChunks; i++) {
                 totalSize += chunks.get(i).length;
             }
-
             byte[] fullBytes = new byte[totalSize];
             int offset = 0;
             for (int i = 0; i < totalChunks; i++) {
@@ -237,7 +216,6 @@ public class MessageProcessor {
                 System.arraycopy(chunk, 0, fullBytes, offset, chunk.length);
                 offset += chunk.length;
             }
-
             return new String(fullBytes, StandardCharsets.UTF_8);
         }
 

@@ -47,18 +47,7 @@ public class ProfilePicLoader {
             if (userId == null || userId.length() < 8) {
                 return createDefaultProfilePic();
             }
-
-            // CHANGE THIS: Check if this is a group (need to determine somehow)
-            // For now, we'll use 8 chars for all. To differentiate:
-            // - Friends: last 2 chars (single line)
-            // - Groups: all 8 chars (double line)
-
-            // Let's use a simple heuristic: if called with full 8 chars visible context,
-            // show 2 lines. Otherwise show single line.
-            // Better approach: pass an isGroup flag or check character pattern
-
-            // For now, let's create two methods:
-            String text = userId.substring(6, 8); // Last 2 chars for friends
+            String text = userId.substring(6, 8);
             char colorChar = userId.charAt(5);
             int colorIndex = getAlphabetIndex(colorChar);
             int bgColor = BACKGROUND_COLORS[colorIndex % BACKGROUND_COLORS.length];
@@ -74,10 +63,8 @@ public class ProfilePicLoader {
             if (userId == null || userId.length() < 8) {
                 return createDefaultProfilePic();
             }
-
-            // Split into 2 lines: first 5 chars and last 3 chars
-            String line1 = userId.substring(0, 5); // First 5 chars
-            String line2 = userId.substring(5, 8); // Last 3 chars
+            String line1 = userId.substring(0, 5);
+            String line2 = userId.substring(5, 8);
 
             char colorChar = userId.charAt(5);
             int colorIndex = getAlphabetIndex(colorChar);
@@ -128,17 +115,15 @@ public class ProfilePicLoader {
         Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
         android.graphics.Canvas canvas = new android.graphics.Canvas(bitmap);
 
-        // Draw background circle
         Paint bgPaint = new Paint();
         bgPaint.setAntiAlias(true);
         bgPaint.setColor(bgColor);
         canvas.drawCircle(size / 2f, size / 2f, size / 2f, bgPaint);
 
-        // Setup text paint
         Paint textPaint = new Paint();
         textPaint.setAntiAlias(true);
         textPaint.setColor(textColor);
-        textPaint.setTextSize(size * 0.22f); // Smaller font for 2 lines
+        textPaint.setTextSize(size * 0.22f);
         textPaint.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         textPaint.setTextAlign(Paint.Align.CENTER);
 
@@ -146,19 +131,16 @@ public class ProfilePicLoader {
         float lineHeight = fontMetrics.bottom - fontMetrics.top;
         float totalHeight = lineHeight * 2;
 
-        // Calculate Y positions for both lines
         float startY = (size - totalHeight) / 2f - fontMetrics.top;
         float line1Y = startY;
         float line2Y = startY + lineHeight;
 
-        // Draw both lines
         canvas.drawText(line1, size / 2f, line1Y, textPaint);
         canvas.drawText(line2, size / 2f, line2Y, textPaint);
 
         return bitmap;
     }
 
-    // ADD THIS: New method specifically for groups
     public static void loadGroupProfilePicture(Context context, String userId, ImageView imageView) {
         SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         String base64Image = prefs.getString("profile_" + userId, null);

@@ -3,10 +3,9 @@ package com.antor.nearbychat;
 import java.io.Serializable;
 
 public class GroupModel implements Serializable {
-    private String id; // 5-character ASCII ID
+    private String id;
     private String name;
     private String encryptionKey;
-    // You can add a field for profile picture if needed
 
     public GroupModel(String id, String name, String encryptionKey) {
         this.id = id;

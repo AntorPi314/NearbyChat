@@ -2,44 +2,44 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="400dp"
-    android:orientation="vertical"
-    android:background="@drawable/bottom_sheet_background">
+    android:background="@drawable/bottom_sheet_background"
+    android:orientation="vertical">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:padding="16dp"
-        android:gravity="center_vertical">
+        android:padding="16dp">
 
         <ImageView
             android:id="@+id/btnBack"
             android:layout_width="32dp"
             android:layout_height="32dp"
-            android:src="@drawable/ic_arrow_back"
-            android:padding="4dp" />
+            android:padding="4dp"
+            android:src="@drawable/ic_arrow_back" />
 
         <EditText
             android:id="@+id/searchBar"
             android:layout_width="0dp"
             android:layout_height="40dp"
-            android:layout_weight="1"
             android:layout_marginStart="8dp"
             android:layout_marginEnd="8dp"
-            android:hint="Search"
-            android:textColor="#000000"
-            android:textColorHint="#857C7C"
+            android:layout_weight="1"
             android:background="@drawable/rounded_edittext"
+            android:hint="Search"
             android:paddingStart="16dp"
-            android:paddingEnd="16dp" />
+            android:paddingEnd="16dp"
+            android:textColor="#000000"
+            android:textColorHint="#857C7C" />
 
         <ImageView
             android:id="@+id/btnAdd"
             android:layout_width="32dp"
             android:layout_height="32dp"
+            android:padding="4dp"
             android:src="@drawable/ic_add"
-            android:tint="#4B4444"
-            android:padding="4dp" />
+            android:tint="#4B4444" />
     </LinearLayout>
 
     <androidx.recyclerview.widget.RecyclerView
@@ -47,6 +47,6 @@
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:padding="0dp"
-        android:clipToPadding="false"/>
+        android:clipToPadding="false"
+        android:padding="0dp" />
 </LinearLayout>

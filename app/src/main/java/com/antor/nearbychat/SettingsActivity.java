@@ -2,7 +2,6 @@ package com.antor.nearbychat;
 
 import static androidx.core.util.TypedValueCompat.dpToPx;
 
-import android.app.Activity;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Build;
@@ -13,9 +12,6 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.Toast;
-
-import androidx.core.view.WindowCompat;
-
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -87,10 +83,8 @@ public class SettingsActivity extends BaseActivity {
 
     private void restartService() {
         Intent serviceIntent = new Intent(this, BleMessagingService.class);
-        // Stop the service first
         stopService(serviceIntent);
 
-        // Wait a moment then start again with proper restart
         new Handler().postDelayed(() -> {
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -102,19 +96,19 @@ public class SettingsActivity extends BaseActivity {
             } catch (Exception e) {
                 Toast.makeText(this, "Failed to restart service", Toast.LENGTH_SHORT).show();
             }
-        }, 2000); // Increased delay to ensure proper stop
+        }, 2000);
     }
 
     private void loadSettings() {
         Map<String, Integer> defaultValues = new HashMap<>();
         defaultValues.put("MAX_PAYLOAD_SIZE", 27);
-        defaultValues.put("ADVERTISING_DURATION_MS", 1200);
-        defaultValues.put("DELAY_BETWEEN_CHUNKS_MS", 1500);
+        defaultValues.put("ADVERTISING_DURATION_MS", 1500);
+        defaultValues.put("DELAY_BETWEEN_CHUNKS_MS", 1000);
         defaultValues.put("CHUNK_TIMEOUT_MS", 120000);
-        defaultValues.put("CHUNK_CLEANUP_INTERVAL_MS", 10000);
+        defaultValues.put("CHUNK_CLEANUP_INTERVAL_MS", 15000);
         defaultValues.put("MAX_RECENT_MESSAGES", 1000);
         defaultValues.put("MAX_RECENT_CHUNKS", 2000);
-        defaultValues.put("MAX_MESSAGE_SAVED", 500);
+        defaultValues.put("MAX_MESSAGE_SAVED", 2000);
 
         for (Map.Entry<String, EditText> entry : settingInputs.entrySet()) {
             String key = entry.getKey();
@@ -128,7 +122,7 @@ public class SettingsActivity extends BaseActivity {
         if (parts.length == 5 && parts[0].length() >= 8) {
             uuidEditablePart.setText(parts[0].substring(4));
         } else {
-            uuidEditablePart.setText("aaaa"); // default
+            uuidEditablePart.setText("aaaa");
         }
     }
 
@@ -177,7 +171,6 @@ public class SettingsActivity extends BaseActivity {
                 }
             }
         }
-
         if (!hasError) {
             editor.apply();
             Toast.makeText(this, "Settings saved! Restarting service...", Toast.LENGTH_SHORT).show();
@@ -189,13 +182,13 @@ public class SettingsActivity extends BaseActivity {
     private void resetToDefaults() {
         uuidEditablePart.setText("aaaa");
         settingInputs.get("MAX_PAYLOAD_SIZE").setText("27");
-        settingInputs.get("ADVERTISING_DURATION_MS").setText("1200");
-        settingInputs.get("DELAY_BETWEEN_CHUNKS_MS").setText("1500");
+        settingInputs.get("ADVERTISING_DURATION_MS").setText("1500");
+        settingInputs.get("DELAY_BETWEEN_CHUNKS_MS").setText("1000");
         settingInputs.get("CHUNK_TIMEOUT_MS").setText("120000");
-        settingInputs.get("CHUNK_CLEANUP_INTERVAL_MS").setText("10000");
+        settingInputs.get("CHUNK_CLEANUP_INTERVAL_MS").setText("15000");
         settingInputs.get("MAX_RECENT_MESSAGES").setText("1000");
         settingInputs.get("MAX_RECENT_CHUNKS").setText("2000");
-        settingInputs.get("MAX_MESSAGE_SAVED").setText("500");
+        settingInputs.get("MAX_MESSAGE_SAVED").setText("2000");
 
         Toast.makeText(this, "Defaults restored. Saving and restarting...", Toast.LENGTH_SHORT).show();
         new Handler().postDelayed(this::saveSettingsAndRestart, 500);

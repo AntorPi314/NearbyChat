@@ -1,5 +1,3 @@
-// Updated AppDatabase.java with migration
-
 package com.antor.nearbychat.Database;
 
 import android.content.Context;
@@ -12,7 +10,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase;
 
 @Database(
         entities = {MessageEntity.class},
-        version = 4, // Increment version
+        version = 4,
         exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -20,7 +18,6 @@ public abstract class AppDatabase extends RoomDatabase {
     public abstract MessageDao messageDao();
     private static volatile AppDatabase INSTANCE;
 
-    // Migration from version 2 to 3
     static final Migration MIGRATION_2_3 = new Migration(2, 3) {
         @Override
         public void migrate(@NonNull SupportSQLiteDatabase database) {
@@ -46,7 +43,7 @@ public abstract class AppDatabase extends RoomDatabase {
                                     AppDatabase.class,
                                     "nearby_chat_database"
                             )
-                            .addMigrations(MIGRATION_2_3, MIGRATION_3_4) // ADD THE NEW MIGRATION HERE
+                            .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
                             .fallbackToDestructiveMigration()
                             .build();
                 }

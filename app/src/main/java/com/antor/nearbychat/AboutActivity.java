@@ -2,7 +2,6 @@ package com.antor.nearbychat;
 
 import android.app.Activity;
 import android.os.Bundle;
-
 import androidx.core.view.WindowCompat;
 
 public class AboutActivity extends Activity {

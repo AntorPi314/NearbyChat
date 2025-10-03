@@ -49,18 +49,13 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-import com.google.common.cache.Cache;
-import com.google.common.cache.CacheBuilder;
-
 public class BleMessagingService extends Service {
 
     private ScheduledExecutorService bleExecutor;
     private ExecutorService processingExecutor;
     private final ConcurrentLinkedQueue<byte[]> sendingQueue = new ConcurrentLinkedQueue<>();
     private final Set<String> receivedMessages = new HashSet<>();
-    private final Set<String> receivedChunks = new HashSet<>();
     private volatile boolean isCycleRunning = false;
-    private static final int SCAN_INTERVAL_MS = 100;
 
     private AppDatabase database;
     private com.antor.nearbychat.Database.MessageDao messageDao;
@@ -71,19 +66,14 @@ public class BleMessagingService extends Service {
     private static final int NOTIFICATION_ID = 1001;
 
     private static UUID SERVICE_UUID = UUID.fromString("0000aaaa-0000-1000-8000-00805f9b34fb");
-    private static final int USER_ID_LENGTH = 5;
-    private static final int MESSAGE_ID_LENGTH = 5;
-    private static final int CHUNK_METADATA_LENGTH = 2;
-    private static final int HEADER_SIZE = USER_ID_LENGTH + MESSAGE_ID_LENGTH + CHUNK_METADATA_LENGTH;
 
     private static int MAX_PAYLOAD_SIZE = 27;
     private static int ADVERTISING_DURATION_MS = 1500;
     private static int CHUNK_TIMEOUT_MS = 120000;
-    private static int CHUNK_CLEANUP_INTERVAL_MS = 20000;
-    private static int MAX_MESSAGE_SAVED = 500;
+    private static int CHUNK_CLEANUP_INTERVAL_MS = 15000;
+    private static int MAX_MESSAGE_SAVED = 2000;
 
     private static final String REQUEST_MARKER = "??";
-    private static final int REQUEST_HEADER_SIZE = USER_ID_LENGTH + MESSAGE_ID_LENGTH + 2;
     private static final int MAX_MISSING_CHUNKS = 30;
 
     private static final String PREFS_NAME = "NearbyChatPrefs";
@@ -198,12 +188,12 @@ public class BleMessagingService extends Service {
             try {
                 SERVICE_UUID = UUID.fromString(serviceUuidString);
             } catch (IllegalArgumentException e) {
-                SERVICE_UUID = UUID.fromString("0000aaab-0000-1000-8000-00805f9b34fb");
+                SERVICE_UUID = UUID.fromString("0000aaaa-0000-1000-8000-00805f9b34fb");
             }
-            ADVERTISING_DURATION_MS = prefs.getInt("ADVERTISING_DURATION_MS", 800);
-            CHUNK_TIMEOUT_MS = prefs.getInt("CHUNK_TIMEOUT_MS", 60000);
-            CHUNK_CLEANUP_INTERVAL_MS = prefs.getInt("CHUNK_CLEANUP_INTERVAL_MS", 10000);
-            MAX_MESSAGE_SAVED = prefs.getInt("MAX_MESSAGE_SAVED", 500);
+            ADVERTISING_DURATION_MS = prefs.getInt("ADVERTISING_DURATION_MS", 1500);
+            CHUNK_TIMEOUT_MS = prefs.getInt("CHUNK_TIMEOUT_MS", 120000);
+            CHUNK_CLEANUP_INTERVAL_MS = prefs.getInt("CHUNK_CLEANUP_INTERVAL_MS", 15000);
+            MAX_MESSAGE_SAVED = prefs.getInt("MAX_MESSAGE_SAVED", 2000);
         } catch (Exception e) {
             Log.e(TAG, "Error loading settings", e);
         }
@@ -306,22 +296,16 @@ public class BleMessagingService extends Service {
             isCycleRunning = false;
             return;
         }
-
         try {
             if (!hasRequiredPermissions() || !bluetoothAdapter.isEnabled()) {
                 bleExecutor.schedule(this::bleCycleTask, 5000, TimeUnit.MILLISECONDS);
                 return;
             }
-
-            // Keep scanning running continuously
             if (!isScanning) {
                 startScanningInternal();
                 updateNotification("Scanning...", true);
             }
-
-            // Quick cycle for better responsiveness
             bleExecutor.schedule(this::bleCycleTask, 100, TimeUnit.MILLISECONDS);
-
         } catch (Exception e) {
             Log.e(TAG, "Error in cycle", e);
             bleExecutor.schedule(this::bleCycleTask, 1000, TimeUnit.MILLISECONDS);
@@ -332,16 +316,13 @@ public class BleMessagingService extends Service {
         if (advertiser == null) return;
         try {
             if (!hasRequiredPermissions()) return;
-
             stopAdvertising();
-
             AdvertiseSettings settings = new AdvertiseSettings.Builder()
                     .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
                     .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
                     .setConnectable(false)
-                    .setTimeout(0) // *** CHANGED: 0 means manual control ***
+                    .setTimeout(0)
                     .build();
-
             AdvertiseData data = new AdvertiseData.Builder()
                     .addServiceData(new ParcelUuid(SERVICE_UUID), payload)
                     .build();
@@ -351,24 +332,19 @@ public class BleMessagingService extends Service {
                 public void onStartSuccess(AdvertiseSettings settings) {
                     isAdvertising = true;
                     Log.d(TAG, "Advertise started: " + payload.length + " bytes");
-
-                    // *** CHANGED: Manually stop after duration ***
                     mainHandler.postDelayed(() -> {
                         stopAdvertising();
                         isAdvertising = false;
                         Log.d(TAG, "Advertise completed");
                     }, ADVERTISING_DURATION_MS);
                 }
-
                 @Override
                 public void onStartFailure(int errorCode) {
                     isAdvertising = false;
                     Log.e(TAG, "Advertise failed: " + errorCode);
                 }
             };
-
             advertiser.startAdvertising(settings, data, advertiseCallback);
-
         } catch (Exception e) {
             isAdvertising = false;
             Log.e(TAG, "Error advertising", e);
@@ -424,7 +400,6 @@ public class BleMessagingService extends Service {
         if (record == null) return;
         byte[] data = record.getServiceData(new ParcelUuid(SERVICE_UUID));
         if (data == null) return;
-
         String messageId = Arrays.toString(data);
         synchronized (receivedMessages) {
             if (receivedMessages.contains(messageId)) return;
@@ -448,22 +423,17 @@ public class BleMessagingService extends Service {
                 MessageConverterForBle converter = new MessageConverterForBle(
                         this, message, chatType, chatId, userId, userIdBits, MAX_PAYLOAD_SIZE);
                 converter.process();
-
                 MessageModel msgToSave = converter.getMessageToSave();
                 List<byte[]> packets = converter.getBlePacketsToSend();
-
                 if (msgToSave != null) addMessage(msgToSave);
-
                 if (packets != null && !packets.isEmpty()) {
-                    // Send each packet exactly once with delay
                     for (int i = 0; i < packets.size(); i++) {
                         final byte[] packet = packets.get(i);
                         final int index = i;
                         mainHandler.postDelayed(() -> {
-                            // Directly advertise instead of queuing
                             startAdvertising(packet);
                             Log.d(TAG, "Sent chunk " + (index + 1) + "/" + packets.size());
-                        }, i * 1000); // 1 second delay between chunks
+                        }, i * 1000);
                     }
                     Log.d(TAG, "Scheduled " + packets.size() + " packets for transmission");
                 }
@@ -488,8 +458,6 @@ public class BleMessagingService extends Service {
                 for (int i = 0; i < count; i++) {
                     payload[header.length + i] = missingChunks.get(i).byteValue();
                 }
-
-                // *** CHANGED: Direct advertise instead of queue ***
                 mainHandler.post(() -> {
                     startAdvertising(payload);
                     Log.d(TAG, "Sent request for " + count + " chunks");

@@ -12,18 +12,14 @@ public class MessageModel {
     private String chatType;
     private String chatId;
 
-    // --- FIXED: Added chunkCount ---
     private int chunkCount = 1;
 
-    // Fields for new features
     private boolean isComplete = true;
     private List<Integer> missingChunks = new ArrayList<>();
 
-    // Timestamp bits for reconstruction and identification
     private long senderTimestampBits = 0;
     private long messageTimestampBits = 0;
 
-    // Default constructor
     public MessageModel() {}
 
     public MessageModel(String senderId, String message, boolean isSelf, String timestamp) {
@@ -43,8 +39,6 @@ public class MessageModel {
         this.senderTimestampBits = senderTimestampBits;
         this.messageTimestampBits = messageTimestampBits;
     }
-
-    // --- Getters and Setters ---
 
     public String getSenderId() { return senderId; }
     public void setSenderId(String senderId) { this.senderId = senderId; }
@@ -79,7 +73,6 @@ public class MessageModel {
     public long getMessageTimestampBits() { return messageTimestampBits; }
     public void setMessageTimestampBits(long messageTimestampBits) { this.messageTimestampBits = messageTimestampBits; }
 
-    // --- FIXED: Added getter and setter for chunkCount ---
     public int getChunkCount() { return chunkCount; }
     public void setChunkCount(int chunkCount) { this.chunkCount = chunkCount; }
 }

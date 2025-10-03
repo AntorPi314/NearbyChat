@@ -46,7 +46,6 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.ChatVi
     @Override
     public void onBindViewHolder(@NonNull ChatViewHolder holder, int position) {
         GroupsFriendsActivity.ChatItem chat = chatList.get(position);
-
         holder.chatName.setText(chat.name);
         holder.lastMessage.setText(chat.lastMessage);
         holder.timestamp.setText(chat.lastMessageTime);
@@ -60,7 +59,6 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.ChatVi
         } else if ("F".equals(chat.type)) {
             ProfilePicLoader.loadProfilePicture(context, chat.displayId, holder.profilePic);
         }
-
         boolean isActive = chat.type.equals(activeChatType) && chat.id.equals(activeChatId);
         if (isActive) {
             holder.itemView.setBackgroundColor(ContextCompat.getColor(context, R.color.active_chat_background));
@@ -69,7 +67,6 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.ChatVi
             holder.itemView.setBackgroundColor(Color.TRANSPARENT);
             holder.chatName.setTypeface(null, Typeface.NORMAL);
         }
-
         holder.itemView.setOnClickListener(v -> clickListener.onChatClick(chat));
         holder.itemView.setOnLongClickListener(v -> {
             longClickListener.onChatClick(chat);
@@ -96,7 +93,6 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.ChatVi
         public ChatViewHolder(@NonNull View itemView) {
             super(itemView);
             profilePic = itemView.findViewById(R.id.profilePic);
-            // Corrected IDs to match common naming conventions and fix the crash
             chatName = itemView.findViewById(R.id.textChatName);
             lastMessage = itemView.findViewById(R.id.textLastMessage);
             timestamp = itemView.findViewById(R.id.textTime);

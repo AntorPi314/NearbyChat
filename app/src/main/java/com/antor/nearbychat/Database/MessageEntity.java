@@ -1,5 +1,3 @@
-// Updated MessageEntity.java
-
 package com.antor.nearbychat.Database;
 
 import androidx.room.Entity;
@@ -10,7 +8,7 @@ import androidx.room.Index;
         indices = {
                 @Index(value = {"senderId", "timestamp"}),
                 @Index(value = {"messageId"}),
-                @Index(value = {"chatType", "chatId"}) // ADD THIS NEW INDEX
+                @Index(value = {"chatType", "chatId"})
         })
 public class MessageEntity {
     @PrimaryKey(autoGenerate = true)
@@ -27,11 +25,9 @@ public class MessageEntity {
     public boolean isComplete = true;
     public String missingChunksJson = "[]";
 
-    // Add fields for timestamp bits
     public long senderTimestampBits = 0;
     public long messageTimestampBits = 0;
 
-    // Default constructor required by Room
     public MessageEntity() {}
 
     @androidx.room.Ignore

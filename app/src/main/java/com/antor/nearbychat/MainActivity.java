@@ -143,7 +143,6 @@ public class MainActivity extends BaseActivity {
                 UiUtils.setLightSystemBars(this);
             }
         });
-
         inputMessage = findViewById(R.id.inputMessage);
         textStatus = findViewById(R.id.textStatus);
         setupMessageInput();
@@ -164,7 +163,6 @@ public class MainActivity extends BaseActivity {
             Intent intent = new Intent(this, GroupsFriendsActivity.class);
             startActivityForResult(intent, REQUEST_CODE_SELECT_CHAT);
         });
-
         appIcon.setOnClickListener(v -> {
             if ("G".equals(activeChatType) && !activeChatId.isEmpty()) {
                 showEditGroupDialog();
@@ -866,8 +864,6 @@ public class MainActivity extends BaseActivity {
         if (missing != null && !missing.isEmpty()) {
             Toast.makeText(this, "Requesting " + missing.size() + " missing parts...", Toast.LENGTH_SHORT).show();
             if (isServiceBound && bleService != null) {
-                // You'll need to implement sendMissingPartsRequest in BleMessagingService
-                // This method would create special packets and add them to the sendingQueue
                 bleService.sendMissingPartsRequest(msg.getSenderId(), msg.getMessageId(), missing);
             }
         } else {

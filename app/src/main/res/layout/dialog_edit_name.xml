@@ -1,34 +1,32 @@
 <?xml version="1.0" encoding="utf-8"?>
 <androidx.cardview.widget.CardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="280dp"
     android:layout_height="wrap_content"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:layout_margin="16dp"
     android:layout_gravity="center_horizontal"
+    android:layout_margin="16dp"
+    app:cardBackgroundColor="@android:color/white"
     app:cardCornerRadius="16dp"
-    app:cardElevation="8dp"
-    app:cardBackgroundColor="@android:color/white">
+    app:cardElevation="8dp">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
         android:gravity="center_horizontal"
+        android:orientation="vertical"
         android:padding="20dp">
 
-        <!-- Profile Image -->
         <ImageView
             android:id="@+id/profilePicRound"
             android:layout_width="70dp"
             android:layout_height="70dp"
             android:layout_marginTop="8dp"
             android:layout_marginBottom="12dp"
-            android:contentDescription="Profile Picture"
-            android:src="@drawable/profile_pic_round_vector"
             android:background="@drawable/circle_bg"
-            android:padding="4dp" />
+            android:contentDescription="Profile Picture"
+            android:padding="4dp"
+            android:src="@drawable/profile_pic_round_vector" />
 
-        <!-- Title -->
         <TextView
             android:id="@+id/textID"
             android:layout_width="wrap_content"
@@ -39,13 +37,12 @@
             android:textSize="16sp"
             android:textStyle="bold" />
 
-        <!-- Name -->
         <EditText
             android:id="@+id/editName"
             android:layout_width="match_parent"
             android:layout_height="40dp"
-            android:hint="Enter Name"
             android:background="@drawable/edittext_bg"
+            android:hint="Enter Name"
             android:inputType="textPersonName"
             android:paddingStart="12dp"
             android:paddingEnd="12dp"
@@ -56,43 +53,42 @@
             android:id="@+id/editEncryptionKey"
             android:layout_width="match_parent"
             android:layout_height="40dp"
-            android:hint="Encryption Key"
-            android:background="@drawable/edittext_bg"
             android:layout_marginTop="10dp"
+            android:background="@drawable/edittext_bg"
+            android:hint="Encryption Key"
             android:inputType="text"
             android:paddingStart="12dp"
             android:paddingEnd="12dp"
             android:textColor="@android:color/black"
             android:textSize="14sp" />
 
-        <!-- Action Buttons -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
-            android:orientation="horizontal"
-            android:gravity="end">
+            android:gravity="end"
+            android:orientation="horizontal">
 
             <Button
                 android:id="@+id/btnCancel"
                 android:layout_width="wrap_content"
                 android:layout_height="40dp"
-                android:text="Cancel"
-                android:textSize="13sp"
                 android:layout_gravity="center"
                 android:paddingStart="16dp"
-                android:paddingEnd="16dp" />
+                android:paddingEnd="16dp"
+                android:text="Cancel"
+                android:textSize="13sp" />
 
             <Button
                 android:id="@+id/btnSave"
                 android:layout_width="wrap_content"
                 android:layout_height="40dp"
-                android:layout_marginStart="8dp"
-                android:text="Save"
-                android:textSize="13sp"
                 android:layout_gravity="center"
+                android:layout_marginStart="8dp"
                 android:paddingStart="20dp"
-                android:paddingEnd="20dp" />
+                android:paddingEnd="20dp"
+                android:text="Save"
+                android:textSize="13sp" />
         </LinearLayout>
 
     </LinearLayout>

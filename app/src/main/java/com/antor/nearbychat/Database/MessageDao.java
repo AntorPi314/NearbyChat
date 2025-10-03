@@ -4,8 +4,6 @@ import androidx.lifecycle.LiveData;
 import androidx.room.Dao;
 import androidx.room.Insert;
 import androidx.room.Query;
-import androidx.room.Delete;
-
 import java.util.List;
 
 @Dao
@@ -36,8 +34,6 @@ public interface MessageDao {
 
     @Query("DELETE FROM messages WHERE senderId = :senderId AND messageId = :messageId AND timestamp = :timestamp")
     void deleteMessage(String senderId, String messageId, String timestamp);
-
-
 
     @Query("SELECT * FROM messages ORDER BY timestampMillis ASC")
     LiveData<List<MessageEntity>> getAllMessagesLive();

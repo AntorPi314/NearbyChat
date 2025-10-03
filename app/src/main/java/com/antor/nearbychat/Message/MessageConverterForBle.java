@@ -12,7 +12,6 @@ import java.util.Locale;
 
 public class MessageConverterForBle {
 
-    // Constants for BLE packet structure
     private final int MAX_PAYLOAD_SIZE;
     private static final int USER_ID_LENGTH = 5;
     private static final int MESSAGE_ID_LENGTH = 5;
@@ -41,32 +40,23 @@ public class MessageConverterForBle {
         this.MAX_CHUNK_DATA_SIZE = MAX_PAYLOAD_SIZE - HEADER_SIZE;
     }
 
-    /**
-     * Processes the message, creating the MessageModel for the local database
-     * and the list of byte[] packets to be sent over BLE.
-     */
     public void process() {
-        // 1. Get encryption key
         String password = MessageHelper.getPasswordForChat(context, chatType, chatId, senderDisplayId);
 
-        // 2. Encrypt the message
         String encryptedMessage = CryptoUtils.encrypt(messageText, password);
         String paddedChatId = String.format("%-5s", chatId).substring(0, 5);
         String messagePayload = chatType + paddedChatId + encryptedMessage;
 
-        // 3. Generate a unique message ID based on current time
         long messageIdBits = System.currentTimeMillis() & ((1L << 40) - 1);
         String messageAsciiId = MessageHelper.timestampToAsciiId(messageIdBits);
 
-        // 4. Chunk the message payload
         byte[] messageBytes = messagePayload.getBytes(StandardCharsets.UTF_8);
         List<byte[]> dataChunks = createSafeUtf8Chunks(messageBytes, MAX_CHUNK_DATA_SIZE);
         int totalChunks = dataChunks.size();
 
-        // 5. Create the MessageModel to be saved in the local database
         this.messageToSave = new MessageModel(
                 senderDisplayId,
-                messageText, // Save the original, unencrypted message
+                messageText,
                 true,
                 createFormattedTimestamp(totalChunks, messageIdBits),
                 senderIdBits,
@@ -76,7 +66,6 @@ public class MessageConverterForBle {
         this.messageToSave.setChatType(chatType);
         this.messageToSave.setChatId(chatId);
 
-        // 6. Create the list of full BLE packets to advertise
         this.blePacketsToSend = new ArrayList<>();
         String senderAsciiId = MessageHelper.timestampToAsciiId(senderIdBits);
         for (int i = 0; i < totalChunks; i++) {

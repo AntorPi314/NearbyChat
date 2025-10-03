@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+
     <style name="AppTheme" parent="android:Theme.DeviceDefault.Light.NoActionBar">
         <item name="android:statusBarColor">@color/white</item>
         <item name="android:navigationBarColor">@color/white</item>
@@ -38,6 +39,7 @@
         <item name="android:activityOpenEnterAnimation">@anim/slide_in_bottom</item>
         <item name="android:activityCloseExitAnimation">@anim/slide_out_bottom</item>
     </style>
+
     <style name="BottomSheetActivityTheme" parent="android:Theme.DeviceDefault.Dialog.NoActionBar">
         <item name="android:windowAnimationStyle">@style/BottomSheetAnimations</item>
         <item name="android:windowBackground">@android:color/transparent</item>

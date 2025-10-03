@@ -11,7 +11,6 @@ import android.graphics.RectF;
 public class ImageConverter {
     public static Bitmap resizeAndCrop(Bitmap bitmap, int targetWidth, int targetHeight) {
         if (bitmap == null) return null;
-
         try {
             int originalWidth = bitmap.getWidth();
             int originalHeight = bitmap.getHeight();
@@ -47,7 +46,6 @@ public class ImageConverter {
 
     public static Bitmap createCircularBitmap(Bitmap bitmap) {
         if (bitmap == null) return null;
-
         try {
             int size = Math.min(bitmap.getWidth(), bitmap.getHeight());
             Bitmap output = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
@@ -74,7 +72,6 @@ public class ImageConverter {
 
     public static Bitmap resizeWithAspectRatio(Bitmap bitmap, int maxSize) {
         if (bitmap == null) return null;
-
         try {
             int originalWidth = bitmap.getWidth();
             int originalHeight = bitmap.getHeight();
@@ -85,7 +82,6 @@ public class ImageConverter {
             } else {
                 scale = (float) maxSize / originalHeight;
             }
-
             int newWidth = Math.round(originalWidth * scale);
             int newHeight = Math.round(originalHeight * scale);
 

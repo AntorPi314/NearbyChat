@@ -22,7 +22,6 @@ import android.app.Activity;
 
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
-
 import com.antor.nearbychat.Database.AppDatabase;
 import com.antor.nearbychat.Message.MessageHelper;
 import com.google.gson.Gson;
@@ -91,7 +90,6 @@ public class GroupsFriendsActivity extends Activity {
                 filterChats(s.toString());
             }
         });
-
         recyclerView.setLayoutManager(new LinearLayoutManager(this));
         loadAndDisplayAllChats();
     }
@@ -140,7 +138,6 @@ public class GroupsFriendsActivity extends Activity {
                     loadedChats.add(new ChatItem(asciiId, f.getName(), "F", getLastMessageForChat("F", asciiId), getLastMessageTimeForChat("F", asciiId), false, f.getDisplayId()));
                 }
             }
-
             if (loadedChats.size() > 1) {
                 ChatItem nearbyItem = loadedChats.get(0);
                 List<ChatItem> restOfChats = new ArrayList<>(loadedChats.subList(1, loadedChats.size()));
@@ -149,7 +146,6 @@ public class GroupsFriendsActivity extends Activity {
                 loadedChats.add(nearbyItem);
                 loadedChats.addAll(restOfChats);
             }
-
             runOnUiThread(() -> {
                 allChats.clear();
                 allChats.addAll(loadedChats);
@@ -279,7 +275,6 @@ public class GroupsFriendsActivity extends Activity {
             editName.setText(group.getName());
             editKey.setText(group.getEncryptionKey());
             btnDelete.setVisibility(View.VISIBLE);
-
             if (profilePic != null) {
                 profilePic.setVisibility(View.VISIBLE);
                 long bits = asciiIdToTimestamp(group.getId());

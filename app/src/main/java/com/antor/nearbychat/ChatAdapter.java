@@ -10,7 +10,6 @@ import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.annotation.NonNull;
-import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.RecyclerView;
 import com.antor.nearbychat.Message.MessageHelper;
 import java.util.List;
@@ -43,8 +42,6 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
         return new ChatViewHolder(view);
     }
 
-    // <<< ENTIRE METHOD REWRITTEN >>>
-    // অসম্পূর্ণ মেসেজ এখন ভিন্নভাবে দেখানোর জন্য এই মেথডটি আপডেট করা হয়েছে
     @Override
     public void onBindViewHolder(@NonNull ChatViewHolder holder, int position) {
         MessageModel msg = messageList.get(position);
@@ -55,39 +52,30 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
 
         String displayMessage = msg.getMessage();
 
-        // --- NEW: Visually distinguish partial messages as requested ---
         if (!msg.isComplete()) {
-            // যদি মেসেজ অসম্পূর্ণ হয়, তাহলে শেষে "..." যোগ করুন
             displayMessage += "...";
-            holder.message.setTextColor(Color.GRAY); // রঙ ধূসর করুন
-            holder.message.setTypeface(null, Typeface.ITALIC); // স্টাইল ইটালিক করুন
+            holder.message.setTextColor(Color.GRAY);
+            holder.message.setTypeface(null, Typeface.ITALIC);
         } else {
-            // মেসেজ সম্পূর্ণ হলে, ডিফল্ট স্টাইল ফিরিয়ে আনুন
-            // আপনার item_message_left/right.xml এ টেক্সট কালার দেখে নিন
-            // এখানে আমি ধরে নিচ্ছি সাদা এবং কালো ডিফল্ট কালার
             int defaultTextColor = msg.isSelf() ? Color.WHITE : Color.BLACK;
             holder.message.setTextColor(defaultTextColor);
             holder.message.setTypeface(null, Typeface.NORMAL);
         }
-
         holder.message.setText(displayMessage);
 
         if (holder.profilePic != null) {
             main.loadProfilePictureForAdapter(msg.getSenderId(), holder.profilePic);
             holder.profilePic.setOnClickListener(v -> main.openFriendChat(msg.getSenderId()));
         }
-
         holder.timestamp.setOnClickListener(v -> {
             long fullTimestamp = MessageHelper.reconstructFullTimestamp(msg.getMessageTimestampBits());
             String formattedTime = MessageHelper.formatTimestamp(fullTimestamp);
             Toast.makeText(context, "Sent at: " + formattedTime, Toast.LENGTH_LONG).show();
         });
-
         holder.itemView.setOnLongClickListener(v -> {
             longClickListener.onClick(msg);
             return true;
         });
-
         holder.itemView.setOnClickListener(v -> clickListener.onClick(msg));
     }
 

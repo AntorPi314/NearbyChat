@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="280dp"
     android:layout_height="wrap_content"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:layout_margin="16dp"
     android:layout_gravity="center_horizontal"
+    android:layout_margin="16dp"
     android:background="@drawable/dialog_background"
     android:elevation="8dp"
     android:padding="2dp">
@@ -39,20 +39,20 @@
             android:id="@+id/groupID"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
             android:text="GROUP_ID"
             android:textColor="#7A6F6F"
-            android:layout_marginBottom="16dp"
             android:textSize="14sp"
             android:textStyle="bold" />
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="match_parent"
+            android:layout_marginBottom="4dp"
             android:text="Group Name"
             android:textColor="#0A5EDE"
             android:textSize="10sp"
-            android:layout_marginBottom="4dp"
-            android:textStyle="bold"/>
+            android:textStyle="bold" />
 
         <EditText
             android:id="@+id/editName"
@@ -63,19 +63,19 @@
             android:inputType="textPersonName"
             android:paddingStart="12dp"
             android:paddingEnd="12dp"
-            android:textColorHint="#857C7C"
             android:textColor="#000000"
+            android:textColorHint="#857C7C"
             android:textSize="14sp" />
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="match_parent"
+            android:layout_marginTop="10dp"
+            android:layout_marginBottom="4dp"
             android:text="Encryption Key"
             android:textColor="#0A5EDE"
             android:textSize="10sp"
-            android:layout_marginTop="10dp"
-            android:layout_marginBottom="4dp"
-            android:textStyle="bold"/>
+            android:textStyle="bold" />
 
         <EditText
             android:id="@+id/editEncryptionKey"
@@ -87,8 +87,8 @@
             android:inputType="text"
             android:paddingStart="12dp"
             android:paddingEnd="12dp"
-            android:textColorHint="#857C7C"
             android:textColor="#000000"
+            android:textColorHint="#857C7C"
             android:textSize="14sp" />
 
         <LinearLayout
@@ -103,8 +103,8 @@
                 android:layout_width="70dp"
                 android:layout_height="40dp"
                 android:layout_gravity="center"
-                android:text="Delete"
                 android:backgroundTint="#C30E0E"
+                android:text="Delete"
                 android:textColor="@android:color/white"
                 android:textSize="11sp" />
 

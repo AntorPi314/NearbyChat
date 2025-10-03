@@ -5,22 +5,21 @@
     android:layout_height="wrap_content"
     android:layout_gravity="center_horizontal"
     android:layout_margin="16dp"
+    android:fitsSystemWindows="true"
     app:cardBackgroundColor="@android:color/white"
     app:cardCornerRadius="16dp"
-    app:cardElevation="8dp"
-    android:fitsSystemWindows="true">
+    app:cardElevation="8dp">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="center_horizontal"
         android:orientation="vertical"
-        android:paddingTop="12dp"
         android:paddingStart="22dp"
+        android:paddingTop="12dp"
         android:paddingEnd="22dp"
         android:paddingBottom="12dp">
 
-        <!-- Profile Image -->
         <ImageView
             android:id="@+id/profilePicRound"
             android:layout_width="60dp"
@@ -32,9 +31,6 @@
             android:padding="0dp"
             android:src="@drawable/profile_pic_round_vector" />
 
-        <!-- Title -->
-
-        <!-- Name -->
         <TextView
             android:id="@+id/textID"
             android:layout_width="wrap_content"
@@ -47,16 +43,17 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:text="🇵🇸  Free Palestine"
             android:textColor="#000000"
-            android:textStyle="bold"
             android:textSize="10sp"
-            android:text="🇵🇸  Free Palestine"/>
+            android:textStyle="bold" />
 
 
         <Button
             android:id="@+id/id_notepad"
             android:layout_width="match_parent"
             android:layout_height="40dp"
+            android:layout_marginTop="16dp"
             android:layout_marginBottom="12dp"
             android:background="@drawable/btn_bg_round"
             android:drawableStart="@drawable/ic_notepad"
@@ -66,27 +63,9 @@
             android:paddingTop="8dp"
             android:paddingEnd="8dp"
             android:paddingBottom="8dp"
-            android:layout_marginTop="16dp"
             android:text="Notepad"
             android:textAllCaps="false"
             android:textColor="#EFE7E7" />
-
-<!--        <Button-->
-<!--            android:id="@+id/id_groups"-->
-<!--            android:layout_width="match_parent"-->
-<!--            android:layout_height="40dp"-->
-<!--            android:layout_marginBottom="12dp"-->
-<!--            android:background="@drawable/btn_bg_round"-->
-<!--            android:drawableStart="@drawable/ic_group"-->
-<!--            android:drawablePadding="6dp"-->
-<!--            android:gravity="center|start"-->
-<!--            android:paddingStart="12dp"-->
-<!--            android:paddingTop="8dp"-->
-<!--            android:paddingEnd="8dp"-->
-<!--            android:paddingBottom="8dp"-->
-<!--            android:text="Groups"-->
-<!--            android:textAllCaps="false"-->
-<!--            android:textColor="#EFE7E7" />-->
 
         <Button
             android:id="@+id/id_settings"
@@ -156,9 +135,6 @@
             android:text="Restart App"
             android:textAllCaps="false"
             android:textColor="#EFE7E7" />
-
-
-
 
     </LinearLayout>
 </androidx.cardview.widget.CardView>

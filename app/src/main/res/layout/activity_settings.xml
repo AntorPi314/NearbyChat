@@ -4,9 +4,9 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
     android:background="#FFFFFF"
     android:fitsSystemWindows="true"
+    android:orientation="vertical"
     tools:context=".SettingsActivity">
 
     <LinearLayout
@@ -61,69 +61,69 @@
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:scrollbars="vertical"
-        android:fadeScrollbars="true">
+        android:fadeScrollbars="true"
+        android:scrollbars="vertical">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
             android:background="#FFFFFF"
+            android:orientation="vertical"
             android:padding="12dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:background="@drawable/uuid_section_bg"
-                android:padding="12dp"
                 android:layout_marginBottom="20dp"
-                android:elevation="2dp">
+                android:background="@drawable/uuid_section_bg"
+                android:elevation="2dp"
+                android:orientation="vertical"
+                android:padding="12dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
+                    android:layout_marginBottom="12dp"
                     android:gravity="center_vertical"
-                    android:layout_marginBottom="12dp">
+                    android:orientation="horizontal">
 
                     <ImageView
                         android:layout_width="24dp"
                         android:layout_height="24dp"
+                        android:layout_marginEnd="12dp"
                         android:src="@drawable/ic_uuid"
-                        android:tint="#6C63FF"
-                        android:layout_marginEnd="12dp" />
+                        android:tint="#6C63FF" />
 
                     <TextView
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
+                        android:fontFamily="sans-serif-medium"
                         android:text="Service UUID Configuration"
-                        android:textSize="16sp"
-                        android:textStyle="bold"
                         android:textColor="#2D3748"
-                        android:fontFamily="sans-serif-medium" />
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Required"
-                        android:textSize="12sp"
-                        android:textColor="#E53E3E"
                         android:background="@drawable/required_badge_bg"
                         android:paddingStart="8dp"
-                        android:paddingEnd="8dp"
                         android:paddingTop="2dp"
-                        android:paddingBottom="2dp" />
+                        android:paddingEnd="8dp"
+                        android:paddingBottom="2dp"
+                        android:text="Required"
+                        android:textColor="#E53E3E"
+                        android:textSize="12sp" />
                 </LinearLayout>
 
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:layout_marginBottom="12dp"
                     android:text="Unique identifier for BLE service discovery"
-                    android:textSize="12sp"
                     android:textColor="#718096"
-                    android:layout_marginBottom="12dp" />
+                    android:textSize="12sp" />
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -135,54 +135,54 @@
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:orientation="horizontal"
+                        android:layout_marginBottom="8dp"
                         android:gravity="center_vertical"
-                        android:layout_marginBottom="8dp">
+                        android:orientation="horizontal">
 
                         <TextView
                             android:id="@+id/editUuidPart1a"
                             android:layout_width="0dp"
                             android:layout_height="40dp"
+                            android:layout_marginEnd="4dp"
                             android:layout_weight="1.5"
                             android:background="@drawable/uuid_fake_input_bg"
-                            android:textSize="13sp"
                             android:fontFamily="monospace"
+                            android:gravity="center"
                             android:inputType="textNoSuggestions"
                             android:maxLength="8"
                             android:maxLines="1"
                             android:padding="8dp"
                             android:text="0000"
                             android:textColor="#A0AEC0"
-                            android:gravity="center"
-                            android:layout_marginEnd="4dp" />
+                            android:textSize="13sp" />
 
                         <EditText
                             android:id="@+id/editUuidPart1b"
                             android:layout_width="0dp"
                             android:layout_height="40dp"
+                            android:layout_marginEnd="4dp"
                             android:layout_weight="1.6"
                             android:background="@drawable/uuid_input_bg"
-                            android:textSize="13sp"
-                            android:textStyle="bold"
-                            android:textColor="#2D3748"
                             android:fontFamily="monospace"
+                            android:gravity="center"
+                            android:hint="aaaa"
                             android:inputType="textNoSuggestions"
                             android:maxLength="4"
                             android:maxLines="1"
                             android:padding="8dp"
-                            android:hint="aaaa"
+                            android:textColor="#2D3748"
                             android:textColorHint="#A0AEC0"
-                            android:gravity="center"
-                            android:layout_marginEnd="4dp" />
+                            android:textSize="13sp"
+                            android:textStyle="bold" />
 
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="-"
-                            android:textSize="16sp"
-                            android:textColor="#718096"
                             android:layout_marginStart="2dp"
-                            android:layout_marginEnd="2dp" />
+                            android:layout_marginEnd="2dp"
+                            android:text="-"
+                            android:textColor="#718096"
+                            android:textSize="16sp" />
 
                         <TextView
                             android:id="@+id/editUuidPart2"
@@ -194,22 +194,22 @@
                             android:background="@drawable/uuid_fake_input_bg"
                             android:fontFamily="monospace"
                             android:gravity="center"
-                            android:text="0000"
                             android:inputType="textNoSuggestions"
                             android:maxLength="4"
                             android:maxLines="1"
                             android:padding="8dp"
+                            android:text="0000"
                             android:textColor="#A0AEC0"
                             android:textSize="13sp" />
 
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="-"
-                            android:textSize="16sp"
-                            android:textColor="#718096"
                             android:layout_marginStart="2dp"
-                            android:layout_marginEnd="2dp" />
+                            android:layout_marginEnd="2dp"
+                            android:text="-"
+                            android:textColor="#718096"
+                            android:textSize="16sp" />
 
                         <TextView
                             android:id="@+id/editUuidPart3"
@@ -221,11 +221,11 @@
                             android:background="@drawable/uuid_fake_input_bg"
                             android:fontFamily="monospace"
                             android:gravity="center"
-                            android:text="1000"
                             android:inputType="textNoSuggestions"
                             android:maxLength="4"
                             android:maxLines="1"
                             android:padding="8dp"
+                            android:text="1000"
                             android:textColor="#A0AEC0"
                             android:textSize="13sp" />
 
@@ -235,17 +235,17 @@
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical">
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
 
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="-"
-                            android:textSize="16sp"
-                            android:textColor="#718096"
                             android:layout_marginStart="2dp"
-                            android:layout_marginEnd="2dp" />
+                            android:layout_marginEnd="2dp"
+                            android:text="-"
+                            android:textColor="#718096"
+                            android:textSize="16sp" />
 
                         <TextView
                             android:id="@+id/editUuidPart4"
@@ -256,49 +256,49 @@
                             android:background="@drawable/uuid_fake_input_bg"
                             android:fontFamily="monospace"
                             android:gravity="center"
-                            android:text="8000"
                             android:inputType="textNoSuggestions"
                             android:maxLength="4"
                             android:maxLines="1"
                             android:padding="8dp"
+                            android:text="8000"
                             android:textColor="#A0AEC0"
                             android:textSize="13sp" />
 
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="-"
-                            android:textSize="16sp"
-                            android:textColor="#718096"
                             android:layout_marginStart="4dp"
-                            android:layout_marginEnd="4dp" />
+                            android:layout_marginEnd="4dp"
+                            android:text="-"
+                            android:textColor="#718096"
+                            android:textSize="16sp" />
 
                         <TextView
                             android:id="@+id/editUuidPart5"
                             android:layout_width="0dp"
                             android:layout_height="40dp"
+                            android:layout_marginEnd="8dp"
                             android:layout_weight="1"
                             android:background="@drawable/uuid_fake_input_bg"
-                            android:textSize="13sp"
-                            android:textColor="#A0AEC0"
                             android:fontFamily="monospace"
+                            android:gravity="center"
                             android:inputType="textNoSuggestions"
                             android:maxLength="12"
                             android:maxLines="1"
                             android:padding="8dp"
                             android:text="00805f9b34fb"
-                            android:gravity="center"
-                            android:layout_marginEnd="8dp" />
+                            android:textColor="#A0AEC0"
+                            android:textSize="13sp" />
 
                         <ImageView
                             android:id="@+id/generateUuidIcon"
                             android:layout_width="40dp"
                             android:layout_height="40dp"
-                            android:src="@drawable/ic_refresh"
-                            android:tint="#6C63FF"
-                            android:padding="8dp"
                             android:background="@drawable/generate_uuid_button_bg"
-                            android:contentDescription="Generate new UUID" />
+                            android:contentDescription="Generate new UUID"
+                            android:padding="8dp"
+                            android:src="@drawable/ic_refresh"
+                            android:tint="#6C63FF" />
                     </LinearLayout>
                 </LinearLayout>
             </LinearLayout>
@@ -306,25 +306,25 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:background="@drawable/settings_section_bg"
-                android:padding="12dp"
                 android:layout_marginBottom="8dp"
-                android:elevation="2dp">
+                android:background="@drawable/settings_section_bg"
+                android:elevation="2dp"
+                android:orientation="vertical"
+                android:padding="12dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
+                    android:layout_marginBottom="20dp"
                     android:gravity="center_vertical"
-                    android:layout_marginBottom="20dp">
+                    android:orientation="horizontal">
 
                     <ImageView
                         android:layout_width="24dp"
                         android:layout_height="24dp"
+                        android:layout_marginEnd="12dp"
                         android:src="@drawable/ic_settings"
-                        android:tint="#4A90E2"
-                        android:layout_marginEnd="12dp" />
+                        android:tint="#4A90E2" />
 
                     <TextView
                         android:layout_width="match_parent"
@@ -339,37 +339,43 @@
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical"
+                    android:layout_marginBottom="16dp"
                     android:background="@drawable/settings_group_bg"
-                    android:padding="16dp"
-                    android:layout_marginBottom="16dp">
+                    android:orientation="vertical"
+                    android:padding="16dp">
 
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="Payload Configuration"
-                        android:textSize="14sp"
-                        android:textStyle="bold"
-                        android:textColor="#4A5568"
                         android:layout_marginBottom="12dp"
                         android:drawableStart="@drawable/ic_payload"
-                        android:drawableTint="#4A90E2"
                         android:drawablePadding="8dp"
-                        android:gravity="center_vertical" />
+                        android:drawableTint="#4A90E2"
+                        android:gravity="center_vertical"
+                        android:text="Payload Configuration"
+                        android:textColor="#4A5568"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
 
                     <LinearLayout style="@style/EnhancedSettingsRow">
+
                         <LinearLayout style="@style/SettingsLabelContainer">
+
                             <TextView
                                 style="@style/EnhancedSettingsLabel"
                                 android:text="Max Payload Size" />
+
                             <TextView
                                 style="@style/SettingsUnit"
                                 android:text="bytes" />
                         </LinearLayout>
+
                         <LinearLayout style="@style/SettingsInputContainer">
+
                             <EditText
                                 android:id="@+id/editMaxPayloadSize"
                                 style="@style/EnhancedSettingsInput" />
+
                             <TextView
                                 style="@style/SettingsConstraint"
                                 android:text="Min: 20, Default: 27" />
@@ -399,18 +405,24 @@
                         android:textStyle="bold" />
 
                     <LinearLayout style="@style/EnhancedSettingsRow">
+
                         <LinearLayout style="@style/SettingsLabelContainer">
+
                             <TextView
                                 style="@style/EnhancedSettingsLabel"
                                 android:text="Advertising Duration" />
+
                             <TextView
                                 style="@style/SettingsUnit"
                                 android:text="ms" />
                         </LinearLayout>
+
                         <LinearLayout style="@style/SettingsInputContainer">
+
                             <EditText
                                 android:id="@+id/editAdvertisingDuration"
                                 style="@style/EnhancedSettingsInput" />
+
                             <TextView
                                 style="@style/SettingsConstraint"
                                 android:text="Min: 100, Default: 800" />
@@ -418,18 +430,24 @@
                     </LinearLayout>
 
                     <LinearLayout style="@style/EnhancedSettingsRow">
+
                         <LinearLayout style="@style/SettingsLabelContainer">
+
                             <TextView
                                 style="@style/EnhancedSettingsLabel"
                                 android:text="Delay Between Chunks" />
+
                             <TextView
                                 style="@style/SettingsUnit"
                                 android:text="ms" />
                         </LinearLayout>
+
                         <LinearLayout style="@style/SettingsInputContainer">
+
                             <EditText
                                 android:id="@+id/editDelayBetweenChunks"
                                 style="@style/EnhancedSettingsInput" />
+
                             <TextView
                                 style="@style/SettingsConstraint"
                                 android:text="Min: 100, Default: 1000" />
@@ -437,18 +455,24 @@
                     </LinearLayout>
 
                     <LinearLayout style="@style/EnhancedSettingsRow">
+
                         <LinearLayout style="@style/SettingsLabelContainer">
+
                             <TextView
                                 style="@style/EnhancedSettingsLabel"
                                 android:text="Chunk Timeout" />
+
                             <TextView
                                 style="@style/SettingsUnit"
                                 android:text="ms" />
                         </LinearLayout>
+
                         <LinearLayout style="@style/SettingsInputContainer">
+
                             <EditText
                                 android:id="@+id/editChunkTimeout"
                                 style="@style/EnhancedSettingsInput" />
+
                             <TextView
                                 style="@style/SettingsConstraint"
                                 android:text="Min: 100, Default: 60000" />
@@ -456,18 +480,24 @@
                     </LinearLayout>
 
                     <LinearLayout style="@style/EnhancedSettingsRow">
+
                         <LinearLayout style="@style/SettingsLabelContainer">
+
                             <TextView
                                 style="@style/EnhancedSettingsLabel"
                                 android:text="Chunk Cleanup Interval" />
+
                             <TextView
                                 style="@style/SettingsUnit"
                                 android:text="ms" />
                         </LinearLayout>
+
                         <LinearLayout style="@style/SettingsInputContainer">
+
                             <EditText
                                 android:id="@+id/editChunkCleanupInterval"
                                 style="@style/EnhancedSettingsInput" />
+
                             <TextView
                                 style="@style/SettingsConstraint"
                                 android:text="Min: 100, Default: 10000" />
@@ -478,36 +508,42 @@
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical"
                     android:background="@drawable/settings_group_bg"
+                    android:orientation="vertical"
                     android:padding="12dp">
 
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="Memory Management"
-                        android:textSize="14sp"
-                        android:textStyle="bold"
-                        android:textColor="#4A5568"
                         android:layout_marginBottom="12dp"
                         android:drawableStart="@drawable/ic_memory"
-                        android:drawableTint="#9F7AEA"
                         android:drawablePadding="8dp"
-                        android:gravity="center_vertical" />
+                        android:drawableTint="#9F7AEA"
+                        android:gravity="center_vertical"
+                        android:text="Memory Management"
+                        android:textColor="#4A5568"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
 
                     <LinearLayout style="@style/EnhancedSettingsRow">
+
                         <LinearLayout style="@style/SettingsLabelContainer">
+
                             <TextView
                                 style="@style/EnhancedSettingsLabel"
                                 android:text="Max Recent Messages" />
+
                             <TextView
                                 style="@style/SettingsUnit"
                                 android:text="count" />
                         </LinearLayout>
+
                         <LinearLayout style="@style/SettingsInputContainer">
+
                             <EditText
                                 android:id="@+id/editMaxRecentMessages"
                                 style="@style/EnhancedSettingsInput" />
+
                             <TextView
                                 style="@style/SettingsConstraint"
                                 android:text="Default: 1000" />
@@ -515,18 +551,24 @@
                     </LinearLayout>
 
                     <LinearLayout style="@style/EnhancedSettingsRow">
+
                         <LinearLayout style="@style/SettingsLabelContainer">
+
                             <TextView
                                 style="@style/EnhancedSettingsLabel"
                                 android:text="Max Recent Chunks" />
+
                             <TextView
                                 style="@style/SettingsUnit"
                                 android:text="count" />
                         </LinearLayout>
+
                         <LinearLayout style="@style/SettingsInputContainer">
+
                             <EditText
                                 android:id="@+id/editMaxRecentChunks"
                                 style="@style/EnhancedSettingsInput" />
+
                             <TextView
                                 style="@style/SettingsConstraint"
                                 android:text="Default: 2000" />
@@ -534,18 +576,24 @@
                     </LinearLayout>
 
                     <LinearLayout style="@style/EnhancedSettingsRow">
+
                         <LinearLayout style="@style/SettingsLabelContainer">
+
                             <TextView
                                 style="@style/EnhancedSettingsLabel"
                                 android:text="Max Messages Saved" />
+
                             <TextView
                                 style="@style/SettingsUnit"
                                 android:text="count" />
                         </LinearLayout>
+
                         <LinearLayout style="@style/SettingsInputContainer">
+
                             <EditText
                                 android:id="@+id/editMaxMessagesSaved"
                                 style="@style/EnhancedSettingsInput" />
+
                             <TextView
                                 style="@style/SettingsConstraint"
                                 android:text="Default: 500" />
@@ -560,13 +608,13 @@
         android:id="@+id/resetDefaultButton"
         android:layout_width="match_parent"
         android:layout_height="48dp"
+        android:layout_margin="8dp"
+        android:background="@drawable/reset_button_bg"
+        android:drawablePadding="8dp"
+        android:drawableTint="#E53E3E"
+        android:gravity="center"
         android:text="Reset to Default"
         android:textColor="#E53E3E"
-        android:textStyle="bold"
-        android:background="@drawable/reset_button_bg"
-        android:layout_margin="8dp"
-        android:drawableTint="#E53E3E"
-        android:drawablePadding="8dp"
-        android:gravity="center" />
+        android:textStyle="bold" />
 
 </LinearLayout>
