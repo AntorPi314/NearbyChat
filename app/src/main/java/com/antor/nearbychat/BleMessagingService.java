@@ -77,9 +77,9 @@ public class BleMessagingService extends Service {
     private static final int HEADER_SIZE = USER_ID_LENGTH + MESSAGE_ID_LENGTH + CHUNK_METADATA_LENGTH;
 
     private static int MAX_PAYLOAD_SIZE = 27;
-    private static int ADVERTISING_DURATION_MS = 800;
-    private static int CHUNK_TIMEOUT_MS = 60000;
-    private static int CHUNK_CLEANUP_INTERVAL_MS = 10000;
+    private static int ADVERTISING_DURATION_MS = 1500;
+    private static int CHUNK_TIMEOUT_MS = 120000;
+    private static int CHUNK_CLEANUP_INTERVAL_MS = 20000;
     private static int MAX_MESSAGE_SAVED = 500;
 
     private static final String REQUEST_MARKER = "??";
@@ -319,15 +319,6 @@ public class BleMessagingService extends Service {
                 updateNotification("Scanning...", true);
             }
 
-            // Send messages while scanning
-            if (!sendingQueue.isEmpty()) {
-                byte[] payload = sendingQueue.poll();
-                if (payload != null) {
-                    updateNotification("Sending message...", true);
-                    startAdvertising(payload);
-                }
-            }
-
             // Quick cycle for better responsiveness
             bleExecutor.schedule(this::bleCycleTask, 100, TimeUnit.MILLISECONDS);
 
@@ -348,7 +339,7 @@ public class BleMessagingService extends Service {
                     .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
                     .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
                     .setConnectable(false)
-                    .setTimeout(ADVERTISING_DURATION_MS)
+                    .setTimeout(0) // *** CHANGED: 0 means manual control ***
                     .build();
 
             AdvertiseData data = new AdvertiseData.Builder()
@@ -360,10 +351,13 @@ public class BleMessagingService extends Service {
                 public void onStartSuccess(AdvertiseSettings settings) {
                     isAdvertising = true;
                     Log.d(TAG, "Advertise started: " + payload.length + " bytes");
+
+                    // *** CHANGED: Manually stop after duration ***
                     mainHandler.postDelayed(() -> {
+                        stopAdvertising();
                         isAdvertising = false;
                         Log.d(TAG, "Advertise completed");
-                    }, ADVERTISING_DURATION_MS + 50);
+                    }, ADVERTISING_DURATION_MS);
                 }
 
                 @Override
@@ -461,14 +455,17 @@ public class BleMessagingService extends Service {
                 if (msgToSave != null) addMessage(msgToSave);
 
                 if (packets != null && !packets.isEmpty()) {
-                    // ADD DELAY BETWEEN CHUNKS (like v2.5.2)
+                    // Send each packet exactly once with delay
                     for (int i = 0; i < packets.size(); i++) {
+                        final byte[] packet = packets.get(i);
                         final int index = i;
                         mainHandler.postDelayed(() -> {
-                            sendingQueue.add(packets.get(index));
+                            // Directly advertise instead of queuing
+                            startAdvertising(packet);
+                            Log.d(TAG, "Sent chunk " + (index + 1) + "/" + packets.size());
                         }, i * 1000); // 1 second delay between chunks
                     }
-                    Log.d(TAG, "Queued " + packets.size() + " packets with delays");
+                    Log.d(TAG, "Scheduled " + packets.size() + " packets for transmission");
                 }
             } catch (Exception e) {
                 Log.e(TAG, "Error in sendMessage", e);
@@ -491,8 +488,12 @@ public class BleMessagingService extends Service {
                 for (int i = 0; i < count; i++) {
                     payload[header.length + i] = missingChunks.get(i).byteValue();
                 }
-                sendingQueue.add(payload);
-                Log.d(TAG, "Queued request for " + count + " chunks");
+
+                // *** CHANGED: Direct advertise instead of queue ***
+                mainHandler.post(() -> {
+                    startAdvertising(payload);
+                    Log.d(TAG, "Sent request for " + count + " chunks");
+                });
             } catch (Exception e) {
                 Log.e(TAG, "Error creating request", e);
             }
