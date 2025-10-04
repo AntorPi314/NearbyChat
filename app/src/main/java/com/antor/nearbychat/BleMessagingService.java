@@ -444,65 +444,17 @@ public class BleMessagingService extends Service {
     public void sendMessage(String message, String chatType, String chatId) {
         processingExecutor.submit(() -> {
             try {
-                failedChunksCount = 0;
-
-                if (advertisingListener != null) {
-                    mainHandler.post(() -> advertisingListener.onAdvertisingStarted());
-                }
-
                 MessageConverterForBle converter = new MessageConverterForBle(
                         this, message, chatType, chatId, userId, userIdBits, MAX_PAYLOAD_SIZE);
                 converter.process();
                 MessageModel msgToSave = converter.getMessageToSave();
                 List<byte[]> packets = converter.getBlePacketsToSend();
 
-                currentSendingMessageId = msgToSave != null ? msgToSave.getMessageId() : null;
-
-                if (packets != null && !packets.isEmpty()) {
-                    List<byte[]> allPackets = new ArrayList<>();
-                    for (int round = 0; round < BROADCAST_ROUNDS; round++) {
-                        allPackets.addAll(packets);
-                    }
-                    totalChunksToSend = allPackets.size();
-
-                    if (msgToSave != null) {
-                        addMessage(msgToSave);
-                    }
-
-                    final MessageModel finalMsg = msgToSave;
-
-                    for (int i = 0; i < allPackets.size(); i++) {
-                        final byte[] packet = allPackets.get(i);
-                        final int index = i;
-                        final boolean isLast = (i == allPackets.size() - 1);
-
-                        mainHandler.postDelayed(() -> {
-                            startAdvertising(packet);
-                            Log.d(TAG, "Sent chunk " + (index + 1) + "/" + allPackets.size());
-
-                            if (isLast && advertisingListener != null) {
-                                mainHandler.postDelayed(() -> {
-                                    advertisingListener.onAdvertisingCompleted();
-
-                                    if (failedChunksCount > 0 && finalMsg != null) {
-                                        Log.d(TAG, "Message sending had " + failedChunksCount + " failures out of " + totalChunksToSend);
-                                        markMessageAsFailed(finalMsg);
-                                    }
-
-                                    currentSendingMessageId = null;
-                                    failedChunksCount = 0;
-                                    totalChunksToSend = 0;
-                                }, ADVERTISING_DURATION_MS + 500);
-                            }
-                        }, i * 1000L);
-                    }
-                    Log.d(TAG, "Scheduled " + allPackets.size() + " packets (" + BROADCAST_ROUNDS + " rounds)");
-                } else {
-                    if (advertisingListener != null) {
-                        mainHandler.post(() -> advertisingListener.onAdvertisingCompleted());
-                    }
-                    currentSendingMessageId = null;
+                if (msgToSave != null) {
+                    addMessage(msgToSave);
                 }
+                schedulePacketsForAdvertising(packets, msgToSave);
+
             } catch (Exception e) {
                 Log.e(TAG, "Error in sendMessage", e);
                 if (advertisingListener != null) {
@@ -510,6 +462,73 @@ public class BleMessagingService extends Service {
                 }
             }
         });
+    }
+
+    public void retransmitMessage(MessageModel messageToRetransmit) {
+        processingExecutor.submit(() -> {
+            try {
+                MessageConverterForBle converter = new MessageConverterForBle(
+                        this, messageToRetransmit, MAX_PAYLOAD_SIZE);
+                converter.process();
+                List<byte[]> packets = converter.getBlePacketsToSend();
+
+                schedulePacketsForAdvertising(packets, null);
+
+            } catch (Exception e) {
+                Log.e(TAG, "Error in retransmitMessage", e);
+                if (advertisingListener != null) {
+                    mainHandler.post(() -> advertisingListener.onAdvertisingCompleted());
+                }
+            }
+        });
+    }
+
+    private void schedulePacketsForAdvertising(List<byte[]> packets, MessageModel originalMessage) {
+        failedChunksCount = 0;
+
+        if (advertisingListener != null) {
+            mainHandler.post(() -> advertisingListener.onAdvertisingStarted());
+        }
+        currentSendingMessageId = (originalMessage != null) ? originalMessage.getMessageId() : "retransmit";
+
+        if (packets != null && !packets.isEmpty()) {
+            List<byte[]> allPackets = new ArrayList<>();
+            for (int round = 0; round < BROADCAST_ROUNDS; round++) {
+                allPackets.addAll(packets);
+            }
+            totalChunksToSend = allPackets.size();
+
+            for (int i = 0; i < allPackets.size(); i++) {
+                final byte[] packet = allPackets.get(i);
+                final int index = i;
+                final boolean isLast = (i == allPackets.size() - 1);
+
+                mainHandler.postDelayed(() -> {
+                    startAdvertising(packet);
+                    Log.d(TAG, "Sent chunk " + (index + 1) + "/" + allPackets.size());
+
+                    if (isLast && advertisingListener != null) {
+                        mainHandler.postDelayed(() -> {
+                            advertisingListener.onAdvertisingCompleted();
+
+                            if (failedChunksCount > 0 && originalMessage != null) {
+                                Log.d(TAG, "Message sending had " + failedChunksCount + " failures out of " + totalChunksToSend);
+                                markMessageAsFailed(originalMessage);
+                            }
+                            currentSendingMessageId = null;
+                            failedChunksCount = 0;
+                            totalChunksToSend = 0;
+                        }, ADVERTISING_DURATION_MS + 500);
+                    }
+                }, i * 1000L);
+            }
+            Log.d(TAG, "Scheduled " + allPackets.size() + " packets (" + BROADCAST_ROUNDS + " rounds)");
+        } else {
+            if (advertisingListener != null) {
+                mainHandler.post(() -> advertisingListener.onAdvertisingCompleted());
+            }
+            currentSendingMessageId = null;
+        }
     }
 
     private void markMessageAsFailed(MessageModel msg) {

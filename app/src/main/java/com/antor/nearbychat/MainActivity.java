@@ -943,15 +943,7 @@ public class MainActivity extends BaseActivity {
     }
 
     private void onMessageLongClick(MessageModel msg) {
-        List<String> options = new ArrayList<>(Arrays.asList("Copy", "Remove"));
-        if (msg.isSelf()) {
-            options.add("Resend");
-        } else {
-            options.add("Forward");
-            if (!msg.isComplete()) {
-                options.add("Request Missing Parts");
-            }
-        }
+        final List<String> options = new ArrayList<>(Arrays.asList("Copy", "Remove", "Retransmit"));
 
         new AlertDialog.Builder(this).setTitle("Message Options")
                 .setItems(options.toArray(new String[0]), (dialog, which) -> {
@@ -963,14 +955,13 @@ public class MainActivity extends BaseActivity {
                         case "Remove":
                             removeMessage(msg);
                             break;
-                        case "Resend":
-                            resendMyMessage(msg);
-                            break;
-                        case "Forward":
-                            forwardMessage(msg);
-                            break;
-                        case "Request Missing Parts":
-                            requestMissingParts(msg);
+                        case "Retransmit":
+                            if (validateBluetoothAndService()) {
+                                Toast.makeText(this, "Retransmiting...", Toast.LENGTH_SHORT).show();
+                                if (isServiceBound && bleService != null) {
+                                    bleService.retransmitMessage(msg);
+                                }
+                            }
                             break;
                     }
                 }).show();

@@ -25,6 +25,7 @@ public class MessageConverterForBle {
     private final String chatId;
     private final String senderDisplayId;
     private final long senderIdBits;
+    private long existingMessageIdBits = -1;
 
     private MessageModel messageToSave;
     private List<byte[]> blePacketsToSend;
@@ -40,6 +41,18 @@ public class MessageConverterForBle {
         this.MAX_CHUNK_DATA_SIZE = MAX_PAYLOAD_SIZE - HEADER_SIZE;
     }
 
+    public MessageConverterForBle(Context context, MessageModel modelToRetransmit, int maxPayloadSize) {
+        this.context = context;
+        this.messageText = modelToRetransmit.getMessage();
+        this.chatType = modelToRetransmit.getChatType();
+        this.chatId = modelToRetransmit.getChatId();
+        this.senderDisplayId = modelToRetransmit.getSenderId();
+        this.senderIdBits = modelToRetransmit.getSenderTimestampBits();
+        this.existingMessageIdBits = modelToRetransmit.getMessageTimestampBits();
+        this.MAX_PAYLOAD_SIZE = maxPayloadSize;
+        this.MAX_CHUNK_DATA_SIZE = MAX_PAYLOAD_SIZE - HEADER_SIZE;
+    }
+
     public void process() {
         String password = MessageHelper.getPasswordForChat(context, chatType, chatId, senderDisplayId);
 
@@ -47,24 +60,32 @@ public class MessageConverterForBle {
         String paddedChatId = String.format("%-5s", chatId).substring(0, 5);
         String messagePayload = chatType + paddedChatId + encryptedMessage;
 
-        long messageIdBits = System.currentTimeMillis() & ((1L << 40) - 1);
+        long messageIdBits;
+        if (existingMessageIdBits != -1) {
+            messageIdBits = existingMessageIdBits;
+        } else {
+            messageIdBits = System.currentTimeMillis() & ((1L << 40) - 1);
+        }
+
         String messageAsciiId = MessageHelper.timestampToAsciiId(messageIdBits);
 
         byte[] messageBytes = messagePayload.getBytes(StandardCharsets.UTF_8);
         List<byte[]> dataChunks = createSafeUtf8Chunks(messageBytes, MAX_CHUNK_DATA_SIZE);
         int totalChunks = dataChunks.size();
 
-        this.messageToSave = new MessageModel(
-                senderDisplayId,
-                messageText,
-                true,
-                createFormattedTimestamp(totalChunks, messageIdBits),
-                senderIdBits,
-                messageIdBits
-        );
-        this.messageToSave.setMessageId(MessageHelper.timestampToDisplayId(messageIdBits));
-        this.messageToSave.setChatType(chatType);
-        this.messageToSave.setChatId(chatId);
+        if (existingMessageIdBits == -1) {
+            this.messageToSave = new MessageModel(
+                    senderDisplayId,
+                    messageText,
+                    true,
+                    createFormattedTimestamp(totalChunks, messageIdBits),
+                    senderIdBits,
+                    messageIdBits
+            );
+            this.messageToSave.setMessageId(MessageHelper.timestampToDisplayId(messageIdBits));
+            this.messageToSave.setChatType(chatType);
+            this.messageToSave.setChatId(chatId);
+        }
 
         this.blePacketsToSend = new ArrayList<>();
         String senderAsciiId = MessageHelper.timestampToAsciiId(senderIdBits);
