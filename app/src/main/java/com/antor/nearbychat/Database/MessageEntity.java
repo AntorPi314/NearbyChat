@@ -27,6 +27,8 @@ public class MessageEntity {
 
     public boolean isFailed = false;
 
+    public boolean isRead = true;
+
     public long senderTimestampBits = 0;
     public long messageTimestampBits = 0;
 
@@ -64,6 +66,7 @@ public class MessageEntity {
         entity.messageTimestampBits = messageModel.getMessageTimestampBits();
         entity.chatType = messageModel.getChatType();
         entity.chatId = messageModel.getChatId();
+        entity.isRead = messageModel.isRead();
         entity.isFailed = messageModel.isFailed();
         return entity;
     }
@@ -82,6 +85,7 @@ public class MessageEntity {
         } catch (Exception e) {
             model.setMissingChunks(new java.util.ArrayList<>());
         }
+        model.setRead(isRead);
         model.setChatType(chatType);
         model.setChatId(chatId);
         model.setFailed(isFailed);

@@ -59,13 +59,20 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.ChatVi
         } else if ("F".equals(chat.type)) {
             ProfilePicLoader.loadProfilePicture(context, chat.displayId, holder.profilePic);
         }
+
+        if (chat.hasUnreadMessages) {
+            holder.lastMessage.setTypeface(null, Typeface.BOLD);
+            holder.lastMessage.setTextColor(Color.BLACK);
+        } else {
+            holder.lastMessage.setTypeface(null, Typeface.NORMAL);
+            holder.lastMessage.setTextColor(Color.parseColor("#888888"));
+        }
+
         boolean isActive = chat.type.equals(activeChatType) && chat.id.equals(activeChatId);
         if (isActive) {
             holder.itemView.setBackgroundColor(ContextCompat.getColor(context, R.color.active_chat_background));
-            holder.chatName.setTypeface(null, Typeface.BOLD);
         } else {
             holder.itemView.setBackgroundColor(Color.TRANSPARENT);
-            holder.chatName.setTypeface(null, Typeface.NORMAL);
         }
         holder.itemView.setOnClickListener(v -> clickListener.onChatClick(chat));
         holder.itemView.setOnLongClickListener(v -> {

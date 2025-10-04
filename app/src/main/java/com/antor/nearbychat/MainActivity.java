@@ -84,6 +84,7 @@ public class MainActivity extends BaseActivity {
 
     private ImageView appIcon;
     private TextView appTitle;
+    private TextView unseenMsgCountView;
 
     private SharedPreferences prefs;
     private BleMessagingService bleService;
@@ -113,6 +114,8 @@ public class MainActivity extends BaseActivity {
 
     private ImageView sendButton;
     private boolean isAdvertising = false;
+
+    private boolean isKeyboardVisible = false;
 
     private final ServiceConnection serviceConnection = new ServiceConnection() {
         @Override
@@ -165,19 +168,25 @@ public class MainActivity extends BaseActivity {
         setupUI();
         initializeData();
         setupDatabase();
+        markCurrentChatAsRead();
+        observeTotalUnreadCount();
         checkBatteryOptimization();
         checkPermissionsAndStartService();
     }
-
     private void setupUI() {
         final View rootView = findViewById(android.R.id.content);
         rootView.getViewTreeObserver().addOnGlobalLayoutListener(() -> {
             int heightDiff = rootView.getRootView().getHeight() - rootView.getHeight();
-            boolean keyboardVisible = heightDiff > dpToPx(this, 200);
-            if (!keyboardVisible) {
-                UiUtils.setLightSystemBars(this);
+            boolean keyboardNowVisible = heightDiff > dpToPx(this, 200);
+
+            if (keyboardNowVisible && !isKeyboardVisible) {
+                if (messageList != null && !messageList.isEmpty()) {
+                    recyclerView.post(() -> recyclerView.smoothScrollToPosition(messageList.size() - 1));
+                }
             }
+            isKeyboardVisible = keyboardNowVisible;
         });
+
         inputMessage = findViewById(R.id.inputMessage);
         textStatus = findViewById(R.id.textStatus);
         setupMessageInput();
@@ -189,6 +198,8 @@ public class MainActivity extends BaseActivity {
 
         appIcon = findViewById(R.id.appIcon);
         appTitle = findViewById(R.id.appTitle);
+        unseenMsgCountView = findViewById(R.id.unseenMsg);
+        unseenMsgCountView.setVisibility(View.GONE);
 
         findViewById(R.id.sendButton).setOnClickListener(this::onSendButtonClick);
         setupAppIconClick();
@@ -212,6 +223,19 @@ public class MainActivity extends BaseActivity {
 
     private void setupAppIconClick() {
         findViewById(R.id.threeDotIcon).setOnClickListener(v -> showAccountDialog());
+    }
+
+    private void observeTotalUnreadCount() {
+        messageDao.getTotalUnreadMessageCount().observe(this, count -> {
+            if (unseenMsgCountView == null) return;
+
+            if (count != null && count > 0) {
+                unseenMsgCountView.setVisibility(View.VISIBLE);
+                unseenMsgCountView.setText(count > 99 ? "99+" : String.valueOf(count));
+            } else {
+                unseenMsgCountView.setVisibility(View.GONE);
+            }
+        });
     }
 
     private void showEditGroupDialog() {
@@ -439,12 +463,21 @@ public class MainActivity extends BaseActivity {
 
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
             setupDatabase();
+            markCurrentChatAsRead();
         }, 100);
     }
 
     private void loadActiveChat() {
         activeChatType = prefs.getString(KEY_CHAT_TYPE, "N");
         activeChatId = prefs.getString(KEY_CHAT_ID, "");
+    }
+
+    private void markCurrentChatAsRead() {
+        new Thread(() -> {
+            if (database != null && activeChatType != null && activeChatId != null) {
+                database.messageDao().markMessagesAsRead(activeChatType, activeChatId);
+            }
+        }).start();
     }
 
     private void saveActiveChat() {
@@ -469,15 +502,19 @@ public class MainActivity extends BaseActivity {
             Log.d(TAG, "LiveData triggered: received " + (messages != null ? messages.size() : 0) + " messages for " + activeChatType + "/" + activeChatId);
 
             if (messages != null) {
+                boolean wasAtBottom = isAtBottom();
+
                 messageList.clear();
                 for (com.antor.nearbychat.Database.MessageEntity entity : messages) {
                     messageList.add(entity.toMessageModel());
                 }
                 chatAdapter.notifyDataSetChanged();
-                if (!messageList.isEmpty()) {
+
+                if (wasAtBottom && !messageList.isEmpty()) {
                     recyclerView.scrollToPosition(messageList.size() - 1);
                 }
                 updateChatUI();
+                markCurrentChatAsRead();
             }
         });
     }
@@ -532,11 +569,9 @@ public class MainActivity extends BaseActivity {
             @Override
             public void beforeTextChanged(CharSequence s, int start, int count, int after) {
             }
-
             @Override
             public void onTextChanged(CharSequence s, int start, int before, int count) {
             }
-
             @Override
             public void afterTextChanged(Editable s) {
                 if (s.length() > WARNING_THRESHOLD) {
@@ -1108,6 +1143,13 @@ public class MainActivity extends BaseActivity {
         return nameMap.getOrDefault(senderId, senderId);
     }
 
+    private boolean isAtBottom() {
+        if (recyclerView == null) {
+            return true;
+        }
+        return !recyclerView.canScrollVertically(1);
+    }
+
     private void loadNameMap() {
         try {
             String json = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getString(KEY_NAME_MAP, null);
@@ -1137,6 +1179,18 @@ public class MainActivity extends BaseActivity {
         activeChatId = prefs.getString(KEY_CHAT_ID, "");
         if (bluetoothAdapter != null && bluetoothAdapter.isEnabled() && hasAllRequiredPermissions()) {
             startBleService();
+        }
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (!"N".equals(activeChatType)) {
+            activeChatType = "N";
+            activeChatId = "";
+            saveActiveChat();
+            updateChatUIForSelection();
+        } else {
+            super.onBackPressed();
         }
     }
 

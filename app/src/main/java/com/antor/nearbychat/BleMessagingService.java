@@ -40,7 +40,10 @@ import com.antor.nearbychat.Database.AppDatabase;
 import com.antor.nearbychat.Message.MessageConverterForBle;
 import com.antor.nearbychat.Message.MessageHelper;
 import com.antor.nearbychat.Message.MessageProcessor;
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
 
+import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -106,7 +109,6 @@ public class BleMessagingService extends Service {
     private BroadcastReceiver bluetoothReceiver;
     private final IBinder binder = new LocalBinder();
 
-    // Track current sending message and failures
     private String currentSendingMessageId;
     private volatile int failedChunksCount = 0;
     private volatile int totalChunksToSend = 0;
@@ -151,7 +153,6 @@ public class BleMessagingService extends Service {
                     Thread.sleep(CHUNK_CLEANUP_INTERVAL_MS);
                     if (messageProcessor != null) {
                         messageProcessor.cleanupExpiredReassemblers(CHUNK_TIMEOUT_MS, (failedMsg) -> {
-                            // Set proper chatType and chatId from the partial message
                             addMessage(failedMsg);
                             if (timeoutCallback != null) {
                                 mainHandler.post(() -> timeoutCallback.onMessageTimeout(failedMsg));
@@ -464,7 +465,6 @@ public class BleMessagingService extends Service {
                     }
                     totalChunksToSend = allPackets.size();
 
-                    // Save message first
                     if (msgToSave != null) {
                         addMessage(msgToSave);
                     }
@@ -484,7 +484,6 @@ public class BleMessagingService extends Service {
                                 mainHandler.postDelayed(() -> {
                                     advertisingListener.onAdvertisingCompleted();
 
-                                    // Check if advertising failed
                                     if (failedChunksCount > 0 && finalMsg != null) {
                                         Log.d(TAG, "Message sending had " + failedChunksCount + " failures out of " + totalChunksToSend);
                                         markMessageAsFailed(finalMsg);
@@ -516,10 +515,8 @@ public class BleMessagingService extends Service {
     private void markMessageAsFailed(MessageModel msg) {
         processingExecutor.submit(() -> {
             try {
-                // Update existing message to set failed flag
                 msg.setFailed(true);
 
-                // Delete old message and insert updated one
                 messageDao.deleteMessage(msg.getSenderId(), msg.getMessageId(), msg.getTimestamp());
                 messageDao.insertMessage(com.antor.nearbychat.Database.MessageEntity.fromMessageModel(msg));
 
@@ -565,9 +562,14 @@ public class BleMessagingService extends Service {
     }
 
     private void addMessage(MessageModel msg) {
+        if (!msg.isSelf()) {
+            msg.setRead(false);
+            if ("F".equals(msg.getChatType())) {
+                autoAddFriendIfNeeded(msg.getSenderId());
+            }
+        }
         try {
             if (msg.isComplete()) {
-                // Complete message - remove partial if exists and add complete one
                 if (messageDao.partialMessageExists(msg.getSenderId(), msg.getMessageId()) > 0) {
                     messageDao.deletePartialMessage(msg.getSenderId(), msg.getMessageId());
                 }
@@ -576,12 +578,9 @@ public class BleMessagingService extends Service {
                     AppDatabase.cleanupOldMessages(this, MAX_MESSAGE_SAVED);
                 }
             } else {
-                // Partial or failed message
                 if (messageDao.partialMessageExists(msg.getSenderId(), msg.getMessageId()) > 0) {
-                    // Update existing partial message
                     messageDao.updatePartialMessage(msg.getSenderId(), msg.getMessageId(), msg.getMessage());
                 } else {
-                    // Insert new partial message
                     messageDao.insertMessage(com.antor.nearbychat.Database.MessageEntity.fromMessageModel(msg));
                 }
             }
@@ -589,6 +588,24 @@ public class BleMessagingService extends Service {
             Log.e(TAG, "Error saving message", e);
         }
         Log.d(TAG, "Saving message: chatType=" + msg.getChatType() + " chatId=" + msg.getChatId() + " from=" + msg.getSenderId() + " isComplete=" + msg.isComplete() + " isFailed=" + msg.isFailed());
+    }
+
+    private void autoAddFriendIfNeeded(String friendDisplayId) {
+        SharedPreferences prefs = getSharedPreferences("NearbyChatPrefs", MODE_PRIVATE);
+        String friendsJson = prefs.getString("friendsList", null);
+        Gson gson = new Gson();
+        Type type = new TypeToken<List<FriendModel>>() {}.getType();
+        List<FriendModel> friends = gson.fromJson(friendsJson, type);
+        if (friends == null) {
+            friends = new ArrayList<>();
+        }
+        boolean exists = friends.stream().anyMatch(f -> f.getDisplayId().equals(friendDisplayId));
+
+        if (!exists) {
+            friends.add(new FriendModel(friendDisplayId, friendDisplayId, ""));
+            prefs.edit().putString("friendsList", gson.toJson(friends)).apply();
+            Log.d(TAG, "Auto-added new friend: " + friendDisplayId);
+        }
     }
 
     public interface AdvertisingStateListener {

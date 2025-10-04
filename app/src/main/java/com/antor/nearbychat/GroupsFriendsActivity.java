@@ -117,35 +117,60 @@ public class GroupsFriendsActivity extends Activity {
     private void loadAndDisplayAllChats() {
         executor.execute(() -> {
             List<ChatItem> loadedChats = new ArrayList<>();
-            loadedChats.add(new ChatItem("", "Nearby Chat", "N", getLastMessageForChat("N", ""), getLastMessageTimeForChat("N", ""), false, ""));
+            com.antor.nearbychat.Database.MessageDao dao = AppDatabase.getInstance(this).messageDao();
 
+            com.antor.nearbychat.Database.MessageEntity nearbyLastMsg = dao.getLastMessageForChat("N", "");
+            int nearbyUnreadCount = dao.getUnreadMessageCountForChat("N", "");
+            loadedChats.add(new ChatItem(
+                    "", "Nearby Chat", "N",
+                    nearbyLastMsg != null ? nearbyLastMsg.message : "No recent messages",
+                    getLastMessageTime(nearbyLastMsg), "",
+                    nearbyLastMsg != null ? nearbyLastMsg.timestampMillis : 0,
+                    nearbyUnreadCount > 0
+            ));
             SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
             String groupsJson = prefs.getString(KEY_GROUPS_LIST, null);
             if (groupsJson != null) {
                 Type type = new TypeToken<ArrayList<GroupModel>>() {}.getType();
                 List<GroupModel> groups = gson.fromJson(groupsJson, type);
                 for (GroupModel g : groups) {
-                    loadedChats.add(new ChatItem(g.getId(), g.getName(), "G", getLastMessageForChat("G", g.getId()), getLastMessageTimeForChat("G", g.getId()), false, ""));
+                    com.antor.nearbychat.Database.MessageEntity lastMsg = dao.getLastMessageForChat("G", g.getId());
+                    int unreadCount = dao.getUnreadMessageCountForChat("G", g.getId());
+                    loadedChats.add(new ChatItem(
+                            g.getId(), g.getName(), "G",
+                            lastMsg != null ? lastMsg.message : "No messages yet",
+                            getLastMessageTime(lastMsg), "",
+                            lastMsg != null ? lastMsg.timestampMillis : 0,
+                            unreadCount > 0
+                    ));
                 }
             }
-
             String friendsJson = prefs.getString(KEY_FRIENDS_LIST, null);
             if (friendsJson != null) {
                 Type type = new TypeToken<ArrayList<FriendModel>>() {}.getType();
                 List<FriendModel> friends = gson.fromJson(friendsJson, type);
                 for (FriendModel f : friends) {
                     String asciiId = MessageHelper.timestampToAsciiId(MessageHelper.displayIdToTimestamp(f.getDisplayId()));
-                    loadedChats.add(new ChatItem(asciiId, f.getName(), "F", getLastMessageForChat("F", asciiId), getLastMessageTimeForChat("F", asciiId), false, f.getDisplayId()));
+                    com.antor.nearbychat.Database.MessageEntity lastMsg = dao.getLastMessageForChat("F", asciiId);
+                    int unreadCount = dao.getUnreadMessageCountForChat("F", asciiId);
+                    loadedChats.add(new ChatItem(
+                            asciiId, f.getName(), "F",
+                            lastMsg != null ? lastMsg.message : "No messages yet",
+                            getLastMessageTime(lastMsg), f.getDisplayId(),
+                            lastMsg != null ? lastMsg.timestampMillis : 0,
+                            unreadCount > 0
+                    ));
                 }
             }
             if (loadedChats.size() > 1) {
                 ChatItem nearbyItem = loadedChats.get(0);
                 List<ChatItem> restOfChats = new ArrayList<>(loadedChats.subList(1, loadedChats.size()));
-                Collections.sort(restOfChats, (a, b) -> Long.compare(parseTimeToMillis(b.lastMessageTime), parseTimeToMillis(a.lastMessageTime)));
+                Collections.sort(restOfChats, (a, b) -> Long.compare(b.lastMessageTimestamp, a.lastMessageTimestamp));
                 loadedChats.clear();
                 loadedChats.add(nearbyItem);
                 loadedChats.addAll(restOfChats);
             }
+
             runOnUiThread(() -> {
                 allChats.clear();
                 allChats.addAll(loadedChats);
@@ -181,6 +206,17 @@ public class GroupsFriendsActivity extends Activity {
                 return new java.text.SimpleDateFormat("dd.MM.yy", java.util.Locale.getDefault()).format(new java.util.Date(time));
             }
         } catch (Exception e) { e.printStackTrace(); }
+        return "";
+    }
+
+    private String getLastMessageTime(com.antor.nearbychat.Database.MessageEntity lastMsg) {
+        if (lastMsg != null) {
+            long time = lastMsg.timestampMillis, now = System.currentTimeMillis(), diff = now - time;
+            if (diff < 24 * 60 * 60 * 1000) return new java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault()).format(new java.util.Date(time));
+            if (diff < 7 * 24 * 60 * 60 * 1000) return new java.text.SimpleDateFormat("EEE", java.util.Locale.getDefault()).format(new java.util.Date(time));
+            if (diff < 365L * 24 * 60 * 60 * 1000L) return new java.text.SimpleDateFormat("MMM dd", java.util.Locale.getDefault()).format(new java.util.Date(time));
+            return new java.text.SimpleDateFormat("dd.MM.yy", java.util.Locale.getDefault()).format(new java.util.Date(time));
+        }
         return "";
     }
 
@@ -250,10 +286,13 @@ public class GroupsFriendsActivity extends Activity {
 
     public static class ChatItem {
         String id, name, type, lastMessage, lastMessageTime, displayId;
-        boolean isUnseenMessage;
-        public ChatItem(String id, String name, String type, String lastMessage, String lastMessageTime, boolean isUnseenMessage, String displayId) {
+        long lastMessageTimestamp;
+        boolean hasUnreadMessages;
+
+        public ChatItem(String id, String name, String type, String lastMessage, String lastMessageTime, String displayId, long lastMessageTimestamp, boolean hasUnreadMessages) {
             this.id = id; this.name = name; this.type = type; this.lastMessage = lastMessage;
-            this.lastMessageTime = lastMessageTime; this.isUnseenMessage = isUnseenMessage; this.displayId = displayId;
+            this.lastMessageTime = lastMessageTime; this.displayId = displayId;
+            this.lastMessageTimestamp = lastMessageTimestamp; this.hasUnreadMessages = hasUnreadMessages;
         }
     }
 

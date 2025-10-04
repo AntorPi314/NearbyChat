@@ -11,6 +11,7 @@ public class MessageModel {
     private String messageId;
     private String chatType;
     private String chatId;
+    private boolean isRead = true;
     private boolean isFailed = false;
 
     private int chunkCount = 1;
@@ -79,4 +80,7 @@ public class MessageModel {
 
     public boolean isFailed() { return isFailed; }
     public void setFailed(boolean failed) { isFailed = failed; }
+
+    public boolean isRead() { return isRead; }
+    public void setRead(boolean read) { isRead = read; }
 }

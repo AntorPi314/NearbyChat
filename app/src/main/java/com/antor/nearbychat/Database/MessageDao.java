@@ -61,4 +61,14 @@ public interface MessageDao {
 
     @Query("SELECT DISTINCT senderId FROM messages WHERE senderId != :currentUserId ORDER BY timestampMillis DESC LIMIT 50")
     List<String> getRecentSenders(String currentUserId);
+
+    @Query("SELECT COUNT(*) FROM messages WHERE chatType = :chatType AND chatId = :chatId AND isRead = 0 AND isSelf = 0")
+    int getUnreadMessageCountForChat(String chatType, String chatId);
+
+    @Query("UPDATE messages SET isRead = 1 WHERE chatType = :chatType AND chatId = :chatId AND isRead = 0")
+    void markMessagesAsRead(String chatType, String chatId);
+
+    @Query("SELECT COUNT(DISTINCT (chatType || chatId)) FROM messages WHERE isRead = 0 AND isSelf = 0")
+    LiveData<Integer> getTotalUnreadMessageCount();
+
 }

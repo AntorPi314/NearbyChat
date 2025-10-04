@@ -71,12 +71,9 @@ public class MessageProcessor {
         if (reassembler.hasChunk(chunkIndex)) {
             return null;
         }
-
-        // Get chatType and chatId BEFORE adding chunk
         String chatType = null;
         String chatId = null;
 
-        // Try to extract chatType and chatId from current chunk if it's the first one
         if (chunkIndex == 0 && chunkData.length >= 6) {
             try {
                 String tempPayload = new String(chunkData, StandardCharsets.UTF_8);
@@ -89,19 +86,14 @@ public class MessageProcessor {
                 Log.e(TAG, "Error extracting chat info from chunk", e);
             }
         }
-
-        // If we couldn't get it from first chunk, use stored values from reassembler
         if (chatType == null && reassembler.chatType != null) {
             chatType = reassembler.chatType;
             chatId = reassembler.chatId;
         }
-
-        // Store chat info in reassembler for future chunks
         if (chatType != null && reassembler.chatType == null) {
             reassembler.chatType = chatType;
             reassembler.chatId = chatId;
         }
-
         reassembler.addChunk(chunkIndex, totalChunks, chunkData);
 
         if (reassembler.isComplete()) {
@@ -116,7 +108,6 @@ public class MessageProcessor {
                         senderIdBits, messageIdBits, totalChunks, true);
             }
         } else {
-            // Create partial message with proper chatType and chatId
             String partialContent = String.format(Locale.US, "Receiving... (%d/%d)",
                     reassembler.getReceivedCount(), totalChunks);
 
@@ -131,7 +122,6 @@ public class MessageProcessor {
             partialMsg.setMessageId(messageDisplayId);
             partialMsg.setIsComplete(false);
 
-            // Use actual chatType and chatId instead of "P"
             if (chatType != null) {
                 partialMsg.setChatType(chatType);
                 if ("F".equals(chatType)) {
@@ -140,11 +130,9 @@ public class MessageProcessor {
                     partialMsg.setChatId(chatId);
                 }
             } else {
-                // Fallback to Nearby if we can't determine
                 partialMsg.setChatType("N");
                 partialMsg.setChatId("");
             }
-
             partialMsg.setMissingChunks(reassembler.getMissingChunkIndices());
 
             Log.d(TAG, "Partial message: " + partialContent + " chatType=" + partialMsg.getChatType() + " chatId=" + partialMsg.getChatId());
@@ -214,7 +202,6 @@ public class MessageProcessor {
                 if (reassembler.isExpired(timeoutMs)) {
                     Log.d(TAG, "Timing out reassembler for message: " + reassembler.messageId);
 
-                    // Create failed message with proper chatType and chatId
                     MessageModel failedMsg = new MessageModel(
                             reassembler.senderId,
                             "Failed",
@@ -227,7 +214,6 @@ public class MessageProcessor {
                     failedMsg.setIsComplete(false);
                     failedMsg.setFailed(true);
 
-                    // Use stored chatType and chatId
                     if (reassembler.chatType != null) {
                         failedMsg.setChatType(reassembler.chatType);
                         failedMsg.setChatId(reassembler.chatId);
@@ -254,7 +240,6 @@ public class MessageProcessor {
         private int totalChunks = -1;
         private int receivedCount = 0;
 
-        // Store chatType and chatId
         String chatType = null;
         String chatId = null;
 
