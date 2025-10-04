@@ -420,25 +420,51 @@ public class BleMessagingService extends Service {
     public void sendMessage(String message, String chatType, String chatId) {
         processingExecutor.submit(() -> {
             try {
+                if (advertisingListener != null) {
+                    mainHandler.post(() -> advertisingListener.onAdvertisingStarted());
+                }
+
                 MessageConverterForBle converter = new MessageConverterForBle(
                         this, message, chatType, chatId, userId, userIdBits, MAX_PAYLOAD_SIZE);
                 converter.process();
                 MessageModel msgToSave = converter.getMessageToSave();
                 List<byte[]> packets = converter.getBlePacketsToSend();
+
                 if (msgToSave != null) addMessage(msgToSave);
+
                 if (packets != null && !packets.isEmpty()) {
-                    for (int i = 0; i < packets.size(); i++) {
-                        final byte[] packet = packets.get(i);
+                    List<byte[]> doublePackets = new ArrayList<>();
+                    doublePackets.addAll(packets);
+                    doublePackets.addAll(packets);
+
+                    for (int i = 0; i < doublePackets.size(); i++) {
+                        final byte[] packet = doublePackets.get(i);
                         final int index = i;
+                        final boolean isLast = (i == doublePackets.size() - 1);
+
                         mainHandler.postDelayed(() -> {
                             startAdvertising(packet);
-                            Log.d(TAG, "Sent chunk " + (index + 1) + "/" + packets.size());
+                            Log.d(TAG, "Sent chunk " + (index + 1) + "/" + doublePackets.size());
+
+                            if (isLast && advertisingListener != null) {
+                                mainHandler.postDelayed(() -> {
+                                    advertisingListener.onAdvertisingCompleted();
+                                }, ADVERTISING_DURATION_MS);
+                            }
                         }, i * 1000);
                     }
-                    Log.d(TAG, "Scheduled " + packets.size() + " packets for transmission");
+
+                    Log.d(TAG, "Scheduled " + doublePackets.size() + " packets (2 rounds)");
+                } else {
+                    if (advertisingListener != null) {
+                        mainHandler.post(() -> advertisingListener.onAdvertisingCompleted());
+                    }
                 }
             } catch (Exception e) {
                 Log.e(TAG, "Error in sendMessage", e);
+                if (advertisingListener != null) {
+                    mainHandler.post(() -> advertisingListener.onAdvertisingCompleted());
+                }
             }
         });
     }
@@ -494,6 +520,15 @@ public class BleMessagingService extends Service {
             Log.e(TAG, "Error saving message", e);
         }
         Log.d(TAG, "Saving message: chatType=" + msg.getChatType() + " chatId=" + msg.getChatId() + " from=" + msg.getSenderId());
+    }
+
+    public interface AdvertisingStateListener {
+        void onAdvertisingStarted();
+        void onAdvertisingCompleted();
+    }
+    private AdvertisingStateListener advertisingListener;
+    public void setAdvertisingStateListener(AdvertisingStateListener listener) {
+        this.advertisingListener = listener;
     }
 
     private void updateNotification(String text, boolean ongoing) {

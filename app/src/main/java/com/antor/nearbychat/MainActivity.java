@@ -29,7 +29,9 @@ import android.app.Dialog;
 import android.graphics.drawable.ColorDrawable;
 import android.view.Gravity;
 import android.view.WindowManager;
+
 import java.io.ByteArrayOutputStream;
+
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.util.Log;
@@ -39,16 +41,20 @@ import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
+
 import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+
 import com.antor.nearbychat.Database.AppDatabase;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
+
 import java.lang.reflect.Type;
 import java.util.*;
+
 import com.antor.nearbychat.Message.MessageHelper;
 
 public class MainActivity extends BaseActivity {
@@ -105,14 +111,41 @@ public class MainActivity extends BaseActivity {
     private BluetoothAdapter bluetoothAdapter;
     private Handler mainHandler;
 
+    private ImageView sendButton;
+    private boolean isAdvertising = false;
+
     private final ServiceConnection serviceConnection = new ServiceConnection() {
         @Override
         public void onServiceConnected(ComponentName name, IBinder service) {
             BleMessagingService.LocalBinder binder = (BleMessagingService.LocalBinder) service;
             bleService = binder.getService();
             isServiceBound = true;
+
+            bleService.setAdvertisingStateListener(new BleMessagingService.AdvertisingStateListener() {
+                @Override
+                public void onAdvertisingStarted() {
+                    runOnUiThread(() -> {
+                        isAdvertising = true;
+                        sendButton.setEnabled(false);
+                        sendButton.setColorFilter(Color.GRAY);
+                        sendButton.setAlpha(0.5f);
+                    });
+                }
+
+                @Override
+                public void onAdvertisingCompleted() {
+                    runOnUiThread(() -> {
+                        isAdvertising = false;
+                        sendButton.setEnabled(true);
+                        sendButton.setColorFilter(null);
+                        sendButton.setAlpha(1.0f);
+                    });
+                }
+            });
+
             Log.d(TAG, "Service connected");
         }
+
         @Override
         public void onServiceDisconnected(ComponentName name) {
             bleService = null;
@@ -125,6 +158,7 @@ public class MainActivity extends BaseActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        sendButton = findViewById(R.id.sendButton);
         prefs = getSharedPreferences(PREFS_ACTIVE_CHAT, MODE_PRIVATE);
         loadActiveChat();
         mainHandler = new Handler(Looper.getMainLooper());
@@ -183,7 +217,8 @@ public class MainActivity extends BaseActivity {
     private void showEditGroupDialog() {
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         String groupsJson = prefs.getString(KEY_GROUPS_LIST, null);
-        Type type = new TypeToken<ArrayList<GroupModel>>(){}.getType();
+        Type type = new TypeToken<ArrayList<GroupModel>>() {
+        }.getType();
         List<GroupModel> groupsList = gson.fromJson(groupsJson, type);
         if (groupsList == null) groupsList = new ArrayList<>();
 
@@ -269,7 +304,8 @@ public class MainActivity extends BaseActivity {
     private void showEditFriendDialog() {
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         String friendsJson = prefs.getString(KEY_FRIENDS_LIST, null);
-        Type type = new TypeToken<ArrayList<FriendModel>>(){}.getType();
+        Type type = new TypeToken<ArrayList<FriendModel>>() {
+        }.getType();
         List<FriendModel> friendsList = gson.fromJson(friendsJson, type);
         if (friendsList == null) friendsList = new ArrayList<>();
 
@@ -362,7 +398,8 @@ public class MainActivity extends BaseActivity {
             SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
             String groupsJson = prefs.getString(KEY_GROUPS_LIST, null);
             if (groupsJson != null) {
-                Type type = new TypeToken<List<GroupModel>>(){}.getType();
+                Type type = new TypeToken<List<GroupModel>>() {
+                }.getType();
                 List<GroupModel> groups = gson.fromJson(groupsJson, type);
                 String groupName = "Group";
                 for (GroupModel g : groups) {
@@ -383,7 +420,8 @@ public class MainActivity extends BaseActivity {
             SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
             String friendsJson = prefs.getString(KEY_FRIENDS_LIST, null);
             if (friendsJson != null) {
-                Type type = new TypeToken<List<FriendModel>>(){}.getType();
+                Type type = new TypeToken<List<FriendModel>>() {
+                }.getType();
                 List<FriendModel> friends = gson.fromJson(friendsJson, type);
                 String friendName = "Friend";
                 for (FriendModel f : friends) {
@@ -415,6 +453,7 @@ public class MainActivity extends BaseActivity {
                 .putString(KEY_CHAT_ID, activeChatId)
                 .apply();
     }
+
     private void setupDatabase() {
         database = AppDatabase.getInstance(this);
         messageDao = database.messageDao();
@@ -490,9 +529,16 @@ public class MainActivity extends BaseActivity {
 
     private void setupMessageInput() {
         inputMessage.addTextChangedListener(new TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
-            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {}
-            @Override public void afterTextChanged(Editable s) {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
                 if (s.length() > WARNING_THRESHOLD) {
                     inputMessage.setTextColor(Color.parseColor("#FF0000"));
                 } else {
@@ -515,7 +561,8 @@ public class MainActivity extends BaseActivity {
         String friendsJson = prefs.getString(KEY_FRIENDS_LIST, null);
         List<FriendModel> friends = new ArrayList<>();
         if (friendsJson != null) {
-            Type type = new TypeToken<List<FriendModel>>(){}.getType();
+            Type type = new TypeToken<List<FriendModel>>() {
+            }.getType();
             friends = gson.fromJson(friendsJson, type);
         }
         boolean exists = friends.stream().anyMatch(f -> f.getDisplayId().equals(friendDisplayId));
@@ -610,21 +657,26 @@ public class MainActivity extends BaseActivity {
     private void checkAndRequestPermissionsSequentially() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
-                requestSinglePermission(Manifest.permission.BLUETOOTH_CONNECT, "Bluetooth connection required for messaging"); return;
+                requestSinglePermission(Manifest.permission.BLUETOOTH_CONNECT, "Bluetooth connection required for messaging");
+                return;
             }
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
-                requestSinglePermission(Manifest.permission.BLUETOOTH_SCAN, "Bluetooth scanning required to find nearby devices"); return;
+                requestSinglePermission(Manifest.permission.BLUETOOTH_SCAN, "Bluetooth scanning required to find nearby devices");
+                return;
             }
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADVERTISE) != PackageManager.PERMISSION_GRANTED) {
-                requestSinglePermission(Manifest.permission.BLUETOOTH_ADVERTISE, "Bluetooth advertising required to be discoverable"); return;
+                requestSinglePermission(Manifest.permission.BLUETOOTH_ADVERTISE, "Bluetooth advertising required to be discoverable");
+                return;
             }
         }
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            showLocationPermissionDialog(); return;
+            showLocationPermissionDialog();
+            return;
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                requestSinglePermission(Manifest.permission.POST_NOTIFICATIONS, "Notifications required for background service alerts"); return;
+                requestSinglePermission(Manifest.permission.POST_NOTIFICATIONS, "Notifications required for background service alerts");
+                return;
             }
         }
         new Handler(Looper.getMainLooper()).postDelayed(this::startBleService, 500);
@@ -661,14 +713,17 @@ public class MainActivity extends BaseActivity {
             }
         } else if (requestCode == REQUEST_STORAGE_PERMISSION) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                if (currentUserId != null && currentProfilePic != null) showImagePickerDialogInternal(currentUserId, currentProfilePic);
+                if (currentUserId != null && currentProfilePic != null)
+                    showImagePickerDialogInternal(currentUserId, currentProfilePic);
             } else {
                 Toast.makeText(this, "Storage permission required for gallery access", Toast.LENGTH_SHORT).show();
-                if (currentUserId != null && currentProfilePic != null) openCamera(currentUserId, currentProfilePic);
+                if (currentUserId != null && currentProfilePic != null)
+                    openCamera(currentUserId, currentProfilePic);
             }
         } else if (requestCode == REQUEST_CAMERA_PERMISSION) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                if (currentUserId != null && currentProfilePic != null) openCameraInternal(currentUserId, currentProfilePic);
+                if (currentUserId != null && currentProfilePic != null)
+                    openCameraInternal(currentUserId, currentProfilePic);
             } else {
                 Toast.makeText(this, "Camera permission required", Toast.LENGTH_SHORT).show();
             }
@@ -677,13 +732,18 @@ public class MainActivity extends BaseActivity {
 
     private boolean hasAllRequiredPermissions() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) return false;
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) return false;
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADVERTISE) != PackageManager.PERMISSION_GRANTED) return false;
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED)
+                return false;
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED)
+                return false;
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADVERTISE) != PackageManager.PERMISSION_GRANTED)
+                return false;
         }
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return false;
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED)
+            return false;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return false;
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+                return false;
         }
         return true;
     }
@@ -709,6 +769,11 @@ public class MainActivity extends BaseActivity {
     }
 
     private void onSendButtonClick(View v) {
+        if (isAdvertising) {
+            Toast.makeText(this, "Please wait, sending previous message...", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
         String msg = inputMessage.getText().toString().trim();
         if (msg.isEmpty()) {
             Toast.makeText(this, "Message cannot be empty!", Toast.LENGTH_SHORT).show();
@@ -732,18 +797,22 @@ public class MainActivity extends BaseActivity {
 
     private boolean validateBluetoothAndService() {
         if (bluetoothAdapter == null) {
-            Toast.makeText(this, "Bluetooth not supported", Toast.LENGTH_LONG).show(); return false;
+            Toast.makeText(this, "Bluetooth not supported", Toast.LENGTH_LONG).show();
+            return false;
         }
         try {
             if (!bluetoothAdapter.isEnabled()) {
-                Toast.makeText(this, "Turn on Bluetooth", Toast.LENGTH_SHORT).show(); return false;
+                Toast.makeText(this, "Turn on Bluetooth", Toast.LENGTH_SHORT).show();
+                return false;
             }
         } catch (SecurityException se) {
-            Toast.makeText(this, "Bluetooth permission required", Toast.LENGTH_SHORT).show(); return false;
+            Toast.makeText(this, "Bluetooth permission required", Toast.LENGTH_SHORT).show();
+            return false;
         }
         if (!isServiceBound || bleService == null) {
             startBleService();
-            Toast.makeText(this, "Starting service, please try again", Toast.LENGTH_SHORT).show(); return false;
+            Toast.makeText(this, "Starting service, please try again", Toast.LENGTH_SHORT).show();
+            return false;
         }
         return true;
     }
@@ -762,11 +831,14 @@ public class MainActivity extends BaseActivity {
             return;
         }
         if (requestCode == REQUEST_ENABLE_LOCATION) {
-            if (isLocationEnabled()) requestAllPermissions(); else Toast.makeText(this, "Location is required", Toast.LENGTH_LONG).show();
+            if (isLocationEnabled()) requestAllPermissions();
+            else Toast.makeText(this, "Location is required", Toast.LENGTH_LONG).show();
         } else if (requestCode == 101) {
-            if (bluetoothAdapter != null && bluetoothAdapter.isEnabled()) requestAllPermissions(); else Toast.makeText(this, "Bluetooth is required", Toast.LENGTH_LONG).show();
+            if (bluetoothAdapter != null && bluetoothAdapter.isEnabled()) requestAllPermissions();
+            else Toast.makeText(this, "Bluetooth is required", Toast.LENGTH_LONG).show();
         } else if (requestCode == REQUEST_BATTERY_OPTIMIZATION) {
-            if (((PowerManager) getSystemService(Context.POWER_SERVICE)).isIgnoringBatteryOptimizations(getPackageName())) Toast.makeText(this, "Battery optimization disabled", Toast.LENGTH_SHORT).show();
+            if (((PowerManager) getSystemService(Context.POWER_SERVICE)).isIgnoringBatteryOptimizations(getPackageName()))
+                Toast.makeText(this, "Battery optimization disabled", Toast.LENGTH_SHORT).show();
         } else if (requestCode == REQUEST_GALLERY && resultCode == RESULT_OK) {
             handleGalleryResult(data);
         } else if (requestCode == REQUEST_CAMERA && resultCode == RESULT_OK) {
@@ -805,13 +877,18 @@ public class MainActivity extends BaseActivity {
     private void requestAllPermissions() {
         List<String> permissionsList = new ArrayList<>();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) permissionsList.add(Manifest.permission.BLUETOOTH_SCAN);
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) permissionsList.add(Manifest.permission.BLUETOOTH_CONNECT);
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADVERTISE) != PackageManager.PERMISSION_GRANTED) permissionsList.add(Manifest.permission.BLUETOOTH_ADVERTISE);
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED)
+                permissionsList.add(Manifest.permission.BLUETOOTH_SCAN);
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED)
+                permissionsList.add(Manifest.permission.BLUETOOTH_CONNECT);
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADVERTISE) != PackageManager.PERMISSION_GRANTED)
+                permissionsList.add(Manifest.permission.BLUETOOTH_ADVERTISE);
         }
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) permissionsList.add(Manifest.permission.ACCESS_FINE_LOCATION);
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED)
+            permissionsList.add(Manifest.permission.ACCESS_FINE_LOCATION);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) permissionsList.add(Manifest.permission.POST_NOTIFICATIONS);
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+                permissionsList.add(Manifest.permission.POST_NOTIFICATIONS);
         }
         if (!permissionsList.isEmpty()) {
             ActivityCompat.requestPermissions(this, permissionsList.toArray(new String[0]), PERMISSION_REQUEST_CODE);
@@ -956,9 +1033,15 @@ public class MainActivity extends BaseActivity {
         new AlertDialog.Builder(this).setTitle("Select Image")
                 .setItems(options.toArray(new String[0]), (dialog, which) -> {
                     switch (options.get(which)) {
-                        case "Gallery": openGallery(userId, profilePic); break;
-                        case "Camera": openCamera(userId, profilePic); break;
-                        case "Reset to Default": resetToGeneratedProfilePic(userId, profilePic); break;
+                        case "Gallery":
+                            openGallery(userId, profilePic);
+                            break;
+                        case "Camera":
+                            openCamera(userId, profilePic);
+                            break;
+                        case "Reset to Default":
+                            resetToGeneratedProfilePic(userId, profilePic);
+                            break;
                     }
                 }).show();
     }
@@ -1029,7 +1112,8 @@ public class MainActivity extends BaseActivity {
         try {
             String json = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getString(KEY_NAME_MAP, null);
             if (json != null) {
-                Type type = new TypeToken<Map<String, String>>() {}.getType();
+                Type type = new TypeToken<Map<String, String>>() {
+                }.getType();
                 nameMap = gson.fromJson(json, type);
             }
             if (nameMap == null) nameMap = new HashMap<>();
