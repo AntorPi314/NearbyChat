@@ -493,6 +493,7 @@ public class BleMessagingService extends Service {
         } catch (Exception e) {
             Log.e(TAG, "Error saving message", e);
         }
+        Log.d(TAG, "Saving message: chatType=" + msg.getChatType() + " chatId=" + msg.getChatId() + " from=" + msg.getSenderId());
     }
 
     private void updateNotification(String text, boolean ongoing) {

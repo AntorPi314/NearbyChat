@@ -135,12 +135,16 @@ public class MessageProcessor {
         newMsg.setChatType(chatType);
 
         if ("F".equals(chatType)) {
+            // For friend chats, the chatId should be the ASCII ID of the friend
+            // When sending, the sender uses their own ASCII ID as chatId
+            // When receiving, we should use the sender's ASCII ID as chatId
             newMsg.setChatId(MessageHelper.timestampToAsciiId(senderIdBits));
         } else {
+            // For other chat types (N for Nearby, G for Group), use the chatId from payload
             newMsg.setChatId(chatId);
         }
 
-        Log.d(TAG, "Successfully processed message from " + senderDisplayId);
+        Log.d(TAG, "Successfully processed message from " + senderDisplayId + " for chatType=" + chatType + " chatId=" + newMsg.getChatId());
         return newMsg;
     }
 

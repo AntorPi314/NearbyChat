@@ -84,6 +84,7 @@ public class MainActivity extends BaseActivity {
     private boolean isServiceBound = false;
     private AppDatabase database;
     private com.antor.nearbychat.Database.MessageDao messageDao;
+    private androidx.lifecycle.LiveData<List<com.antor.nearbychat.Database.MessageEntity>> currentMessagesLiveData = null;
 
     private static final String PREFS_NAME = "NearbyChatPrefs";
     private static final String KEY_GROUPS_LIST = "groupsList";
@@ -395,7 +396,12 @@ public class MainActivity extends BaseActivity {
             }
             ProfilePicLoader.loadProfilePicture(this, displayId, appIcon);
         }
-        setupDatabase();
+        messageList.clear();
+        chatAdapter.notifyDataSetChanged();
+
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            setupDatabase();
+        }, 100);
     }
 
     private void loadActiveChat() {
@@ -409,11 +415,20 @@ public class MainActivity extends BaseActivity {
                 .putString(KEY_CHAT_ID, activeChatId)
                 .apply();
     }
-
     private void setupDatabase() {
         database = AppDatabase.getInstance(this);
         messageDao = database.messageDao();
-        messageDao.getMessagesForChat(activeChatType, activeChatId).observe(this, messages -> {
+
+        if (currentMessagesLiveData != null) {
+            currentMessagesLiveData.removeObservers(this);
+            Log.d(TAG, "Removed old observer");
+        }
+        Log.d(TAG, "Setting up database for chatType=" + activeChatType + " chatId=" + activeChatId);
+
+        currentMessagesLiveData = messageDao.getMessagesForChat(activeChatType, activeChatId);
+        currentMessagesLiveData.observe(this, messages -> {
+            Log.d(TAG, "LiveData triggered: received " + (messages != null ? messages.size() : 0) + " messages for " + activeChatType + "/" + activeChatId);
+
             if (messages != null) {
                 messageList.clear();
                 for (com.antor.nearbychat.Database.MessageEntity entity : messages) {
@@ -740,6 +755,9 @@ public class MainActivity extends BaseActivity {
             activeChatType = data.getStringExtra("chatType");
             activeChatId = data.getStringExtra("chatId");
             saveActiveChat();
+
+            Log.d(TAG, "Chat selected: type=" + activeChatType + " id=" + activeChatId);
+
             updateChatUIForSelection();
             return;
         }
