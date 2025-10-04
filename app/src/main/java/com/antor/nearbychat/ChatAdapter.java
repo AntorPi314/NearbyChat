@@ -52,30 +52,63 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
 
         String displayMessage = msg.getMessage();
 
-        if (!msg.isComplete()) {
-            displayMessage += "...";
-            holder.message.setTextColor(Color.GRAY);
-            holder.message.setTypeface(null, Typeface.ITALIC);
-        } else {
-            int defaultTextColor = msg.isSelf() ? Color.WHITE : Color.BLACK;
-            holder.message.setTextColor(defaultTextColor);
-            holder.message.setTypeface(null, Typeface.NORMAL);
+        // Reset background first
+        holder.itemView.setBackgroundColor(Color.TRANSPARENT);
+
+        // SENDER SIDE (message_right) - isSelf() == true
+        if (msg.isSelf()) {
+            if (msg.isFailed()) {
+                // Advertising failed - show red background
+                holder.message.setTextColor(Color.parseColor("#CC0000")); // Dark red text for visibility
+                holder.message.setTypeface(null, Typeface.NORMAL);
+                holder.itemView.setBackgroundColor(Color.parseColor("#FFCCCC")); // Light red background
+                holder.message.setText(displayMessage);
+            } else {
+                // Normal sent message - default blue bubble with white text
+                holder.message.setTextColor(Color.WHITE);
+                holder.message.setTypeface(null, Typeface.NORMAL);
+                holder.message.setText(displayMessage);
+            }
         }
-        holder.message.setText(displayMessage);
+        // RECEIVER SIDE (message_left) - isSelf() == false
+        else {
+            if (msg.isFailed()) {
+                // Timeout - message failed to complete after waiting
+                holder.message.setText("Failed");
+                holder.message.setTextColor(Color.parseColor("#999999")); // Grey text
+                holder.message.setTypeface(null, Typeface.ITALIC);
+                holder.itemView.setBackgroundColor(Color.parseColor("#F5F5F5")); // Very light grey background
+            } else if (!msg.isComplete()) {
+                // Receiving chunks - show the "Receiving... (x/y)" message as-is
+                holder.message.setText(displayMessage); // Already contains "Receiving..." from MessageProcessor
+                holder.message.setTextColor(Color.GRAY);
+                holder.message.setTypeface(null, Typeface.ITALIC);
+                holder.itemView.setBackgroundColor(Color.TRANSPARENT);
+            } else {
+                // Complete received message - normal display
+                holder.message.setTextColor(Color.BLACK);
+                holder.message.setTypeface(null, Typeface.NORMAL);
+                holder.itemView.setBackgroundColor(Color.TRANSPARENT);
+                holder.message.setText(displayMessage);
+            }
+        }
 
         if (holder.profilePic != null) {
             main.loadProfilePictureForAdapter(msg.getSenderId(), holder.profilePic);
             holder.profilePic.setOnClickListener(v -> main.openFriendChat(msg.getSenderId()));
         }
+
         holder.timestamp.setOnClickListener(v -> {
             long fullTimestamp = MessageHelper.reconstructFullTimestamp(msg.getMessageTimestampBits());
             String formattedTime = MessageHelper.formatTimestamp(fullTimestamp);
             Toast.makeText(context, "Sent at: " + formattedTime, Toast.LENGTH_LONG).show();
         });
+
         holder.itemView.setOnLongClickListener(v -> {
             longClickListener.onClick(msg);
             return true;
         });
+
         holder.itemView.setOnClickListener(v -> clickListener.onClick(msg));
     }
 

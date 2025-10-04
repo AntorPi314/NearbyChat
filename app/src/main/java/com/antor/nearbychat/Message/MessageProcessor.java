@@ -57,6 +57,7 @@ public class MessageProcessor {
             return buildMessageModelFromPayload(payload, senderDisplayId, messageDisplayId,
                     senderIdBits, messageIdBits, 1, true);
         }
+
         String reassemblerKey = senderDisplayId + "_" + messageDisplayId;
         MessageReassembler reassembler;
         synchronized (reassemblers) {
@@ -66,9 +67,41 @@ public class MessageProcessor {
                 reassemblers.put(reassemblerKey, reassembler);
             }
         }
+
         if (reassembler.hasChunk(chunkIndex)) {
             return null;
         }
+
+        // Get chatType and chatId BEFORE adding chunk
+        String chatType = null;
+        String chatId = null;
+
+        // Try to extract chatType and chatId from current chunk if it's the first one
+        if (chunkIndex == 0 && chunkData.length >= 6) {
+            try {
+                String tempPayload = new String(chunkData, StandardCharsets.UTF_8);
+                if (tempPayload.length() >= 6) {
+                    chatType = tempPayload.substring(0, 1);
+                    chatId = tempPayload.substring(1, 6).trim();
+                    Log.d(TAG, "Extracted from first chunk: chatType=" + chatType + " chatId=" + chatId);
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Error extracting chat info from chunk", e);
+            }
+        }
+
+        // If we couldn't get it from first chunk, use stored values from reassembler
+        if (chatType == null && reassembler.chatType != null) {
+            chatType = reassembler.chatType;
+            chatId = reassembler.chatId;
+        }
+
+        // Store chat info in reassembler for future chunks
+        if (chatType != null && reassembler.chatType == null) {
+            reassembler.chatType = chatType;
+            reassembler.chatId = chatId;
+        }
+
         reassembler.addChunk(chunkIndex, totalChunks, chunkData);
 
         if (reassembler.isComplete()) {
@@ -83,7 +116,8 @@ public class MessageProcessor {
                         senderIdBits, messageIdBits, totalChunks, true);
             }
         } else {
-            String partialContent = String.format(Locale.US, "[Receiving... (%d/%d)]",
+            // Create partial message with proper chatType and chatId
+            String partialContent = String.format(Locale.US, "Receiving... (%d/%d)",
                     reassembler.getReceivedCount(), totalChunks);
 
             MessageModel partialMsg = new MessageModel(
@@ -96,9 +130,24 @@ public class MessageProcessor {
             );
             partialMsg.setMessageId(messageDisplayId);
             partialMsg.setIsComplete(false);
-            partialMsg.setChatType("P");
-            partialMsg.setChatId(reassemblerKey);
+
+            // Use actual chatType and chatId instead of "P"
+            if (chatType != null) {
+                partialMsg.setChatType(chatType);
+                if ("F".equals(chatType)) {
+                    partialMsg.setChatId(MessageHelper.timestampToAsciiId(senderIdBits));
+                } else {
+                    partialMsg.setChatId(chatId);
+                }
+            } else {
+                // Fallback to Nearby if we can't determine
+                partialMsg.setChatType("N");
+                partialMsg.setChatId("");
+            }
+
             partialMsg.setMissingChunks(reassembler.getMissingChunkIndices());
+
+            Log.d(TAG, "Partial message: " + partialContent + " chatType=" + partialMsg.getChatType() + " chatId=" + partialMsg.getChatId());
             return partialMsg;
         }
         return null;
@@ -135,17 +184,17 @@ public class MessageProcessor {
         newMsg.setChatType(chatType);
 
         if ("F".equals(chatType)) {
-            // For friend chats, the chatId should be the ASCII ID of the friend
-            // When sending, the sender uses their own ASCII ID as chatId
-            // When receiving, we should use the sender's ASCII ID as chatId
             newMsg.setChatId(MessageHelper.timestampToAsciiId(senderIdBits));
         } else {
-            // For other chat types (N for Nearby, G for Group), use the chatId from payload
             newMsg.setChatId(chatId);
         }
 
         Log.d(TAG, "Successfully processed message from " + senderDisplayId + " for chatType=" + chatType + " chatId=" + newMsg.getChatId());
         return newMsg;
+    }
+
+    public interface TimeoutCallback {
+        void onTimeout(MessageModel failedMessage);
     }
 
     private String createFormattedTimestamp(int chunkCount, long messageIdBits) {
@@ -155,13 +204,42 @@ public class MessageProcessor {
         return baseTime + " | " + chunkCount + "C";
     }
 
-    public void cleanupExpiredReassemblers(long timeoutMs) {
+    public void cleanupExpiredReassemblers(long timeoutMs, TimeoutCallback callback) {
         synchronized (reassemblers) {
             Iterator<Map.Entry<String, MessageReassembler>> it = reassemblers.entrySet().iterator();
             while (it.hasNext()) {
                 Map.Entry<String, MessageReassembler> entry = it.next();
-                if (entry.getValue().isExpired(timeoutMs)) {
-                    Log.d(TAG, "Timing out reassembler for message: " + entry.getValue().messageId);
+                MessageReassembler reassembler = entry.getValue();
+
+                if (reassembler.isExpired(timeoutMs)) {
+                    Log.d(TAG, "Timing out reassembler for message: " + reassembler.messageId);
+
+                    // Create failed message with proper chatType and chatId
+                    MessageModel failedMsg = new MessageModel(
+                            reassembler.senderId,
+                            "Failed",
+                            false,
+                            "Timeout",
+                            0,
+                            0
+                    );
+                    failedMsg.setMessageId(reassembler.messageId);
+                    failedMsg.setIsComplete(false);
+                    failedMsg.setFailed(true);
+
+                    // Use stored chatType and chatId
+                    if (reassembler.chatType != null) {
+                        failedMsg.setChatType(reassembler.chatType);
+                        failedMsg.setChatId(reassembler.chatId);
+                    } else {
+                        failedMsg.setChatType("N");
+                        failedMsg.setChatId("");
+                    }
+
+                    if (callback != null) {
+                        callback.onTimeout(failedMsg);
+                    }
+
                     it.remove();
                 }
             }
@@ -176,11 +254,16 @@ public class MessageProcessor {
         private int totalChunks = -1;
         private int receivedCount = 0;
 
+        // Store chatType and chatId
+        String chatType = null;
+        String chatId = null;
+
         MessageReassembler(String senderId, String messageId) {
             this.senderId = senderId;
             this.messageId = messageId;
             this.creationTimestamp = System.currentTimeMillis();
         }
+
         synchronized boolean addChunk(int chunkIndex, int totalChunks, byte[] chunkData) {
             if (this.totalChunks == -1) {
                 this.totalChunks = totalChunks;
@@ -195,6 +278,7 @@ public class MessageProcessor {
             }
             return false;
         }
+
         synchronized boolean hasChunk(int chunkIndex) {
             return chunks.get(chunkIndex) != null;
         }
@@ -202,6 +286,7 @@ public class MessageProcessor {
         synchronized boolean isComplete() {
             return totalChunks > 0 && receivedCount == totalChunks;
         }
+
         synchronized int getReceivedCount() {
             return receivedCount;
         }

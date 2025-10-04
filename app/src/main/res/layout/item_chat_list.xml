@@ -38,6 +38,7 @@
             android:paddingTop="2dp"
             android:paddingEnd="8dp"
             android:paddingBottom="2dp"
+            android:singleLine="true"
             android:text="Last message"
             android:textColor="@android:color/black"
             android:textSize="12sp" />

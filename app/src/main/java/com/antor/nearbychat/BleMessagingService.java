@@ -72,12 +72,23 @@ public class BleMessagingService extends Service {
     private static int CHUNK_TIMEOUT_MS = 120000;
     private static int CHUNK_CLEANUP_INTERVAL_MS = 15000;
     private static int MAX_MESSAGE_SAVED = 2000;
+    private static int BROADCAST_ROUNDS = 2;
 
     private static final String REQUEST_MARKER = "??";
     private static final int MAX_MISSING_CHUNKS = 30;
 
     private static final String PREFS_NAME = "NearbyChatPrefs";
     private static final String KEY_USER_ID_BITS = "userIdBits";
+
+    public interface MessageTimeoutCallback {
+        void onMessageTimeout(MessageModel failedMessage);
+    }
+
+    private MessageTimeoutCallback timeoutCallback;
+
+    public void setMessageTimeoutCallback(MessageTimeoutCallback callback) {
+        this.timeoutCallback = callback;
+    }
 
     private BluetoothAdapter bluetoothAdapter;
     private BluetoothLeAdvertiser advertiser;
@@ -94,7 +105,11 @@ public class BleMessagingService extends Service {
     private String userId;
     private BroadcastReceiver bluetoothReceiver;
     private final IBinder binder = new LocalBinder();
-    private final Random random = new Random();
+
+    // Track current sending message and failures
+    private String currentSendingMessageId;
+    private volatile int failedChunksCount = 0;
+    private volatile int totalChunksToSend = 0;
 
     private ScanCallback scanCallback = new ScanCallback() {
         @Override
@@ -133,10 +148,15 @@ public class BleMessagingService extends Service {
         processingExecutor.submit(() -> {
             while (!Thread.currentThread().isInterrupted()) {
                 try {
-                    Thread.sleep(
-                            CHUNK_CLEANUP_INTERVAL_MS);
+                    Thread.sleep(CHUNK_CLEANUP_INTERVAL_MS);
                     if (messageProcessor != null) {
-                        messageProcessor.cleanupExpiredReassemblers(CHUNK_TIMEOUT_MS);
+                        messageProcessor.cleanupExpiredReassemblers(CHUNK_TIMEOUT_MS, (failedMsg) -> {
+                            // Set proper chatType and chatId from the partial message
+                            addMessage(failedMsg);
+                            if (timeoutCallback != null) {
+                                mainHandler.post(() -> timeoutCallback.onMessageTimeout(failedMsg));
+                            }
+                        });
                     }
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
@@ -338,15 +358,18 @@ public class BleMessagingService extends Service {
                         Log.d(TAG, "Advertise completed");
                     }, ADVERTISING_DURATION_MS);
                 }
+
                 @Override
                 public void onStartFailure(int errorCode) {
                     isAdvertising = false;
-                    Log.e(TAG, "Advertise failed: " + errorCode);
+                    failedChunksCount++;
+                    Log.e(TAG, "Advertise failed (chunk " + failedChunksCount + "/" + totalChunksToSend + "): " + errorCode);
                 }
             };
             advertiser.startAdvertising(settings, data, advertiseCallback);
         } catch (Exception e) {
             isAdvertising = false;
+            failedChunksCount++;
             Log.e(TAG, "Error advertising", e);
         }
     }
@@ -420,6 +443,8 @@ public class BleMessagingService extends Service {
     public void sendMessage(String message, String chatType, String chatId) {
         processingExecutor.submit(() -> {
             try {
+                failedChunksCount = 0;
+
                 if (advertisingListener != null) {
                     mainHandler.post(() -> advertisingListener.onAdvertisingStarted());
                 }
@@ -430,41 +455,81 @@ public class BleMessagingService extends Service {
                 MessageModel msgToSave = converter.getMessageToSave();
                 List<byte[]> packets = converter.getBlePacketsToSend();
 
-                if (msgToSave != null) addMessage(msgToSave);
+                currentSendingMessageId = msgToSave != null ? msgToSave.getMessageId() : null;
 
                 if (packets != null && !packets.isEmpty()) {
-                    List<byte[]> doublePackets = new ArrayList<>();
-                    doublePackets.addAll(packets);
-                    doublePackets.addAll(packets);
+                    List<byte[]> allPackets = new ArrayList<>();
+                    for (int round = 0; round < BROADCAST_ROUNDS; round++) {
+                        allPackets.addAll(packets);
+                    }
+                    totalChunksToSend = allPackets.size();
 
-                    for (int i = 0; i < doublePackets.size(); i++) {
-                        final byte[] packet = doublePackets.get(i);
+                    // Save message first
+                    if (msgToSave != null) {
+                        addMessage(msgToSave);
+                    }
+
+                    final MessageModel finalMsg = msgToSave;
+
+                    for (int i = 0; i < allPackets.size(); i++) {
+                        final byte[] packet = allPackets.get(i);
                         final int index = i;
-                        final boolean isLast = (i == doublePackets.size() - 1);
+                        final boolean isLast = (i == allPackets.size() - 1);
 
                         mainHandler.postDelayed(() -> {
                             startAdvertising(packet);
-                            Log.d(TAG, "Sent chunk " + (index + 1) + "/" + doublePackets.size());
+                            Log.d(TAG, "Sent chunk " + (index + 1) + "/" + allPackets.size());
 
                             if (isLast && advertisingListener != null) {
                                 mainHandler.postDelayed(() -> {
                                     advertisingListener.onAdvertisingCompleted();
-                                }, ADVERTISING_DURATION_MS);
-                            }
-                        }, i * 1000);
-                    }
 
-                    Log.d(TAG, "Scheduled " + doublePackets.size() + " packets (2 rounds)");
+                                    // Check if advertising failed
+                                    if (failedChunksCount > 0 && finalMsg != null) {
+                                        Log.d(TAG, "Message sending had " + failedChunksCount + " failures out of " + totalChunksToSend);
+                                        markMessageAsFailed(finalMsg);
+                                    }
+
+                                    currentSendingMessageId = null;
+                                    failedChunksCount = 0;
+                                    totalChunksToSend = 0;
+                                }, ADVERTISING_DURATION_MS + 500);
+                            }
+                        }, i * 1000L);
+                    }
+                    Log.d(TAG, "Scheduled " + allPackets.size() + " packets (" + BROADCAST_ROUNDS + " rounds)");
                 } else {
                     if (advertisingListener != null) {
                         mainHandler.post(() -> advertisingListener.onAdvertisingCompleted());
                     }
+                    currentSendingMessageId = null;
                 }
             } catch (Exception e) {
                 Log.e(TAG, "Error in sendMessage", e);
                 if (advertisingListener != null) {
                     mainHandler.post(() -> advertisingListener.onAdvertisingCompleted());
                 }
+            }
+        });
+    }
+
+    private void markMessageAsFailed(MessageModel msg) {
+        processingExecutor.submit(() -> {
+            try {
+                // Update existing message to set failed flag
+                msg.setFailed(true);
+
+                // Delete old message and insert updated one
+                messageDao.deleteMessage(msg.getSenderId(), msg.getMessageId(), msg.getTimestamp());
+                messageDao.insertMessage(com.antor.nearbychat.Database.MessageEntity.fromMessageModel(msg));
+
+                Log.d(TAG, "Marked message as failed: " + msg.getMessageId());
+
+                if (timeoutCallback != null) {
+                    mainHandler.post(() -> timeoutCallback.onMessageTimeout(msg));
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Error marking message as failed", e);
             }
         });
     }
@@ -502,6 +567,7 @@ public class BleMessagingService extends Service {
     private void addMessage(MessageModel msg) {
         try {
             if (msg.isComplete()) {
+                // Complete message - remove partial if exists and add complete one
                 if (messageDao.partialMessageExists(msg.getSenderId(), msg.getMessageId()) > 0) {
                     messageDao.deletePartialMessage(msg.getSenderId(), msg.getMessageId());
                 }
@@ -510,23 +576,28 @@ public class BleMessagingService extends Service {
                     AppDatabase.cleanupOldMessages(this, MAX_MESSAGE_SAVED);
                 }
             } else {
+                // Partial or failed message
                 if (messageDao.partialMessageExists(msg.getSenderId(), msg.getMessageId()) > 0) {
+                    // Update existing partial message
                     messageDao.updatePartialMessage(msg.getSenderId(), msg.getMessageId(), msg.getMessage());
                 } else {
+                    // Insert new partial message
                     messageDao.insertMessage(com.antor.nearbychat.Database.MessageEntity.fromMessageModel(msg));
                 }
             }
         } catch (Exception e) {
             Log.e(TAG, "Error saving message", e);
         }
-        Log.d(TAG, "Saving message: chatType=" + msg.getChatType() + " chatId=" + msg.getChatId() + " from=" + msg.getSenderId());
+        Log.d(TAG, "Saving message: chatType=" + msg.getChatType() + " chatId=" + msg.getChatId() + " from=" + msg.getSenderId() + " isComplete=" + msg.isComplete() + " isFailed=" + msg.isFailed());
     }
 
     public interface AdvertisingStateListener {
         void onAdvertisingStarted();
         void onAdvertisingCompleted();
     }
+
     private AdvertisingStateListener advertisingListener;
+
     public void setAdvertisingStateListener(AdvertisingStateListener listener) {
         this.advertisingListener = listener;
     }
