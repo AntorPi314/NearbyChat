@@ -15,9 +15,13 @@ public class MessageConverterForBle {
     private final int MAX_PAYLOAD_SIZE;
     private static final int USER_ID_LENGTH = 5;
     private static final int MESSAGE_ID_LENGTH = 5;
+    private static final int CHAT_TYPE_LENGTH = 1;
     private static final int CHUNK_METADATA_LENGTH = 2;
-    private static final int HEADER_SIZE = USER_ID_LENGTH + MESSAGE_ID_LENGTH + CHUNK_METADATA_LENGTH;
-    private final int MAX_CHUNK_DATA_SIZE;
+    private static final int CHAT_ID_LENGTH = 5;
+
+    private static final int BASE_HEADER_SIZE = CHAT_TYPE_LENGTH + USER_ID_LENGTH + MESSAGE_ID_LENGTH + CHUNK_METADATA_LENGTH;
+
+    private static final int FIRST_CHUNK_GF_HEADER_SIZE = BASE_HEADER_SIZE + CHAT_ID_LENGTH;
 
     private final Context context;
     private final String messageText;
@@ -38,7 +42,6 @@ public class MessageConverterForBle {
         this.senderDisplayId = senderDisplayId;
         this.senderIdBits = senderIdBits;
         this.MAX_PAYLOAD_SIZE = maxPayloadSize;
-        this.MAX_CHUNK_DATA_SIZE = MAX_PAYLOAD_SIZE - HEADER_SIZE;
     }
 
     public MessageConverterForBle(Context context, MessageModel modelToRetransmit, int maxPayloadSize) {
@@ -50,16 +53,9 @@ public class MessageConverterForBle {
         this.senderIdBits = modelToRetransmit.getSenderTimestampBits();
         this.existingMessageIdBits = modelToRetransmit.getMessageTimestampBits();
         this.MAX_PAYLOAD_SIZE = maxPayloadSize;
-        this.MAX_CHUNK_DATA_SIZE = MAX_PAYLOAD_SIZE - HEADER_SIZE;
     }
 
     public void process() {
-        String password = MessageHelper.getPasswordForChat(context, chatType, chatId, senderDisplayId);
-
-        String encryptedMessage = CryptoUtils.encrypt(messageText, password);
-        String paddedChatId = String.format("%-5s", chatId).substring(0, 5);
-        String messagePayload = chatType + paddedChatId + encryptedMessage;
-
         long messageIdBits;
         if (existingMessageIdBits != -1) {
             messageIdBits = existingMessageIdBits;
@@ -68,9 +64,29 @@ public class MessageConverterForBle {
         }
 
         String messageAsciiId = MessageHelper.timestampToAsciiId(messageIdBits);
+        String senderAsciiId = MessageHelper.timestampToAsciiId(senderIdBits);
+
+        String messagePayload;
+        if ("N".equals(chatType)) {
+            messagePayload = messageText;
+        } else {
+            String password = MessageHelper.getPasswordForChat(context, chatType, chatId, senderDisplayId);
+            messagePayload = CryptoUtils.encrypt(messageText, password);
+        }
 
         byte[] messageBytes = messagePayload.getBytes(StandardCharsets.UTF_8);
-        List<byte[]> dataChunks = createSafeUtf8Chunks(messageBytes, MAX_CHUNK_DATA_SIZE);
+
+        int firstChunkDataSize;
+        int nextChunkDataSize;
+
+        if ("N".equals(chatType)) {
+            firstChunkDataSize = MAX_PAYLOAD_SIZE - BASE_HEADER_SIZE;
+            nextChunkDataSize = MAX_PAYLOAD_SIZE - BASE_HEADER_SIZE;
+        } else {
+            firstChunkDataSize = MAX_PAYLOAD_SIZE - FIRST_CHUNK_GF_HEADER_SIZE;
+            nextChunkDataSize = MAX_PAYLOAD_SIZE - BASE_HEADER_SIZE;
+        }
+        List<byte[]> dataChunks = createVariableSizeChunks(messageBytes, firstChunkDataSize, nextChunkDataSize);
         int totalChunks = dataChunks.size();
 
         if (existingMessageIdBits == -1) {
@@ -88,10 +104,20 @@ public class MessageConverterForBle {
         }
 
         this.blePacketsToSend = new ArrayList<>();
-        String senderAsciiId = MessageHelper.timestampToAsciiId(senderIdBits);
+        String paddedChatId = String.format("%-5s", chatId).substring(0, 5);
+
         for (int i = 0; i < totalChunks; i++) {
             byte[] chunkData = dataChunks.get(i);
-            byte[] blePacket = createBlePacketPayload(senderAsciiId, messageAsciiId, i, totalChunks, chunkData);
+            boolean isFirstChunk = (i == 0);
+
+            byte[] blePacket;
+            if ("N".equals(chatType)) {
+                blePacket = createNearbyChatPacket(chatType, senderAsciiId, messageAsciiId, i, totalChunks, chunkData);
+            } else if (isFirstChunk) {
+                blePacket = createFirstChunkGFPacket(chatType, senderAsciiId, messageAsciiId, i, totalChunks, paddedChatId, chunkData);
+            } else {
+                blePacket = createNextChunkGFPacket(chatType, senderAsciiId, messageAsciiId, i, totalChunks, chunkData);
+            }
             this.blePacketsToSend.add(blePacket);
         }
     }
@@ -104,30 +130,78 @@ public class MessageConverterForBle {
         return blePacketsToSend;
     }
 
-    private byte[] createBlePacketPayload(String senderAsciiId, String messageAsciiId, int chunkIndex, int totalChunks, byte[] chunkData) {
-        byte[] senderIdBytes = senderAsciiId.getBytes(StandardCharsets.ISO_8859_1);
-        byte[] messageIdBytes = messageAsciiId.getBytes(StandardCharsets.ISO_8859_1);
+    private byte[] createNearbyChatPacket(String chatType, String senderAsciiId, String messageAsciiId,
+                                          int chunkIndex, int totalChunks, byte[] chunkData) {
+        byte[] packet = new byte[BASE_HEADER_SIZE + chunkData.length];
+        int offset = 0;
 
-        byte[] payload = new byte[HEADER_SIZE + chunkData.length];
+        packet[offset++] = (byte) chatType.charAt(0);
+        System.arraycopy(senderAsciiId.getBytes(StandardCharsets.ISO_8859_1), 0, packet, offset, USER_ID_LENGTH);
+        offset += USER_ID_LENGTH;
+        System.arraycopy(messageAsciiId.getBytes(StandardCharsets.ISO_8859_1), 0, packet, offset, MESSAGE_ID_LENGTH);
+        offset += MESSAGE_ID_LENGTH;
+        packet[offset++] = (byte) totalChunks;
+        packet[offset++] = (byte) chunkIndex;
+        System.arraycopy(chunkData, 0, packet, offset, chunkData.length);
 
-        System.arraycopy(senderIdBytes, 0, payload, 0, USER_ID_LENGTH);
-        System.arraycopy(messageIdBytes, 0, payload, USER_ID_LENGTH, MESSAGE_ID_LENGTH);
-        payload[USER_ID_LENGTH + MESSAGE_ID_LENGTH] = (byte) chunkIndex;
-        payload[USER_ID_LENGTH + MESSAGE_ID_LENGTH + 1] = (byte) totalChunks;
-        System.arraycopy(chunkData, 0, payload, HEADER_SIZE, chunkData.length);
-
-        return payload;
+        return packet;
     }
 
-    private List<byte[]> createSafeUtf8Chunks(byte[] data, int maxChunkSize) {
+    private byte[] createFirstChunkGFPacket(String chatType, String senderAsciiId, String messageAsciiId,
+                                            int chunkIndex, int totalChunks, String paddedChatId, byte[] chunkData) {
+        byte[] packet = new byte[FIRST_CHUNK_GF_HEADER_SIZE + chunkData.length];
+        int offset = 0;
+
+        packet[offset++] = (byte) chatType.charAt(0);
+        System.arraycopy(senderAsciiId.getBytes(StandardCharsets.ISO_8859_1), 0, packet, offset, USER_ID_LENGTH);
+        offset += USER_ID_LENGTH;
+        System.arraycopy(messageAsciiId.getBytes(StandardCharsets.ISO_8859_1), 0, packet, offset, MESSAGE_ID_LENGTH);
+        offset += MESSAGE_ID_LENGTH;
+        packet[offset++] = (byte) totalChunks;
+        packet[offset++] = (byte) chunkIndex;
+        System.arraycopy(paddedChatId.getBytes(StandardCharsets.ISO_8859_1), 0, packet, offset, CHAT_ID_LENGTH);
+        offset += CHAT_ID_LENGTH;
+        System.arraycopy(chunkData, 0, packet, offset, chunkData.length);
+
+        return packet;
+    }
+
+    private byte[] createNextChunkGFPacket(String chatType, String senderAsciiId, String messageAsciiId,
+                                           int chunkIndex, int totalChunks, byte[] chunkData) {
+        byte[] packet = new byte[BASE_HEADER_SIZE + chunkData.length];
+        int offset = 0;
+
+        packet[offset++] = (byte) chatType.charAt(0);
+        System.arraycopy(senderAsciiId.getBytes(StandardCharsets.ISO_8859_1), 0, packet, offset, USER_ID_LENGTH);
+        offset += USER_ID_LENGTH;
+        System.arraycopy(messageAsciiId.getBytes(StandardCharsets.ISO_8859_1), 0, packet, offset, MESSAGE_ID_LENGTH);
+        offset += MESSAGE_ID_LENGTH;
+        packet[offset++] = (byte) totalChunks;
+        packet[offset++] = (byte) chunkIndex;
+        System.arraycopy(chunkData, 0, packet, offset, chunkData.length);
+
+        return packet;
+    }
+
+    private List<byte[]> createVariableSizeChunks(byte[] data, int firstChunkSize, int nextChunkSize) {
         List<byte[]> chunks = new ArrayList<>();
         if (data.length == 0) {
             chunks.add(new byte[0]);
             return chunks;
         }
+
         int offset = 0;
+        boolean isFirstChunk = true;
+
         while (offset < data.length) {
-            int chunkSize = Math.min(maxChunkSize, data.length - offset);
+            int chunkSize;
+            if (isFirstChunk) {
+                chunkSize = Math.min(firstChunkSize, data.length - offset);
+                isFirstChunk = false;
+            } else {
+                chunkSize = Math.min(nextChunkSize, data.length - offset);
+            }
+
             byte[] chunk = new byte[chunkSize];
             System.arraycopy(data, offset, chunk, 0, chunkSize);
             chunks.add(chunk);

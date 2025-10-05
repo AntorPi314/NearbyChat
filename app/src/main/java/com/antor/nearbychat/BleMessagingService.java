@@ -141,12 +141,16 @@ public class BleMessagingService extends Service {
         mainHandler = new Handler(Looper.getMainLooper());
         database = AppDatabase.getInstance(this);
         messageDao = database.messageDao();
-        messageProcessor = new MessageProcessor(this, processingExecutor);
+
         loadConfigurableSettings();
         initializeData();
+
+        messageProcessor = new MessageProcessor(this, processingExecutor, userId);
+
         acquireWakeLock();
         setupBluetoothReceiver();
         createNotificationChannel();
+
         processingExecutor.submit(() -> {
             while (!Thread.currentThread().isInterrupted()) {
                 try {
@@ -377,11 +381,13 @@ public class BleMessagingService extends Service {
 
     private void stopAdvertising() {
         if (advertiser != null && advertiseCallback != null) {
+            if (!hasRequiredPermissions()) return;
             try {
-                if (!hasRequiredPermissions()) return;
                 advertiser.stopAdvertising(advertiseCallback);
                 isAdvertising = false;
                 Log.d(TAG, "Advertising stopped");
+            } catch (SecurityException se) {
+                Log.e(TAG, "Missing required Bluetooth permissions", se);
             } catch (Exception e) {
                 Log.e(TAG, "Error stopping advertising", e);
             }

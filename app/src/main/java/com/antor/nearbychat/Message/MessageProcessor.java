@@ -24,76 +24,101 @@ public class MessageProcessor {
     private final Map<String, MessageReassembler> reassemblers = new HashMap<>();
     private final Context context;
     private final ExecutorService processingExecutor;
+    private final String myDisplayId;
 
-    public MessageProcessor(Context context, ExecutorService processingExecutor) {
+    public MessageProcessor(Context context, ExecutorService processingExecutor, String myDisplayId) {
         this.context = context;
         this.processingExecutor = processingExecutor;
+        this.myDisplayId = myDisplayId;
     }
 
     public MessageModel processIncomingData(byte[] data, String myDisplayId) {
-        if (data == null || data.length < 12) {
+        if (data == null || data.length < 13) {
             Log.w(TAG, "Received data is too short.");
             return null;
         }
-        String senderAsciiId = new String(data, 0, 5, StandardCharsets.ISO_8859_1);
+        int offset = 0;
+        String chatType = new String(data, offset, 1, StandardCharsets.ISO_8859_1);
+        offset += 1;
+
+        String senderAsciiId = new String(data, offset, 5, StandardCharsets.ISO_8859_1);
+        offset += 5;
         long senderIdBits = MessageHelper.asciiIdToTimestamp(senderAsciiId);
         String senderDisplayId = MessageHelper.timestampToDisplayId(senderIdBits);
 
         if (senderDisplayId.equals(myDisplayId)) {
             return null;
         }
-        String messageAsciiId = new String(data, 5, 5, StandardCharsets.ISO_8859_1);
+
+        String messageAsciiId = new String(data, offset, 5, StandardCharsets.ISO_8859_1);
+        offset += 5;
         long messageIdBits = MessageHelper.asciiIdToTimestamp(messageAsciiId);
         String messageDisplayId = MessageHelper.timestampToDisplayId(messageIdBits);
 
-        int chunkIndex = data[10] & 0xFF;
-        int totalChunks = data[11] & 0xFF;
+        int totalChunks = data[offset] & 0xFF;
+        offset += 1;
+        int chunkIndex = data[offset] & 0xFF;
+        offset += 1;
 
-        byte[] chunkData = new byte[data.length - 12];
-        System.arraycopy(data, 12, chunkData, 0, data.length - 12);
+        String chatId = null;
+        byte[] chunkData;
 
+        if ("N".equals(chatType)) {
+            chatId = "";
+            chunkData = new byte[data.length - offset];
+            System.arraycopy(data, offset, chunkData, 0, chunkData.length);
+        } else if ("G".equals(chatType) || "F".equals(chatType)) {
+
+            if (chunkIndex == 0) {
+                if (data.length < 18) {
+                    Log.w(TAG, "First chunk of G/F chat too short");
+                    return null;
+                }
+                chatId = new String(data, offset, 5, StandardCharsets.ISO_8859_1).trim();
+                offset += 5;
+                chunkData = new byte[data.length - offset];
+                System.arraycopy(data, offset, chunkData, 0, chunkData.length);
+            } else {
+                chunkData = new byte[data.length - offset];
+                System.arraycopy(data, offset, chunkData, 0, chunkData.length);
+            }
+        } else {
+            Log.w(TAG, "Unknown chat type: " + chatType);
+            return null;
+        }
+
+        if ("F".equals(chatType) && chatId != null) {
+            String myAsciiId = MessageHelper.timestampToAsciiId(
+                    MessageHelper.displayIdToTimestamp(myDisplayId)
+            );
+            if (!chatId.equals(myAsciiId)) {
+                Log.d(TAG, "Friend message not for me. Expected: " + myAsciiId + ", Got: " + chatId);
+                return null;
+            }
+            chatId = senderAsciiId;
+        }
         if (totalChunks == 1) {
             String payload = new String(chunkData, StandardCharsets.UTF_8);
             return buildMessageModelFromPayload(payload, senderDisplayId, messageDisplayId,
-                    senderIdBits, messageIdBits, 1, true);
+                    senderIdBits, messageIdBits, 1, true, chatType, chatId);
         }
-
         String reassemblerKey = senderDisplayId + "_" + messageDisplayId;
         MessageReassembler reassembler;
         synchronized (reassemblers) {
             reassembler = reassemblers.get(reassemblerKey);
             if (reassembler == null) {
-                reassembler = new MessageReassembler(senderDisplayId, messageDisplayId);
+                reassembler = new MessageReassembler(senderDisplayId, messageDisplayId, chatType, chatId);
                 reassemblers.put(reassemblerKey, reassembler);
+            } else {
+                if (chatId != null && reassembler.chatId == null) {
+                    reassembler.chatId = chatId;
+                }
             }
         }
-
         if (reassembler.hasChunk(chunkIndex)) {
             return null;
         }
-        String chatType = null;
-        String chatId = null;
 
-        if (chunkIndex == 0 && chunkData.length >= 6) {
-            try {
-                String tempPayload = new String(chunkData, StandardCharsets.UTF_8);
-                if (tempPayload.length() >= 6) {
-                    chatType = tempPayload.substring(0, 1);
-                    chatId = tempPayload.substring(1, 6).trim();
-                    Log.d(TAG, "Extracted from first chunk: chatType=" + chatType + " chatId=" + chatId);
-                }
-            } catch (Exception e) {
-                Log.e(TAG, "Error extracting chat info from chunk", e);
-            }
-        }
-        if (chatType == null && reassembler.chatType != null) {
-            chatType = reassembler.chatType;
-            chatId = reassembler.chatId;
-        }
-        if (chatType != null && reassembler.chatType == null) {
-            reassembler.chatType = chatType;
-            reassembler.chatId = chatId;
-        }
         reassembler.addChunk(chunkIndex, totalChunks, chunkData);
 
         if (reassembler.isComplete()) {
@@ -105,7 +130,7 @@ public class MessageProcessor {
             if (fullPayload != null) {
                 Log.d(TAG, "Message reassembled successfully: " + messageDisplayId);
                 return buildMessageModelFromPayload(fullPayload, senderDisplayId, messageDisplayId,
-                        senderIdBits, messageIdBits, totalChunks, true);
+                        senderIdBits, messageIdBits, totalChunks, true, reassembler.chatType, reassembler.chatId);
             }
         } else {
             String partialContent = String.format(Locale.US, "Receiving... (%d/%d)",
@@ -121,18 +146,8 @@ public class MessageProcessor {
             );
             partialMsg.setMessageId(messageDisplayId);
             partialMsg.setIsComplete(false);
-
-            if (chatType != null) {
-                partialMsg.setChatType(chatType);
-                if ("F".equals(chatType)) {
-                    partialMsg.setChatId(MessageHelper.timestampToAsciiId(senderIdBits));
-                } else {
-                    partialMsg.setChatId(chatId);
-                }
-            } else {
-                partialMsg.setChatType("N");
-                partialMsg.setChatId("");
-            }
+            partialMsg.setChatType(reassembler.chatType != null ? reassembler.chatType : "N");
+            partialMsg.setChatId(reassembler.chatId != null ? reassembler.chatId : "");
             partialMsg.setMissingChunks(reassembler.getMissingChunkIndices());
 
             Log.d(TAG, "Partial message: " + partialContent + " chatType=" + partialMsg.getChatType() + " chatId=" + partialMsg.getChatId());
@@ -142,23 +157,22 @@ public class MessageProcessor {
     }
 
     private MessageModel buildMessageModelFromPayload(String payload, String senderDisplayId, String messageDisplayId,
-                                                      long senderIdBits, long messageIdBits, int totalChunks, boolean isComplete) {
-        if (payload == null || payload.length() < 6) {
-            Log.e(TAG, "Invalid message payload after reassembly.");
-            return null;
+                                                      long senderIdBits, long messageIdBits, int totalChunks,
+                                                      boolean isComplete, String chatType, String chatId) {
+        String decryptedMessage;
+
+        if ("N".equals(chatType)) {
+            decryptedMessage = payload;
+        } else {
+            String password = MessageHelper.getPasswordForChat(context, chatType, chatId, senderDisplayId);
+            decryptedMessage = CryptoUtils.decrypt(payload, password);
+
+            if (decryptedMessage == null) {
+                Log.w(TAG, "Decryption failed for message from " + senderDisplayId);
+                decryptedMessage = "[Decryption Failed]";
+            }
         }
 
-        String chatType = payload.substring(0, 1);
-        String chatId = payload.substring(1, 6).trim();
-        String encryptedMessage = payload.substring(6);
-
-        String password = MessageHelper.getPasswordForChat(context, chatType, chatId, senderDisplayId);
-        String decryptedMessage = CryptoUtils.decrypt(encryptedMessage, password);
-
-        if (decryptedMessage == null) {
-            Log.w(TAG, "Decryption failed for message from " + senderDisplayId);
-            decryptedMessage = "[Decryption Failed]";
-        }
         MessageModel newMsg = new MessageModel(
                 senderDisplayId,
                 decryptedMessage,
@@ -170,12 +184,7 @@ public class MessageProcessor {
         newMsg.setMessageId(messageDisplayId);
         newMsg.setIsComplete(isComplete);
         newMsg.setChatType(chatType);
-
-        if ("F".equals(chatType)) {
-            newMsg.setChatId(MessageHelper.timestampToAsciiId(senderIdBits));
-        } else {
-            newMsg.setChatId(chatId);
-        }
+        newMsg.setChatId(chatId != null ? chatId : "");
 
         Log.d(TAG, "Successfully processed message from " + senderDisplayId + " for chatType=" + chatType + " chatId=" + newMsg.getChatId());
         return newMsg;
@@ -213,14 +222,8 @@ public class MessageProcessor {
                     failedMsg.setMessageId(reassembler.messageId);
                     failedMsg.setIsComplete(false);
                     failedMsg.setFailed(true);
-
-                    if (reassembler.chatType != null) {
-                        failedMsg.setChatType(reassembler.chatType);
-                        failedMsg.setChatId(reassembler.chatId);
-                    } else {
-                        failedMsg.setChatType("N");
-                        failedMsg.setChatId("");
-                    }
+                    failedMsg.setChatType(reassembler.chatType != null ? reassembler.chatType : "N");
+                    failedMsg.setChatId(reassembler.chatId != null ? reassembler.chatId : "");
 
                     if (callback != null) {
                         callback.onTimeout(failedMsg);
@@ -243,9 +246,11 @@ public class MessageProcessor {
         String chatType = null;
         String chatId = null;
 
-        MessageReassembler(String senderId, String messageId) {
+        MessageReassembler(String senderId, String messageId, String chatType, String chatId) {
             this.senderId = senderId;
             this.messageId = messageId;
+            this.chatType = chatType;
+            this.chatId = chatId;
             this.creationTimestamp = System.currentTimeMillis();
         }
 
