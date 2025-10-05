@@ -51,7 +51,6 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
         holder.timestamp.setText(msg.getTimestamp());
 
         String displayMessage = msg.getMessage();
-
         holder.itemView.setBackgroundColor(Color.TRANSPARENT);
 
         if (msg.isSelf()) {
@@ -84,23 +83,14 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
                 holder.message.setText(displayMessage);
             }
         }
-
         if (holder.profilePic != null) {
             main.loadProfilePictureForAdapter(msg.getSenderId(), holder.profilePic);
             holder.profilePic.setOnClickListener(v -> main.openFriendChat(msg.getSenderId()));
         }
-
-        holder.timestamp.setOnClickListener(v -> {
-            long fullTimestamp = MessageHelper.reconstructFullTimestamp(msg.getMessageTimestampBits());
-            String formattedTime = MessageHelper.formatTimestamp(fullTimestamp);
-            Toast.makeText(context, "Sent at: " + formattedTime, Toast.LENGTH_LONG).show();
-        });
-
         holder.itemView.setOnLongClickListener(v -> {
             longClickListener.onClick(msg);
             return true;
         });
-
         holder.itemView.setOnClickListener(v -> clickListener.onClick(msg));
     }
 

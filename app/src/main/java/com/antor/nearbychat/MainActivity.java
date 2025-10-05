@@ -808,7 +808,6 @@ public class MainActivity extends BaseActivity {
             Toast.makeText(this, "Please wait, sending previous message...", Toast.LENGTH_SHORT).show();
             return;
         }
-
         String msg = inputMessage.getText().toString().trim();
         if (msg.isEmpty()) {
             Toast.makeText(this, "Message cannot be empty!", Toast.LENGTH_SHORT).show();
@@ -821,10 +820,14 @@ public class MainActivity extends BaseActivity {
         if (!validateBluetoothAndService()) {
             return;
         }
-
         if (isServiceBound && bleService != null) {
             bleService.sendMessage(msg, activeChatType, activeChatId);
             inputMessage.setText("");
+            recyclerView.post(() -> {
+                if (chatAdapter != null && chatAdapter.getItemCount() > 0) {
+                    recyclerView.smoothScrollToPosition(chatAdapter.getItemCount() - 1);
+                }
+            });
         } else {
             Toast.makeText(this, "Service not ready. Please try again.", Toast.LENGTH_SHORT).show();
         }
@@ -943,8 +946,21 @@ public class MainActivity extends BaseActivity {
     }
 
     private void onMessageLongClick(MessageModel msg) {
-        final List<String> options = new ArrayList<>(Arrays.asList("Copy", "Remove", "Retransmit"));
+        if (!msg.isComplete() && !msg.isFailed()) {
+            return;
+        }
+        final List<String> options;
 
+        if (msg.isFailed()) {
+            options = new ArrayList<>(Collections.singletonList("Remove"));
+        } else {
+            options = new ArrayList<>(Arrays.asList("Copy", "Remove"));
+            boolean shouldHideRetransmit = "F".equals(activeChatType) && !msg.isSelf();
+
+            if (!shouldHideRetransmit) {
+                options.add("Retransmit");
+            }
+        }
         new AlertDialog.Builder(this).setTitle("Message Options")
                 .setItems(options.toArray(new String[0]), (dialog, which) -> {
                     String selectedOption = options.get(which);
@@ -957,7 +973,7 @@ public class MainActivity extends BaseActivity {
                             break;
                         case "Retransmit":
                             if (validateBluetoothAndService()) {
-                                Toast.makeText(this, "Retransmiting...", Toast.LENGTH_SHORT).show();
+                                Toast.makeText(this, "Retransmitting...", Toast.LENGTH_SHORT).show();
                                 if (isServiceBound && bleService != null) {
                                     bleService.retransmitMessage(msg);
                                 }
@@ -976,37 +992,6 @@ public class MainActivity extends BaseActivity {
                 runOnUiThread(() -> Toast.makeText(this, "Error removing message", Toast.LENGTH_SHORT).show());
             }
         }).start();
-    }
-
-    private void requestMissingParts(MessageModel msg) {
-        if (!validateBluetoothAndService()) return;
-
-        List<Integer> missing = msg.getMissingChunks();
-        if (missing != null && !missing.isEmpty()) {
-            Toast.makeText(this, "Requesting " + missing.size() + " missing parts...", Toast.LENGTH_SHORT).show();
-            if (isServiceBound && bleService != null) {
-                bleService.sendMissingPartsRequest(msg.getSenderId(), msg.getMessageId(), missing);
-            }
-        } else {
-            Toast.makeText(this, "No missing parts information available.", Toast.LENGTH_SHORT).show();
-        }
-    }
-
-    private void resendMyMessage(MessageModel msg) {
-        if (!validateBluetoothAndService()) return;
-        Toast.makeText(this, "Resending...", Toast.LENGTH_SHORT).show();
-        if (isServiceBound && bleService != null) {
-            bleService.sendMessage(msg.getMessage(), msg.getChatType(), msg.getChatId());
-        }
-    }
-
-    private void forwardMessage(MessageModel msg) {
-        if (!validateBluetoothAndService()) return;
-        Toast.makeText(this, "Forwarding...", Toast.LENGTH_SHORT).show();
-        if (isServiceBound && bleService != null) {
-            String forwardMessageText = "[Forwarded from " + getDisplayName(msg.getSenderId()) + "]: " + msg.getMessage();
-            bleService.sendMessage(forwardMessageText, activeChatType, activeChatId);
-        }
     }
 
     private void copyMessageToClipboard(MessageModel msg) {
