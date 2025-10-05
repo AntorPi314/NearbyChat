@@ -25,11 +25,14 @@ public class MessageProcessor {
     private final Context context;
     private final ExecutorService processingExecutor;
     private final String myDisplayId;
+    private final String myAsciiId;
 
     public MessageProcessor(Context context, ExecutorService processingExecutor, String myDisplayId) {
         this.context = context;
         this.processingExecutor = processingExecutor;
         this.myDisplayId = myDisplayId;
+        this.myAsciiId = MessageHelper.timestampToAsciiId(MessageHelper.displayIdToTimestamp(myDisplayId));
+        Log.d(TAG, "MessageProcessor initialized with myDisplayId=" + myDisplayId + " myAsciiId=" + myAsciiId);
     }
 
     public MessageModel processIncomingData(byte[] data, String myDisplayId) {
@@ -47,6 +50,7 @@ public class MessageProcessor {
         String senderDisplayId = MessageHelper.timestampToDisplayId(senderIdBits);
 
         if (senderDisplayId.equals(myDisplayId)) {
+            Log.d(TAG, "Dropping my own message from " + senderDisplayId);
             return null;
         }
 
@@ -67,6 +71,8 @@ public class MessageProcessor {
             chatId = "";
             chunkData = new byte[data.length - offset];
             System.arraycopy(data, offset, chunkData, 0, chunkData.length);
+            Log.d(TAG, "Nearby message from " + senderDisplayId);
+
         } else if ("G".equals(chatType) || "F".equals(chatType)) {
 
             if (chunkIndex == 0) {
@@ -78,6 +84,18 @@ public class MessageProcessor {
                 offset += 5;
                 chunkData = new byte[data.length - offset];
                 System.arraycopy(data, offset, chunkData, 0, chunkData.length);
+
+                if ("F".equals(chatType)) {
+                    Log.d(TAG, "Friend first chunk: sender=" + senderDisplayId + " chatId(friendId)=" + chatId + " myAsciiId=" + myAsciiId);
+
+                    if (!chatId.equals(myAsciiId)) {
+                        Log.d(TAG, "❌ DROPPING Friend message - not for me! chatId=" + chatId + " != myAsciiId=" + myAsciiId);
+                        return null;
+                    }
+
+                    Log.d(TAG, "✓ Friend message IS for me! Converting chatId to senderAsciiId=" + senderAsciiId);
+                    chatId = senderAsciiId;
+                }
             } else {
                 chunkData = new byte[data.length - offset];
                 System.arraycopy(data, offset, chunkData, 0, chunkData.length);
@@ -86,17 +104,6 @@ public class MessageProcessor {
             Log.w(TAG, "Unknown chat type: " + chatType);
             return null;
         }
-
-        if ("F".equals(chatType) && chatId != null) {
-            String myAsciiId = MessageHelper.timestampToAsciiId(
-                    MessageHelper.displayIdToTimestamp(myDisplayId)
-            );
-            if (!chatId.equals(myAsciiId)) {
-                Log.d(TAG, "Friend message not for me. Expected: " + myAsciiId + ", Got: " + chatId);
-                return null;
-            }
-            chatId = senderAsciiId;
-        }
         if (totalChunks == 1) {
             String payload = new String(chunkData, StandardCharsets.UTF_8);
             return buildMessageModelFromPayload(payload, senderDisplayId, messageDisplayId,
@@ -104,21 +111,37 @@ public class MessageProcessor {
         }
         String reassemblerKey = senderDisplayId + "_" + messageDisplayId;
         MessageReassembler reassembler;
+
         synchronized (reassemblers) {
             reassembler = reassemblers.get(reassemblerKey);
+
             if (reassembler == null) {
                 reassembler = new MessageReassembler(senderDisplayId, messageDisplayId, chatType, chatId);
                 reassemblers.put(reassemblerKey, reassembler);
+
+                if ("F".equals(chatType) && chatId != null) {
+                    reassembler.isValidated = true;
+                    Log.d(TAG, "Friend chat reassembler created and validated");
+                }
             } else {
                 if (chatId != null && reassembler.chatId == null) {
                     reassembler.chatId = chatId;
+
+                    if ("F".equals(chatType)) {
+                        reassembler.isValidated = true;
+                        Log.d(TAG, "Friend chat reassembler now validated");
+                    }
                 }
+            }
+            if ("F".equals(chatType) && !reassembler.isValidated) {
+                Log.d(TAG, "❌ DROPPING Friend subsequent chunk - not validated yet");
+                reassemblers.remove(reassemblerKey);
+                return null;
             }
         }
         if (reassembler.hasChunk(chunkIndex)) {
             return null;
         }
-
         reassembler.addChunk(chunkIndex, totalChunks, chunkData);
 
         if (reassembler.isComplete()) {
@@ -128,7 +151,7 @@ public class MessageProcessor {
                 reassemblers.remove(reassemblerKey);
             }
             if (fullPayload != null) {
-                Log.d(TAG, "Message reassembled successfully: " + messageDisplayId);
+                Log.d(TAG, "✓ Message reassembled successfully: " + messageDisplayId);
                 return buildMessageModelFromPayload(fullPayload, senderDisplayId, messageDisplayId,
                         senderIdBits, messageIdBits, totalChunks, true, reassembler.chatType, reassembler.chatId);
             }
@@ -186,7 +209,7 @@ public class MessageProcessor {
         newMsg.setChatType(chatType);
         newMsg.setChatId(chatId != null ? chatId : "");
 
-        Log.d(TAG, "Successfully processed message from " + senderDisplayId + " for chatType=" + chatType + " chatId=" + newMsg.getChatId());
+        Log.d(TAG, "✓ Successfully processed message from " + senderDisplayId + " for chatType=" + chatType + " chatId=" + newMsg.getChatId());
         return newMsg;
     }
 
@@ -228,7 +251,6 @@ public class MessageProcessor {
                     if (callback != null) {
                         callback.onTimeout(failedMsg);
                     }
-
                     it.remove();
                 }
             }
@@ -245,6 +267,7 @@ public class MessageProcessor {
 
         String chatType = null;
         String chatId = null;
+        boolean isValidated = false;
 
         MessageReassembler(String senderId, String messageId, String chatType, String chatId) {
             this.senderId = senderId;
