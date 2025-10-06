@@ -112,6 +112,15 @@ public class MainActivity extends BaseActivity {
     private BluetoothAdapter bluetoothAdapter;
     private Handler mainHandler;
 
+    private LinearLayout titleContainer;
+    private LinearLayout searchOption;
+    private EditText inputSearch;
+    private ImageView searchIcon;
+    private ImageView closeSearchOptionIcon;
+    private boolean isSearchMode = false;
+    private androidx.lifecycle.LiveData<List<com.antor.nearbychat.Database.MessageEntity>> searchLiveData = null;
+
+
     private ImageView sendButton;
     private boolean isAdvertising = false;
 
@@ -190,6 +199,7 @@ public class MainActivity extends BaseActivity {
         inputMessage = findViewById(R.id.inputMessage);
         textStatus = findViewById(R.id.textStatus);
         setupMessageInput();
+        setupSearchUI();
 
         recyclerView = findViewById(R.id.chatRecyclerView);
         chatAdapter = new ChatAdapter(messageList, this, this::onMessageClick, this::onMessageLongClick);
@@ -219,6 +229,129 @@ public class MainActivity extends BaseActivity {
             }
         });
         updateChatUIForSelection();
+    }
+
+    private void setupSearchUI() {
+        titleContainer = findViewById(R.id.titleContainer);
+        searchOption = findViewById(R.id.searchOption);
+        inputSearch = findViewById(R.id.inputSearch);
+        searchIcon = findViewById(R.id.searchIcon);
+        closeSearchOptionIcon = findViewById(R.id.closeSearchOptionIcon);
+
+        searchOption.setVisibility(View.GONE);
+        LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) searchOption.getLayoutParams();
+        params.width = 0;
+        params.weight = 0;
+        searchOption.setLayoutParams(params);
+
+        titleContainer.setVisibility(View.VISIBLE);
+        searchIcon.setVisibility(View.VISIBLE);
+
+        searchIcon.setOnClickListener(v -> showSearchMode());
+        closeSearchOptionIcon.setOnClickListener(v -> hideSearchMode());
+
+        inputSearch.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {}
+
+            @Override
+            public void afterTextChanged(Editable s) {
+                performSearch(s.toString().trim());
+            }
+        });
+        inputSearch.setOnEditorActionListener((v, actionId, event) -> {
+            if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEND) {
+                performSearch(inputSearch.getText().toString().trim());
+                return true;
+            }
+            return false;
+        });
+    }
+
+    private void performSearch(String query) {
+        if (query.isEmpty()) {
+            if (searchLiveData != null) {
+                searchLiveData.removeObservers(this);
+                searchLiveData = null;
+            }
+            setupDatabase();
+            return;
+        }
+        if (searchLiveData != null) {
+            searchLiveData.removeObservers(this);
+        }
+        searchLiveData = messageDao.searchMessages(query);
+        searchLiveData.observe(this, messages -> {
+            if (messages != null) {
+                messageList.clear();
+
+                for (com.antor.nearbychat.Database.MessageEntity entity : messages) {
+                    if (entity.chatType != null && entity.chatType.equals(activeChatType) &&
+                            entity.chatId != null && entity.chatId.equals(activeChatId)) {
+                        messageList.add(entity.toMessageModel());
+                    }
+                }
+                chatAdapter.notifyDataSetChanged();
+
+                if (messageList.isEmpty()) {
+                    textStatus.setText("No messages found for \"" + query + "\"");
+                    textStatus.setVisibility(View.VISIBLE);
+                    recyclerView.setVisibility(View.GONE);
+                } else {
+                    textStatus.setVisibility(View.GONE);
+                    recyclerView.setVisibility(View.VISIBLE);
+                }
+            }
+        });
+    }
+
+    private void showSearchMode() {
+        isSearchMode = true;
+
+        titleContainer.setVisibility(View.GONE);
+        searchIcon.setVisibility(View.GONE);
+
+        searchOption.setVisibility(View.VISIBLE);
+        LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) searchOption.getLayoutParams();
+        params.width = 0;
+        params.weight = 1;
+        searchOption.setLayoutParams(params);
+
+        inputSearch.requestFocus();
+        android.view.inputmethod.InputMethodManager imm =
+                (android.view.inputmethod.InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (imm != null) {
+            imm.showSoftInput(inputSearch, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
+        }
+    }
+
+    private void hideSearchMode() {
+        isSearchMode = false;
+
+        searchOption.setVisibility(View.GONE);
+        LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) searchOption.getLayoutParams();
+        params.width = 0;
+        params.weight = 0;
+        searchOption.setLayoutParams(params);
+
+        titleContainer.setVisibility(View.VISIBLE);
+        searchIcon.setVisibility(View.VISIBLE);
+
+        inputSearch.setText("");
+
+        android.view.inputmethod.InputMethodManager imm =
+                (android.view.inputmethod.InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (imm != null) {
+            imm.hideSoftInputFromWindow(inputSearch.getWindowToken(), 0);
+        }
+        if (searchLiveData != null) {
+            searchLiveData.removeObservers(this);
+            searchLiveData = null;
+        }
+        setupDatabase();
     }
 
     private void setupAppIconClick() {
@@ -1160,6 +1293,10 @@ public class MainActivity extends BaseActivity {
 
     @Override
     public void onBackPressed() {
+        if (isSearchMode) {
+            hideSearchMode();
+            return;
+        }
         if (!"N".equals(activeChatType)) {
             activeChatType = "N";
             activeChatId = "";

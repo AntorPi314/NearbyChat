@@ -10,36 +10,35 @@
         android:layout_height="wrap_content"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:padding="16dp">
-
-        <ImageView
-            android:id="@+id/btnBack"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
-            android:padding="4dp"
-            android:src="@drawable/ic_arrow_back" />
+        android:padding="12dp"
+        android:paddingStart="16dp">
 
         <EditText
             android:id="@+id/searchBar"
             android:layout_width="0dp"
-            android:layout_height="40dp"
-            android:layout_marginStart="8dp"
+            android:layout_height="45dp"
+            android:layout_marginStart="0dp"
             android:layout_marginEnd="8dp"
             android:layout_weight="1"
+            android:gravity="center|left"
             android:background="@drawable/rounded_edittext"
             android:hint="Search"
+            android:inputType="textNoSuggestions"
+            android:singleLine="true"
             android:paddingStart="16dp"
-            android:paddingEnd="16dp"
+            android:paddingEnd="18dp"
             android:textColor="#000000"
             android:textColorHint="#857C7C" />
 
         <ImageView
             android:id="@+id/btnAdd"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal|center_vertical"
             android:padding="4dp"
-            android:src="@drawable/ic_add"
-            android:tint="#4B4444" />
+            android:scaleType="centerInside"
+            android:src="@drawable/add2"
+            android:tint="#0D80E0" />
     </LinearLayout>
 
     <androidx.recyclerview.widget.RecyclerView

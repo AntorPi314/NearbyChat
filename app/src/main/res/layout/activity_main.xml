@@ -19,9 +19,9 @@
         android:clipToOutline="false"
         android:gravity="center_vertical|center_horizontal"
         android:orientation="horizontal"
-        android:paddingStart="14dp"
+        android:paddingStart="12dp"
         android:paddingTop="4dp"
-        android:paddingEnd="16dp"
+        android:paddingEnd="4dp"
         android:paddingBottom="8dp"
         android:translationZ="2dp">
 
@@ -29,7 +29,7 @@
             android:id="@+id/appIcon"
             android:layout_width="40dp"
             android:layout_height="40dp"
-            android:layout_marginEnd="12dp"
+            android:layout_marginEnd="8dp"
             android:background="@drawable/circle_bg"
             android:padding="0dp"
             android:scaleType="centerInside"
@@ -49,7 +49,7 @@
                 android:layout_height="wrap_content"
                 android:layout_gravity="center"
                 android:ellipsize="end"
-                android:maxLength="17"
+                android:maxLength="19"
                 android:paddingTop="6dp"
                 android:paddingBottom="6dp"
                 android:singleLine="true"
@@ -97,35 +97,72 @@
 
         </LinearLayout>
 
+        <LinearLayout
+            android:id="@+id/searchOption"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:orientation="horizontal"
+            android:gravity="start|center"
+            android:paddingStart="6dp"
+            android:paddingEnd="0dp"
+            android:background="@drawable/rounded_edittext">
+
+            <EditText
+                android:id="@+id/inputSearch"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="0dp"
+                android:layout_marginRight="0dp"
+                android:layout_marginBottom="0dp"
+                android:layout_weight="1"
+                android:background="@drawable/rounded_edittext"
+                android:gravity="start|center"
+                android:hint="Search"
+                android:imeOptions="actionSend"
+                android:inputType="textNoSuggestions"
+                android:singleLine="true"
+                android:maxLines="4"
+                android:minLines="1"
+                android:textColor="#000000"
+                android:textSize="15sp" />
+
+            <ImageView
+                android:id="@+id/closeSearchOptionIcon"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:src="@drawable/close"
+                android:padding="6dp"
+                android:paddingStart="4dp"
+                android:paddingEnd="16dp"
+                android:scaleType="centerInside"/>
+        </LinearLayout>
+
         <ImageView
             android:id="@+id/searchIcon"
-            android:layout_width="25dp"
-            android:layout_height="40dp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
             android:layout_gravity="center_vertical|center_horizontal"
-            android:layout_marginStart="12dp"
-            android:padding="0dp"
+            android:padding="8dp"
             android:scaleType="centerInside"
             android:src="@drawable/search"
             android:tint="#8E7E7E" />
 
         <ImageView
             android:id="@+id/discoverIcon"
-            android:layout_width="25dp"
-            android:layout_height="40dp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
             android:layout_gravity="center_horizontal|center_vertical"
-            android:layout_marginStart="12dp"
-            android:padding="0dp"
+            android:padding="8dp"
             android:scaleType="centerInside"
-            android:src="@drawable/discover"
+            android:src="@drawable/feed"
             android:tint="#0D80E0" />
 
         <ImageView
             android:id="@+id/threeDotIcon"
-            android:layout_width="25dp"
-            android:layout_height="40dp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
             android:layout_gravity="center_vertical|center_horizontal"
-            android:layout_marginStart="12dp"
-            android:padding="0dp"
+            android:padding="8dp"
             android:scaleType="centerInside"
             android:src="@drawable/dot3"
             android:tint="#8E7E7E" />

@@ -77,10 +77,8 @@ public class GroupsFriendsActivity extends Activity {
     private void setupUI() {
         searchBar = findViewById(R.id.searchBar);
         recyclerView = findViewById(R.id.recyclerView);
-        btnBack = findViewById(R.id.btnBack);
         btnAdd = findViewById(R.id.btnAdd);
 
-        btnBack.setOnClickListener(v -> finish());
         btnAdd.setOnClickListener(v -> showAddDialog());
 
         searchBar.addTextChangedListener(new TextWatcher() {
