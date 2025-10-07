@@ -208,14 +208,33 @@ public class GroupsFriendsActivity extends Activity {
     }
 
     private String getLastMessageTime(com.antor.nearbychat.Database.MessageEntity lastMsg) {
-        if (lastMsg != null) {
-            long time = lastMsg.timestampMillis, now = System.currentTimeMillis(), diff = now - time;
-            if (diff < 24 * 60 * 60 * 1000) return new java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault()).format(new java.util.Date(time));
-            if (diff < 7 * 24 * 60 * 60 * 1000) return new java.text.SimpleDateFormat("EEE", java.util.Locale.getDefault()).format(new java.util.Date(time));
-            if (diff < 365L * 24 * 60 * 60 * 1000L) return new java.text.SimpleDateFormat("MMM dd", java.util.Locale.getDefault()).format(new java.util.Date(time));
-            return new java.text.SimpleDateFormat("dd.MM.yy", java.util.Locale.getDefault()).format(new java.util.Date(time));
+        if (lastMsg == null) {
+            return "";
         }
-        return "";
+        long messageTimestamp = lastMsg.timestampMillis;
+
+        java.util.Calendar messageCal = java.util.Calendar.getInstance();
+        messageCal.setTimeInMillis(messageTimestamp);
+
+        java.util.Calendar nowCal = java.util.Calendar.getInstance();
+
+        if (nowCal.get(java.util.Calendar.YEAR) == messageCal.get(java.util.Calendar.YEAR) &&
+                nowCal.get(java.util.Calendar.DAY_OF_YEAR) == messageCal.get(java.util.Calendar.DAY_OF_YEAR)) {
+            return new java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault()).format(new java.util.Date(messageTimestamp));
+        }
+        nowCal.add(java.util.Calendar.DAY_OF_YEAR, -1);
+        if (nowCal.get(java.util.Calendar.YEAR) == messageCal.get(java.util.Calendar.YEAR) &&
+                nowCal.get(java.util.Calendar.DAY_OF_YEAR) == messageCal.get(java.util.Calendar.DAY_OF_YEAR)) {
+            return "Yesterday";
+        }
+        long diff = System.currentTimeMillis() - messageTimestamp;
+        if (diff < 7 * 24 * 60 * 60 * 1000) {
+            return new java.text.SimpleDateFormat("EEE", java.util.Locale.getDefault()).format(new java.util.Date(messageTimestamp));
+        }
+        if (java.util.Calendar.getInstance().get(java.util.Calendar.YEAR) == messageCal.get(java.util.Calendar.YEAR)) {
+            return new java.text.SimpleDateFormat("MMM dd", java.util.Locale.getDefault()).format(new java.util.Date(messageTimestamp));
+        }
+        return new java.text.SimpleDateFormat("dd.MM.yy", java.util.Locale.getDefault()).format(new java.util.Date(messageTimestamp));
     }
 
     private void onChatClick(ChatItem chat) {

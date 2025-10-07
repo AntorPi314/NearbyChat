@@ -194,7 +194,7 @@
         android:background="#FFFFFF"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:padding="8dp">
+        android:padding="4dp">
 
         <TextView
             android:id="@+id/txtStats"
