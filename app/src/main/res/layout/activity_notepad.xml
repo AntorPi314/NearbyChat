@@ -1,11 +1,287 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/main"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="#FFFFFF"
     android:orientation="vertical"
     tools:context=".NotepadActivity">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@drawable/bg_white_round_bottom"
+        android:elevation="4dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:padding="4dp">
+
+        <ImageView
+            android:id="@+id/btnBack"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:padding="8dp"
+            android:src="@drawable/ic_arrow_back"
+            android:tint="#756A6A" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Notepad"
+            android:textColor="#756A6A"
+            android:textSize="20sp"
+            android:textStyle="bold" />
+
+        <ImageView
+            android:id="@+id/btnUndo"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:alpha="0.3"
+            android:padding="8dp"
+            android:src="@drawable/undo"
+            android:tint="#756A6A" />
+
+        <ImageView
+            android:id="@+id/btnRedo"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:alpha="0.3"
+            android:padding="8dp"
+            android:src="@drawable/redo"
+            android:tint="#756A6A" />
+
+        <ImageView
+            android:id="@+id/btnFind"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:padding="8dp"
+            android:src="@drawable/search"
+            android:tint="#756A6A" />
+
+        <ImageView
+            android:id="@+id/btnSave"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:padding="8dp"
+            android:src="@drawable/saved_file"
+            android:tint="#0D80E0" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/findReplaceBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#FFFFFF"
+        android:elevation="2dp"
+        android:orientation="vertical"
+        android:padding="8dp"
+        android:visibility="gone">
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <EditText
+                android:id="@+id/editFind"
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_weight="1"
+                android:background="@drawable/rounded_edittext"
+                android:hint="Find..."
+                android:imeOptions="actionSearch"
+                android:inputType="text"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:singleLine="true"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/txtFindCount"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:text="0/0"
+                android:textColor="#888888"
+                android:textSize="12sp" />
+
+            <ImageView
+                android:id="@+id/btnPrevMatch"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:padding="6dp"
+                android:src="@drawable/up_arrow"
+                android:tint="#756A6A" />
+
+            <ImageView
+                android:id="@+id/btnNextMatch"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:padding="6dp"
+                android:src="@drawable/down_arrow"
+                android:tint="#756A6A" />
+
+            <ImageView
+                android:id="@+id/btnCloseFindBar"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:padding="6dp"
+                android:src="@drawable/close"
+                android:tint="#756A6A" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/replaceContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:visibility="gone">
+
+            <EditText
+                android:id="@+id/editReplace"
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_weight="1"
+                android:background="@drawable/rounded_edittext"
+                android:hint="Replace with..."
+                android:imeOptions="actionDone"
+                android:inputType="text"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:singleLine="true"
+                android:textSize="14sp" />
+
+            <Button
+                android:id="@+id/btnReplace"
+                android:layout_width="80dp"
+                android:layout_height="32dp"
+                android:layout_marginStart="4dp"
+                android:background="@drawable/rounded_edittext"
+                android:text="Replace"
+                android:textAllCaps="false"
+                android:textSize="12sp" />
+
+            <Button
+                android:id="@+id/btnReplaceAll"
+                android:layout_width="60dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="4dp"
+                android:background="@drawable/rounded_edittext"
+                android:text="All"
+                android:textAllCaps="false"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/btnShowReplace"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:padding="4dp"
+            android:text="▼ Show Replace"
+            android:textColor="#0D80E0"
+            android:textSize="12sp" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#FFFFFF"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:padding="8dp">
+
+        <TextView
+            android:id="@+id/txtStats"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Lines: 0 | Words: 0 | Chars: 0"
+            android:textColor="#888888"
+            android:textSize="11sp" />
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
+
+        <TextView
+            android:id="@+id/txtAutoSave"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Auto-saved"
+            android:textColor="#4CAF50"
+            android:textSize="11sp"
+            android:visibility="invisible" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="horizontal">
+
+        <ScrollView
+            android:id="@+id/lineNumberScroll"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:background="#F0F0F0"
+            android:scrollbars="none">
+
+            <TextView
+                android:id="@+id/txtLineNumbers"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:gravity="end"
+                android:lineSpacingExtra="2dp"
+                android:paddingStart="8dp"
+                android:paddingTop="8dp"
+                android:paddingEnd="8dp"
+                android:paddingBottom="8dp"
+                android:text="1"
+                android:textColor="#999999"
+                android:textSize="14sp" />
+        </ScrollView>
+
+        <View
+            android:layout_width="1dp"
+            android:layout_height="match_parent"
+            android:background="#DDDDDD" />
+
+        <HorizontalScrollView
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1">
+
+            <ScrollView
+                android:id="@+id/editorScroll"
+                android:layout_width="2000dp"
+                android:layout_height="match_parent">
+
+                <EditText
+                    android:id="@+id/editNotepad"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:background="@android:color/white"
+                    android:fontFamily="monospace"
+                    android:gravity="start|top"
+                    android:hint="Start typing..."
+                    android:inputType="textMultiLine|textNoSuggestions"
+                    android:lineSpacingExtra="2dp"
+                    android:paddingStart="12dp"
+                    android:paddingTop="8dp"
+                    android:paddingEnd="12dp"
+                    android:paddingBottom="8dp"
+                    android:textColor="#000000"
+                    android:textColorHint="#CCCCCC"
+                    android:textSize="14sp" />
+            </ScrollView>
+        </HorizontalScrollView>
+    </LinearLayout>
 
 </LinearLayout>
