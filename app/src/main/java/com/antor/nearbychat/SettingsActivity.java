@@ -55,6 +55,11 @@ public class SettingsActivity extends BaseActivity {
         settingInputs.put("MAX_RECENT_CHUNKS", findViewById(R.id.editMaxRecentChunks));
         settingInputs.put("MAX_MESSAGE_SAVED", findViewById(R.id.editMaxMessagesSaved));
 
+        settingInputs.put("BROADCAST_ROUNDS", findViewById(R.id.editBroadcastRounds));
+        settingInputs.put("SCAN_MODE", findViewById(R.id.editScanMode));
+        settingInputs.put("ADVERTISE_MODE", findViewById(R.id.editAdvertiseMode));
+        settingInputs.put("TX_POWER_LEVEL", findViewById(R.id.editTxPowerLevel));
+
         Button saveButton = findViewById(R.id.saveAndRestartButton);
         saveButton.setOnClickListener(v -> saveSettingsAndRestart());
 
@@ -102,13 +107,18 @@ public class SettingsActivity extends BaseActivity {
     private void loadSettings() {
         Map<String, Integer> defaultValues = new HashMap<>();
         defaultValues.put("MAX_PAYLOAD_SIZE", 27);
-        defaultValues.put("ADVERTISING_DURATION_MS", 1500);
+        defaultValues.put("ADVERTISING_DURATION_MS", 1200);
         defaultValues.put("DELAY_BETWEEN_CHUNKS_MS", 1000);
-        defaultValues.put("CHUNK_TIMEOUT_MS", 120000);
-        defaultValues.put("CHUNK_CLEANUP_INTERVAL_MS", 15000);
+        defaultValues.put("CHUNK_TIMEOUT_MS", 300000);
+        defaultValues.put("CHUNK_CLEANUP_INTERVAL_MS", 60000);
         defaultValues.put("MAX_RECENT_MESSAGES", 1000);
         defaultValues.put("MAX_RECENT_CHUNKS", 2000);
         defaultValues.put("MAX_MESSAGE_SAVED", 2000);
+
+        defaultValues.put("BROADCAST_ROUNDS", 3);
+        defaultValues.put("SCAN_MODE", 2);
+        defaultValues.put("ADVERTISE_MODE", 2);
+        defaultValues.put("TX_POWER_LEVEL", 3);
 
         for (Map.Entry<String, EditText> entry : settingInputs.entrySet()) {
             String key = entry.getKey();
@@ -158,6 +168,29 @@ public class SettingsActivity extends BaseActivity {
                             break;
                         }
                     }
+                    if (key.equals("BROADCAST_ROUNDS")) {
+                        if (value < 1) {
+                            Toast.makeText(this, "Broadcast Rounds must be at least 1", Toast.LENGTH_SHORT).show();
+                            hasError = true;
+                            break;
+                        }
+                    }
+
+                    if (key.equals("SCAN_MODE") || key.equals("ADVERTISE_MODE")) {
+                        if (value < 0 || value > 2) {
+                            Toast.makeText(this, key + " must be between 0-2", Toast.LENGTH_SHORT).show();
+                            hasError = true;
+                            break;
+                        }
+                    }
+
+                    if (key.equals("TX_POWER_LEVEL")) {
+                        if (value < 0 || value > 3) {
+                            Toast.makeText(this, "TX Power Level must be between 0-3", Toast.LENGTH_SHORT).show();
+                            hasError = true;
+                            break;
+                        }
+                    }
                     if (key.contains("MS") && value < MIN_MS_VALUE) {
                         Toast.makeText(this, "Time values must be at least " + MIN_MS_VALUE + "ms", Toast.LENGTH_SHORT).show();
                         hasError = true;
@@ -182,13 +215,18 @@ public class SettingsActivity extends BaseActivity {
     private void resetToDefaults() {
         uuidEditablePart.setText("aaaa");
         settingInputs.get("MAX_PAYLOAD_SIZE").setText("27");
-        settingInputs.get("ADVERTISING_DURATION_MS").setText("1500");
+        settingInputs.get("ADVERTISING_DURATION_MS").setText("1200");
         settingInputs.get("DELAY_BETWEEN_CHUNKS_MS").setText("1000");
-        settingInputs.get("CHUNK_TIMEOUT_MS").setText("120000");
-        settingInputs.get("CHUNK_CLEANUP_INTERVAL_MS").setText("15000");
+        settingInputs.get("CHUNK_TIMEOUT_MS").setText("300000");
+        settingInputs.get("CHUNK_CLEANUP_INTERVAL_MS").setText("60000");
         settingInputs.get("MAX_RECENT_MESSAGES").setText("1000");
         settingInputs.get("MAX_RECENT_CHUNKS").setText("2000");
         settingInputs.get("MAX_MESSAGE_SAVED").setText("2000");
+
+        settingInputs.get("BROADCAST_ROUNDS").setText("3");
+        settingInputs.get("SCAN_MODE").setText("2");
+        settingInputs.get("ADVERTISE_MODE").setText("2");
+        settingInputs.get("TX_POWER_LEVEL").setText("3");
 
         Toast.makeText(this, "Defaults restored. Saving and restarting...", Toast.LENGTH_SHORT).show();
         new Handler().postDelayed(this::saveSettingsAndRestart, 500);

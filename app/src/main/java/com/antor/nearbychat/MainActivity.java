@@ -9,6 +9,7 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.util.Base64;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.content.ServiceConnection;
 import android.content.SharedPreferences;
@@ -39,6 +40,7 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageView;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -122,6 +124,9 @@ public class MainActivity extends BaseActivity {
 
 
     private ImageView sendButton;
+    private ProgressBar sendProgressBar;
+    private FrameLayout loadingContainer;
+    private FrameLayout sendButtonContainer;
     private boolean isAdvertising = false;
 
     private boolean isKeyboardVisible = false;
@@ -138,9 +143,8 @@ public class MainActivity extends BaseActivity {
                 public void onAdvertisingStarted() {
                     runOnUiThread(() -> {
                         isAdvertising = true;
-                        sendButton.setEnabled(false);
-                        sendButton.setColorFilter(Color.GRAY);
-                        sendButton.setAlpha(0.5f);
+                        sendButton.setVisibility(View.GONE);
+                        loadingContainer.setVisibility(View.VISIBLE);
                     });
                 }
 
@@ -148,9 +152,8 @@ public class MainActivity extends BaseActivity {
                 public void onAdvertisingCompleted() {
                     runOnUiThread(() -> {
                         isAdvertising = false;
-                        sendButton.setEnabled(true);
-                        sendButton.setColorFilter(null);
-                        sendButton.setAlpha(1.0f);
+                        sendButton.setVisibility(View.VISIBLE);
+                        loadingContainer.setVisibility(View.GONE);
                     });
                 }
             });
@@ -182,6 +185,7 @@ public class MainActivity extends BaseActivity {
         checkBatteryOptimization();
         checkPermissionsAndStartService();
     }
+
     private void setupUI() {
         final View rootView = findViewById(android.R.id.content);
         rootView.getViewTreeObserver().addOnGlobalLayoutListener(() -> {
@@ -211,7 +215,13 @@ public class MainActivity extends BaseActivity {
         unseenMsgCountView = findViewById(R.id.unseenMsg);
         unseenMsgCountView.setVisibility(View.GONE);
 
-        findViewById(R.id.sendButton).setOnClickListener(this::onSendButtonClick);
+        sendButton = findViewById(R.id.sendButton);
+        loadingContainer = findViewById(R.id.loadingContainer);
+        sendProgressBar = findViewById(R.id.sendProgressBar);
+        sendButtonContainer = findViewById(R.id.sendButtonContainer);
+
+        sendButtonContainer.setOnClickListener(this::onSendButtonClick);
+
         setupAppIconClick();
 
         LinearLayout titleContainer = findViewById(R.id.titleContainer);
@@ -938,9 +948,15 @@ public class MainActivity extends BaseActivity {
 
     private void onSendButtonClick(View v) {
         if (isAdvertising) {
-            Toast.makeText(this, "Please wait, sending previous message...", Toast.LENGTH_SHORT).show();
+            if (bleService != null && isServiceBound) {
+                bleService.cancelAdvertising();
+                isAdvertising = false;
+                sendButton.setVisibility(View.VISIBLE);
+                loadingContainer.setVisibility(View.GONE);
+            }
             return;
         }
+
         String msg = inputMessage.getText().toString().trim();
         if (msg.isEmpty()) {
             Toast.makeText(this, "Message cannot be empty!", Toast.LENGTH_SHORT).show();

@@ -71,11 +71,14 @@ public class BleMessagingService extends Service {
     private static UUID SERVICE_UUID = UUID.fromString("0000aaaa-0000-1000-8000-00805f9b34fb");
 
     private static int MAX_PAYLOAD_SIZE = 27;
-    private static int ADVERTISING_DURATION_MS = 1500;
-    private static int CHUNK_TIMEOUT_MS = 120000;
-    private static int CHUNK_CLEANUP_INTERVAL_MS = 15000;
+    private static int ADVERTISING_DURATION_MS = 1200;
+    private static int CHUNK_TIMEOUT_MS = 300000;
+    private static int CHUNK_CLEANUP_INTERVAL_MS = 60000;
     private static int MAX_MESSAGE_SAVED = 2000;
-    private static int BROADCAST_ROUNDS = 2;
+    private static int BROADCAST_ROUNDS = 3;
+    private static int SCAN_MODE = 2; // 0=LOW_POWER, 1=BALANCED, 2=LOW_LATENCY
+    private static int ADVERTISE_MODE = 2; // 0=LOW_POWER, 1=BALANCED, 2=LOW_LATENCY
+    private static int TX_POWER_LEVEL = 3; // 0=ULTRA_LOW, 1=LOW, 2=MEDIUM, 3=HIGH
 
     private static final String REQUEST_MARKER = "??";
     private static final int MAX_MISSING_CHUNKS = 30;
@@ -209,16 +212,34 @@ public class BleMessagingService extends Service {
             SharedPreferences prefs = getSharedPreferences("NearbyChatSettings", MODE_PRIVATE);
             MAX_PAYLOAD_SIZE = prefs.getInt("MAX_PAYLOAD_SIZE", 27);
             if (MAX_PAYLOAD_SIZE < 20) MAX_PAYLOAD_SIZE = 20;
+
             String serviceUuidString = prefs.getString("SERVICE_UUID", "0000aaaa-0000-1000-8000-00805f9b34fb");
             try {
                 SERVICE_UUID = UUID.fromString(serviceUuidString);
             } catch (IllegalArgumentException e) {
                 SERVICE_UUID = UUID.fromString("0000aaaa-0000-1000-8000-00805f9b34fb");
             }
-            ADVERTISING_DURATION_MS = prefs.getInt("ADVERTISING_DURATION_MS", 1500);
-            CHUNK_TIMEOUT_MS = prefs.getInt("CHUNK_TIMEOUT_MS", 120000);
-            CHUNK_CLEANUP_INTERVAL_MS = prefs.getInt("CHUNK_CLEANUP_INTERVAL_MS", 15000);
+
+            ADVERTISING_DURATION_MS = prefs.getInt("ADVERTISING_DURATION_MS", 1200);
+            CHUNK_TIMEOUT_MS = prefs.getInt("CHUNK_TIMEOUT_MS", 300000);
+            CHUNK_CLEANUP_INTERVAL_MS = prefs.getInt("CHUNK_CLEANUP_INTERVAL_MS", 60000);
             MAX_MESSAGE_SAVED = prefs.getInt("MAX_MESSAGE_SAVED", 2000);
+
+            BROADCAST_ROUNDS = prefs.getInt("BROADCAST_ROUNDS", 3);
+            if (BROADCAST_ROUNDS < 1) BROADCAST_ROUNDS = 1;
+
+            SCAN_MODE = prefs.getInt("SCAN_MODE", 2);
+            if (SCAN_MODE < 0) SCAN_MODE = 0;
+            if (SCAN_MODE > 2) SCAN_MODE = 2;
+
+            ADVERTISE_MODE = prefs.getInt("ADVERTISE_MODE", 2);
+            if (ADVERTISE_MODE < 0) ADVERTISE_MODE = 0;
+            if (ADVERTISE_MODE > 2) ADVERTISE_MODE = 2;
+
+            TX_POWER_LEVEL = prefs.getInt("TX_POWER_LEVEL", 3);
+            if (TX_POWER_LEVEL < 0) TX_POWER_LEVEL = 0;
+            if (TX_POWER_LEVEL > 3) TX_POWER_LEVEL = 3;
+
         } catch (Exception e) {
             Log.e(TAG, "Error loading settings", e);
         }
@@ -309,6 +330,20 @@ public class BleMessagingService extends Service {
         }
     }
 
+    public void cancelAdvertising() {
+        stopAdvertising();
+        mainHandler.removeCallbacksAndMessages(null);
+
+        if (advertisingListener != null) {
+            mainHandler.post(() -> advertisingListener.onAdvertisingCompleted());
+        }
+        currentSendingMessageId = null;
+        failedChunksCount = 0;
+        totalChunksToSend = 0;
+
+        Log.d(TAG, "Advertising cancelled by user");
+    }
+
     private void startBleCycle() {
         if (isCycleRunning || bleExecutor.isShutdown()) return;
         isCycleRunning = true;
@@ -342,12 +377,29 @@ public class BleMessagingService extends Service {
         try {
             if (!hasRequiredPermissions()) return;
             stopAdvertising();
+
+            int advertiseMode;
+            switch (ADVERTISE_MODE) {
+                case 0: advertiseMode = AdvertiseSettings.ADVERTISE_MODE_LOW_POWER; break;
+                case 1: advertiseMode = AdvertiseSettings.ADVERTISE_MODE_BALANCED; break;
+                case 2:
+                default: advertiseMode = AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY; break;
+            }
+            int txPowerLevel;
+            switch (TX_POWER_LEVEL) {
+                case 0: txPowerLevel = AdvertiseSettings.ADVERTISE_TX_POWER_ULTRA_LOW; break;
+                case 1: txPowerLevel = AdvertiseSettings.ADVERTISE_TX_POWER_LOW; break;
+                case 2: txPowerLevel = AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM; break;
+                case 3:
+                default: txPowerLevel = AdvertiseSettings.ADVERTISE_TX_POWER_HIGH; break;
+            }
             AdvertiseSettings settings = new AdvertiseSettings.Builder()
-                    .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
-                    .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
+                    .setAdvertiseMode(advertiseMode)
+                    .setTxPowerLevel(txPowerLevel)
                     .setConnectable(false)
                     .setTimeout(0)
                     .build();
+
             AdvertiseData data = new AdvertiseData.Builder()
                     .addServiceData(new ParcelUuid(SERVICE_UUID), payload)
                     .build();
@@ -363,7 +415,6 @@ public class BleMessagingService extends Service {
                         Log.d(TAG, "Advertise completed");
                     }, ADVERTISING_DURATION_MS);
                 }
-
                 @Override
                 public void onStartFailure(int errorCode) {
                     isAdvertising = false;
@@ -397,9 +448,17 @@ public class BleMessagingService extends Service {
     private void startScanningInternal() {
         if (scanner == null || isScanning) return;
         try {
+            int scanMode;
+            switch (SCAN_MODE) {
+                case 0: scanMode = ScanSettings.SCAN_MODE_LOW_POWER; break;
+                case 1: scanMode = ScanSettings.SCAN_MODE_BALANCED; break;
+                case 2:
+                default: scanMode = ScanSettings.SCAN_MODE_LOW_LATENCY; break;
+            }
             ScanSettings settings = new ScanSettings.Builder()
-                    .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+                    .setScanMode(scanMode)
                     .build();
+
             List<ScanFilter> filters = Collections.singletonList(
                     new ScanFilter.Builder()
                             .setServiceData(new ParcelUuid(SERVICE_UUID), new byte[0], new byte[0])

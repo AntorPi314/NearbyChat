@@ -240,11 +240,36 @@
             android:textColor="#000000"
             android:textSize="15sp" />
 
-        <ImageView
-            android:id="@+id/sendButton"
+        <FrameLayout
+            android:id="@+id/sendButtonContainer"
             android:layout_width="40dp"
-            android:layout_height="wrap_content"
-            android:src="@drawable/sent" />
+            android:layout_height="40dp">
+
+            <ImageView
+                android:id="@+id/sendButton"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@drawable/sent" />
+
+            <FrameLayout
+                android:id="@+id/loadingContainer"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:visibility="gone">
+
+                <ImageView
+                    android:layout_width="16dp"
+                    android:layout_height="16dp"
+                    android:layout_gravity="center"
+                    android:background="@drawable/loading_with_square" />
+
+                <ProgressBar
+                    android:id="@+id/sendProgressBar"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:indeterminateTint="#0D80E0" />
+            </FrameLayout>
+        </FrameLayout>
 
     </LinearLayout>
 
