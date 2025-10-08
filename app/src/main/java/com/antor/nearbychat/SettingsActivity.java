@@ -107,7 +107,7 @@ public class SettingsActivity extends BaseActivity {
     private void loadSettings() {
         Map<String, Integer> defaultValues = new HashMap<>();
         defaultValues.put("MAX_PAYLOAD_SIZE", 27);
-        defaultValues.put("ADVERTISING_DURATION_MS", 1200);
+        defaultValues.put("ADVERTISING_DURATION_MS", 900);
         defaultValues.put("DELAY_BETWEEN_CHUNKS_MS", 1000);
         defaultValues.put("CHUNK_TIMEOUT_MS", 300000);
         defaultValues.put("CHUNK_CLEANUP_INTERVAL_MS", 60000);
@@ -215,7 +215,7 @@ public class SettingsActivity extends BaseActivity {
     private void resetToDefaults() {
         uuidEditablePart.setText("aaaa");
         settingInputs.get("MAX_PAYLOAD_SIZE").setText("27");
-        settingInputs.get("ADVERTISING_DURATION_MS").setText("1200");
+        settingInputs.get("ADVERTISING_DURATION_MS").setText("900");
         settingInputs.get("DELAY_BETWEEN_CHUNKS_MS").setText("1000");
         settingInputs.get("CHUNK_TIMEOUT_MS").setText("300000");
         settingInputs.get("CHUNK_CLEANUP_INTERVAL_MS").setText("60000");

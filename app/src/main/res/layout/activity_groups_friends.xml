@@ -31,6 +31,18 @@
             android:textColorHint="#857C7C" />
 
         <ImageView
+            android:id="@+id/qrCodeScanner"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal|center_vertical"
+            android:padding="4dp"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:scaleType="centerInside"
+            android:src="@drawable/qr_scanner"
+            android:tint="#4D4F52" />
+
+        <ImageView
             android:id="@+id/btnAdd"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

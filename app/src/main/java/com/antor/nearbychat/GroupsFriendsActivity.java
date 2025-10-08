@@ -51,7 +51,7 @@ public class GroupsFriendsActivity extends Activity {
     private String activeChatId = "";
 
     private RecyclerView recyclerView;
-    private ImageView btnBack, btnAdd;
+    private ImageView btnAdd, btnQrScanner;
 
     private List<GroupModel> groupsList = new ArrayList<>();
     private List<FriendModel> friendsList = new ArrayList<>();
@@ -78,17 +78,36 @@ public class GroupsFriendsActivity extends Activity {
         searchBar = findViewById(R.id.searchBar);
         recyclerView = findViewById(R.id.recyclerView);
         btnAdd = findViewById(R.id.btnAdd);
+        btnQrScanner = findViewById(R.id.qrCodeScanner);
 
         btnAdd.setOnClickListener(v -> showAddDialog());
+        btnQrScanner.setOnClickListener(v -> {
+            Intent intent = new Intent(this, QRScannerActivity.class);
+            startActivity(intent);
+        });
 
         searchBar.addTextChangedListener(new TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
-            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {}
-            @Override public void afterTextChanged(Editable s) {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
                 filterChats(s.toString());
             }
         });
         recyclerView.setLayoutManager(new LinearLayoutManager(this));
+        loadAndDisplayAllChats();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        loadData();
         loadAndDisplayAllChats();
     }
 
@@ -108,7 +127,9 @@ public class GroupsFriendsActivity extends Activity {
             } else if (timeStr.matches("[A-Za-z]{3}")) {
                 return System.currentTimeMillis() - (24 * 60 * 60 * 1000);
             }
-        } catch (Exception e) { e.printStackTrace(); }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
         return System.currentTimeMillis();
     }
 
@@ -129,7 +150,8 @@ public class GroupsFriendsActivity extends Activity {
             SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
             String groupsJson = prefs.getString(KEY_GROUPS_LIST, null);
             if (groupsJson != null) {
-                Type type = new TypeToken<ArrayList<GroupModel>>() {}.getType();
+                Type type = new TypeToken<ArrayList<GroupModel>>() {
+                }.getType();
                 List<GroupModel> groups = gson.fromJson(groupsJson, type);
                 for (GroupModel g : groups) {
                     com.antor.nearbychat.Database.MessageEntity lastMsg = dao.getLastMessageForChat("G", g.getId());
@@ -145,7 +167,8 @@ public class GroupsFriendsActivity extends Activity {
             }
             String friendsJson = prefs.getString(KEY_FRIENDS_LIST, null);
             if (friendsJson != null) {
-                Type type = new TypeToken<ArrayList<FriendModel>>() {}.getType();
+                Type type = new TypeToken<ArrayList<FriendModel>>() {
+                }.getType();
                 List<FriendModel> friends = gson.fromJson(friendsJson, type);
                 for (FriendModel f : friends) {
                     String asciiId = MessageHelper.timestampToAsciiId(MessageHelper.displayIdToTimestamp(f.getDisplayId()));
@@ -190,7 +213,9 @@ public class GroupsFriendsActivity extends Activity {
         try {
             com.antor.nearbychat.Database.MessageEntity lastMsg = AppDatabase.getInstance(this).messageDao().getLastMessageForChat(chatType, chatId);
             return lastMsg != null ? lastMsg.message : "";
-        } catch (Exception e) { return ""; }
+        } catch (Exception e) {
+            return "";
+        }
     }
 
     private String getLastMessageTimeForChat(String chatType, String chatId) {
@@ -198,12 +223,17 @@ public class GroupsFriendsActivity extends Activity {
             com.antor.nearbychat.Database.MessageEntity lastMsg = AppDatabase.getInstance(this).messageDao().getLastMessageForChat(chatType, chatId);
             if (lastMsg != null) {
                 long time = lastMsg.timestampMillis, now = System.currentTimeMillis(), diff = now - time;
-                if (diff < 24 * 60 * 60 * 1000) return new java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault()).format(new java.util.Date(time));
-                if (diff < 7 * 24 * 60 * 60 * 1000) return new java.text.SimpleDateFormat("EEE", java.util.Locale.getDefault()).format(new java.util.Date(time));
-                if (diff < 365L * 24 * 60 * 60 * 1000L) return new java.text.SimpleDateFormat("MMM dd", java.util.Locale.getDefault()).format(new java.util.Date(time));
+                if (diff < 24 * 60 * 60 * 1000)
+                    return new java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault()).format(new java.util.Date(time));
+                if (diff < 7 * 24 * 60 * 60 * 1000)
+                    return new java.text.SimpleDateFormat("EEE", java.util.Locale.getDefault()).format(new java.util.Date(time));
+                if (diff < 365L * 24 * 60 * 60 * 1000L)
+                    return new java.text.SimpleDateFormat("MMM dd", java.util.Locale.getDefault()).format(new java.util.Date(time));
                 return new java.text.SimpleDateFormat("dd.MM.yy", java.util.Locale.getDefault()).format(new java.util.Date(time));
             }
-        } catch (Exception e) { e.printStackTrace(); }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
         return "";
     }
 
@@ -260,14 +290,16 @@ public class GroupsFriendsActivity extends Activity {
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         if (chat.type.equals("G")) {
             String groupsJson = prefs.getString(KEY_GROUPS_LIST, null);
-            if(groupsJson == null) return;
-            List<GroupModel> groups = gson.fromJson(groupsJson, new TypeToken<ArrayList<GroupModel>>() {}.getType());
+            if (groupsJson == null) return;
+            List<GroupModel> groups = gson.fromJson(groupsJson, new TypeToken<ArrayList<GroupModel>>() {
+            }.getType());
             groups.removeIf(g -> g.getId().equals(chat.id));
             prefs.edit().putString(KEY_GROUPS_LIST, gson.toJson(groups)).apply();
         } else if (chat.type.equals("F")) {
             String friendsJson = prefs.getString(KEY_FRIENDS_LIST, null);
-            if(friendsJson == null) return;
-            List<FriendModel> friends = gson.fromJson(friendsJson, new TypeToken<ArrayList<FriendModel>>() {}.getType());
+            if (friendsJson == null) return;
+            List<FriendModel> friends = gson.fromJson(friendsJson, new TypeToken<ArrayList<FriendModel>>() {
+            }.getType());
             friends.removeIf(f -> MessageHelper.timestampToAsciiId(MessageHelper.displayIdToTimestamp(f.getDisplayId())).equals(chat.id));
             prefs.edit().putString(KEY_FRIENDS_LIST, gson.toJson(friends)).apply();
         }
@@ -307,9 +339,14 @@ public class GroupsFriendsActivity extends Activity {
         boolean hasUnreadMessages;
 
         public ChatItem(String id, String name, String type, String lastMessage, String lastMessageTime, String displayId, long lastMessageTimestamp, boolean hasUnreadMessages) {
-            this.id = id; this.name = name; this.type = type; this.lastMessage = lastMessage;
-            this.lastMessageTime = lastMessageTime; this.displayId = displayId;
-            this.lastMessageTimestamp = lastMessageTimestamp; this.hasUnreadMessages = hasUnreadMessages;
+            this.id = id;
+            this.name = name;
+            this.type = type;
+            this.lastMessage = lastMessage;
+            this.lastMessageTime = lastMessageTime;
+            this.displayId = displayId;
+            this.lastMessageTimestamp = lastMessageTimestamp;
+            this.hasUnreadMessages = hasUnreadMessages;
         }
     }
 
@@ -324,9 +361,10 @@ public class GroupsFriendsActivity extends Activity {
 
         ImageView profilePic = dialog.findViewById(R.id.profilePicRound);
         TextView groupIdText = dialog.findViewById(R.id.groupID);
+        ImageView qrCodeShow = dialog.findViewById(R.id.qrCodeShow);
 
         if (group != null) {
-            ((TextView)dialog.findViewById(R.id.dia_title)).setText("Edit Group");
+            ((TextView) dialog.findViewById(R.id.dia_title)).setText("Edit Group");
             btnAdd.setText("Save");
             editName.setText(group.getName());
             editKey.setText(group.getEncryptionKey());
@@ -343,12 +381,28 @@ public class GroupsFriendsActivity extends Activity {
                 String displayId = getUserIdString(bits);
                 groupIdText.setText(displayId);
             }
+            if (qrCodeShow != null) {
+                qrCodeShow.setVisibility(View.VISIBLE);
+                qrCodeShow.setOnClickListener(v -> {
+                    long bits = asciiIdToTimestamp(group.getId());
+                    String displayId = getUserIdString(bits);
+                    String qrData = "GROUP:" + group.getId() + "|" + group.getName() + "|" + group.getEncryptionKey();
+                    Intent intent = new Intent(this, QRCodeActivity.class);
+                    intent.putExtra("qr_data", qrData);
+                    intent.putExtra("qr_type", "group");
+                    intent.putExtra("display_name", group.getName());
+                    startActivity(intent);
+                });
+            }
         } else {
             if (profilePic != null) {
                 profilePic.setVisibility(View.GONE);
             }
             if (groupIdText != null) {
                 groupIdText.setVisibility(View.GONE);
+            }
+            if (qrCodeShow != null) {
+                qrCodeShow.setVisibility(View.GONE);
             }
             btnDelete.setVisibility(View.GONE);
         }
@@ -361,7 +415,10 @@ public class GroupsFriendsActivity extends Activity {
         });
         btnAdd.setOnClickListener(v -> {
             String name = editName.getText().toString().trim();
-            if (name.isEmpty()) { Toast.makeText(this, "Group name cannot be empty", Toast.LENGTH_SHORT).show(); return; }
+            if (name.isEmpty()) {
+                Toast.makeText(this, "Group name cannot be empty", Toast.LENGTH_SHORT).show();
+                return;
+            }
             if (group != null) {
                 group.setName(name);
                 group.setEncryptionKey(editKey.getText().toString().trim());
@@ -399,9 +456,10 @@ public class GroupsFriendsActivity extends Activity {
         Button btnDelete = dialog.findViewById(R.id.btnDelete);
         Button btnAdd = dialog.findViewById(R.id.btnAdd);
         ImageView profilePic = dialog.findViewById(R.id.profilePicRound);
+        ImageView qrCodeShow = dialog.findViewById(R.id.qrCodeShow);
 
         if (friend != null) {
-            ((TextView)dialog.findViewById(R.id.dia_title)).setText("Edit Friend");
+            ((TextView) dialog.findViewById(R.id.dia_title)).setText("Edit Friend");
             btnAdd.setText("Save");
             editName.setText(friend.getName());
             editId.setText(friend.getDisplayId());
@@ -412,9 +470,23 @@ public class GroupsFriendsActivity extends Activity {
                 profilePic.setVisibility(View.VISIBLE);
                 ProfilePicLoader.loadProfilePicture(this, friend.getDisplayId(), profilePic);
             }
+            if (qrCodeShow != null) {
+                qrCodeShow.setVisibility(View.VISIBLE);
+                qrCodeShow.setOnClickListener(v -> {
+                    String qrData = "FRIEND:" + friend.getDisplayId() + "|" + friend.getName() + "|" + friend.getEncryptionKey();
+                    Intent intent = new Intent(this, QRCodeActivity.class);
+                    intent.putExtra("qr_data", qrData);
+                    intent.putExtra("qr_type", "friend");
+                    intent.putExtra("display_name", friend.getName());
+                    startActivity(intent);
+                });
+            }
         } else {
             if (profilePic != null) {
                 profilePic.setVisibility(View.GONE);
+            }
+            if (qrCodeShow != null) {
+                qrCodeShow.setVisibility(View.GONE);
             }
             btnDelete.setVisibility(View.GONE);
         }
@@ -429,8 +501,14 @@ public class GroupsFriendsActivity extends Activity {
             String name = editName.getText().toString().trim();
             String id = editId.getText().toString().trim();
             String key = editKey.getText().toString().trim();
-            if (name.isEmpty() || id.isEmpty()) { Toast.makeText(this, "Fields cannot be empty", Toast.LENGTH_SHORT).show(); return; }
-            if (id.length() != 8) { Toast.makeText(this, "Friend ID must be 8 characters", Toast.LENGTH_SHORT).show(); return; }
+            if (name.isEmpty() || id.isEmpty()) {
+                Toast.makeText(this, "Fields cannot be empty", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            if (id.length() != 8) {
+                Toast.makeText(this, "Friend ID must be 8 characters", Toast.LENGTH_SHORT).show();
+                return;
+            }
 
             if (friend != null) {
                 friend.setName(name);
@@ -448,9 +526,13 @@ public class GroupsFriendsActivity extends Activity {
     private void loadData() {
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         String groupsJson = prefs.getString(KEY_GROUPS_LIST, null);
-        if (groupsJson != null) groupsList = gson.fromJson(groupsJson, new TypeToken<ArrayList<GroupModel>>() {}.getType());
+        if (groupsJson != null)
+            groupsList = gson.fromJson(groupsJson, new TypeToken<ArrayList<GroupModel>>() {
+            }.getType());
         String friendsJson = prefs.getString(KEY_FRIENDS_LIST, null);
-        if (friendsJson != null) friendsList = gson.fromJson(friendsJson, new TypeToken<ArrayList<FriendModel>>() {}.getType());
+        if (friendsJson != null)
+            friendsList = gson.fromJson(friendsJson, new TypeToken<ArrayList<FriendModel>>() {
+            }.getType());
     }
 
     private void saveGroups() {

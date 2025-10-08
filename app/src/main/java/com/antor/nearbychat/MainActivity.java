@@ -384,8 +384,7 @@ public class MainActivity extends BaseActivity {
     private void showEditGroupDialog() {
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         String groupsJson = prefs.getString(KEY_GROUPS_LIST, null);
-        Type type = new TypeToken<ArrayList<GroupModel>>() {
-        }.getType();
+        Type type = new TypeToken<ArrayList<GroupModel>>() {}.getType();
         List<GroupModel> groupsList = gson.fromJson(groupsJson, type);
         if (groupsList == null) groupsList = new ArrayList<>();
 
@@ -413,6 +412,7 @@ public class MainActivity extends BaseActivity {
         Button btnDelete = dialog.findViewById(R.id.btnDelete);
         Button btnCancel = dialog.findViewById(R.id.btnCancel);
         Button btnSave = dialog.findViewById(R.id.btnAdd);
+        ImageView qrCodeShow = dialog.findViewById(R.id.qrCodeShow);
 
         title.setText("Edit Group");
         btnSave.setText("Save");
@@ -437,6 +437,19 @@ public class MainActivity extends BaseActivity {
                 currentUserId = finalGroupToEdit.getId();
                 currentProfilePic = dialogProfilePic;
                 showImagePickerDialog(finalGroupToEdit.getId(), dialogProfilePic);
+            });
+        }
+        if (qrCodeShow != null) {
+            qrCodeShow.setVisibility(View.VISIBLE);
+            qrCodeShow.setOnClickListener(v -> {
+                String qrData = "GROUP:" + finalGroupToEdit.getId() + "|" +
+                        finalGroupToEdit.getName() + "|" +
+                        finalGroupToEdit.getEncryptionKey();
+                Intent intent = new Intent(this, QRCodeActivity.class);
+                intent.putExtra("qr_data", qrData);
+                intent.putExtra("qr_type", "group");
+                intent.putExtra("display_name", finalGroupToEdit.getName());
+                startActivity(intent);
             });
         }
 
@@ -471,8 +484,7 @@ public class MainActivity extends BaseActivity {
     private void showEditFriendDialog() {
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         String friendsJson = prefs.getString(KEY_FRIENDS_LIST, null);
-        Type type = new TypeToken<ArrayList<FriendModel>>() {
-        }.getType();
+        Type type = new TypeToken<ArrayList<FriendModel>>() {}.getType();
         List<FriendModel> friendsList = gson.fromJson(friendsJson, type);
         if (friendsList == null) friendsList = new ArrayList<>();
 
@@ -504,6 +516,7 @@ public class MainActivity extends BaseActivity {
         Button btnDelete = dialog.findViewById(R.id.btnDelete);
         Button btnCancel = dialog.findViewById(R.id.btnCancel);
         Button btnSave = dialog.findViewById(R.id.btnAdd);
+        ImageView qrCodeShow = dialog.findViewById(R.id.qrCodeShow);
 
         title.setText("Edit Friend");
         btnSave.setText("Save");
@@ -524,6 +537,19 @@ public class MainActivity extends BaseActivity {
                 currentUserId = displayIdToFind;
                 currentProfilePic = dialogProfilePic;
                 showImagePickerDialog(displayIdToFind, dialogProfilePic);
+            });
+        }
+        if (qrCodeShow != null) {
+            qrCodeShow.setVisibility(View.VISIBLE);
+            qrCodeShow.setOnClickListener(v -> {
+                String qrData = "FRIEND:" + finalFriendToEdit.getDisplayId() + "|" +
+                        finalFriendToEdit.getName() + "|" +
+                        finalFriendToEdit.getEncryptionKey();
+                Intent intent = new Intent(this, QRCodeActivity.class);
+                intent.putExtra("qr_data", qrData);
+                intent.putExtra("qr_type", "friend");
+                intent.putExtra("display_name", finalFriendToEdit.getName());
+                startActivity(intent);
             });
         }
 

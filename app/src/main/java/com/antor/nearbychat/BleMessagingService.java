@@ -71,14 +71,14 @@ public class BleMessagingService extends Service {
     private static UUID SERVICE_UUID = UUID.fromString("0000aaaa-0000-1000-8000-00805f9b34fb");
 
     private static int MAX_PAYLOAD_SIZE = 27;
-    private static int ADVERTISING_DURATION_MS = 1200;
+    private static int ADVERTISING_DURATION_MS = 900;
     private static int CHUNK_TIMEOUT_MS = 300000;
     private static int CHUNK_CLEANUP_INTERVAL_MS = 60000;
     private static int MAX_MESSAGE_SAVED = 2000;
     private static int BROADCAST_ROUNDS = 3;
-    private static int SCAN_MODE = 2; // 0=LOW_POWER, 1=BALANCED, 2=LOW_LATENCY
-    private static int ADVERTISE_MODE = 2; // 0=LOW_POWER, 1=BALANCED, 2=LOW_LATENCY
-    private static int TX_POWER_LEVEL = 3; // 0=ULTRA_LOW, 1=LOW, 2=MEDIUM, 3=HIGH
+    private static int SCAN_MODE = 2;
+    private static int ADVERTISE_MODE = 2;
+    private static int TX_POWER_LEVEL = 3;
 
     private static final String REQUEST_MARKER = "??";
     private static final int MAX_MISSING_CHUNKS = 30;
@@ -220,7 +220,7 @@ public class BleMessagingService extends Service {
                 SERVICE_UUID = UUID.fromString("0000aaaa-0000-1000-8000-00805f9b34fb");
             }
 
-            ADVERTISING_DURATION_MS = prefs.getInt("ADVERTISING_DURATION_MS", 1200);
+            ADVERTISING_DURATION_MS = prefs.getInt("ADVERTISING_DURATION_MS", 900);
             CHUNK_TIMEOUT_MS = prefs.getInt("CHUNK_TIMEOUT_MS", 300000);
             CHUNK_CLEANUP_INTERVAL_MS = prefs.getInt("CHUNK_CLEANUP_INTERVAL_MS", 60000);
             MAX_MESSAGE_SAVED = prefs.getInt("MAX_MESSAGE_SAVED", 2000);

@@ -425,7 +425,7 @@
 
                             <TextView
                                 style="@style/SettingsConstraint"
-                                android:text="Min: 100, Default: 1200" />
+                                android:text="Min: 100, Default: 800" />
                         </LinearLayout>
                     </LinearLayout>
 
