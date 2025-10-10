@@ -212,6 +212,7 @@
         android:paddingBottom="4dp">
 
         <ImageView
+            android:id="@+id/switchInputImage"
             android:layout_width="25dp"
             android:layout_height="wrap_content"
             android:layout_marginRight="8dp"
@@ -220,6 +221,7 @@
 
         <EditText
             android:id="@+id/inputMessage"
+            android:visibility="visible"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_marginTop="3dp"
@@ -229,6 +231,29 @@
             android:background="@drawable/rounded_edittext"
             android:gravity="bottom|start"
             android:hint="Type your message..."
+            android:imeOptions="actionSend"
+            android:inputType="textMultiLine"
+            android:maxLines="4"
+            android:minLines="1"
+            android:paddingStart="18dp"
+            android:paddingTop="10dp"
+            android:paddingEnd="10dp"
+            android:paddingBottom="10dp"
+            android:textColor="#000000"
+            android:textSize="15sp" />
+
+        <EditText
+            android:id="@+id/inputImageURL"
+            android:visibility="gone"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="3dp"
+            android:layout_marginRight="8dp"
+            android:layout_marginBottom="3dp"
+            android:layout_weight="1"
+            android:background="@drawable/rounded_edittext"
+            android:gravity="bottom|start"
+            android:hint="Paste your image link here..."
             android:imeOptions="actionSend"
             android:inputType="textMultiLine"
             android:maxLines="4"

@@ -79,6 +79,9 @@ public class MainActivity extends BaseActivity {
     private String activeChatId = "";
 
     private EditText inputMessage;
+    private ImageView switchInputImage;
+    private EditText inputImageURL;
+    private boolean isImageInputMode = false;
     private RecyclerView recyclerView;
     private ChatAdapter chatAdapter;
     private TextView textStatus;
@@ -128,6 +131,7 @@ public class MainActivity extends BaseActivity {
     private FrameLayout loadingContainer;
     private FrameLayout sendButtonContainer;
     private boolean isAdvertising = false;
+
 
     private boolean isKeyboardVisible = false;
 
@@ -200,12 +204,16 @@ public class MainActivity extends BaseActivity {
             isKeyboardVisible = keyboardNowVisible;
         });
 
+        switchInputImage = findViewById(R.id.switchInputImage);
         inputMessage = findViewById(R.id.inputMessage);
+        inputImageURL = findViewById(R.id.inputImageURL);
+
         textStatus = findViewById(R.id.textStatus);
         setupMessageInput();
         setupSearchUI();
 
         recyclerView = findViewById(R.id.chatRecyclerView);
+        switchInputImage.setOnClickListener(v -> toggleInputMode());
         chatAdapter = new ChatAdapter(messageList, this, this::onMessageClick, this::onMessageLongClick);
         recyclerView.setLayoutManager(new LinearLayoutManager(this));
         recyclerView.setAdapter(chatAdapter);
@@ -279,6 +287,20 @@ public class MainActivity extends BaseActivity {
             }
             return false;
         });
+    }
+
+    private void toggleInputMode() {
+        isImageInputMode = !isImageInputMode;
+
+        if (isImageInputMode) {
+            inputMessage.setVisibility(View.GONE);
+            inputImageURL.setVisibility(View.VISIBLE);
+            switchInputImage.setImageResource(R.drawable.image);
+        } else {
+            inputMessage.setVisibility(View.VISIBLE);
+            inputImageURL.setVisibility(View.GONE);
+            switchInputImage.setImageResource(R.drawable.text);
+        }
     }
 
     private void performSearch(String query) {
@@ -983,21 +1005,46 @@ public class MainActivity extends BaseActivity {
             return;
         }
 
-        String msg = inputMessage.getText().toString().trim();
+        String msg = "";
+
+        if (isImageInputMode) {
+            String imageUrls = inputImageURL.getText().toString().trim();
+            if (!imageUrls.isEmpty()) {
+                String processedUrls = processImageUrls(imageUrls);
+                msg = "m:/" + processedUrls;
+            }
+        } else {
+            String textMsg = inputMessage.getText().toString().trim();
+            if (!textMsg.isEmpty()) {
+                msg = textMsg;
+            }
+        }
+        if (!isImageInputMode) {
+            String imageUrls = inputImageURL.getText().toString().trim();
+            if (!imageUrls.isEmpty()) {
+                String processedUrls = processImageUrls(imageUrls);
+                msg = msg + "\nm:/" + processedUrls;
+            }
+        }
+
         if (msg.isEmpty()) {
             Toast.makeText(this, "Message cannot be empty!", Toast.LENGTH_SHORT).show();
             return;
         }
+
         if (msg.length() > MAX_MESSAGE_LENGTH) {
             Toast.makeText(this, "Message too long (" + msg.length() + "/" + MAX_MESSAGE_LENGTH + ")", Toast.LENGTH_SHORT).show();
             return;
         }
+
         if (!validateBluetoothAndService()) {
             return;
         }
+
         if (isServiceBound && bleService != null) {
             bleService.sendMessage(msg, activeChatType, activeChatId);
             inputMessage.setText("");
+            inputImageURL.setText("");
             recyclerView.post(() -> {
                 if (chatAdapter != null && chatAdapter.getItemCount() > 0) {
                     recyclerView.smoothScrollToPosition(chatAdapter.getItemCount() - 1);
@@ -1006,6 +1053,21 @@ public class MainActivity extends BaseActivity {
         } else {
             Toast.makeText(this, "Service not ready. Please try again.", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    private String processImageUrls(String urls) {
+        String[] urlArray = urls.split(",");
+        StringBuilder processed = new StringBuilder();
+
+        for (int i = 0; i < urlArray.length; i++) {
+            String url = urlArray[i].trim();
+            url = url.replace("https://", "").replace("http://", "");
+            processed.append(url);
+            if (i < urlArray.length - 1) {
+                processed.append(",");
+            }
+        }
+        return processed.toString();
     }
 
     private boolean validateBluetoothAndService() {
@@ -1172,7 +1234,13 @@ public class MainActivity extends BaseActivity {
     private void copyMessageToClipboard(MessageModel msg) {
         ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
         if (clipboard != null) {
-            clipboard.setPrimaryClip(ClipData.newPlainText("Copied Message", msg.getMessage()));
+            String messageToCopy = msg.getMessage();
+
+            if (messageToCopy.contains("m:/")) {
+                messageToCopy = messageToCopy.replaceAll("m:/", "https://");
+            }
+
+            clipboard.setPrimaryClip(ClipData.newPlainText("Copied Message", messageToCopy));
             Toast.makeText(this, "Copied", Toast.LENGTH_SHORT).show();
         }
     }

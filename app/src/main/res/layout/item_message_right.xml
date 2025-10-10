@@ -15,28 +15,44 @@
         android:textColor="#888888"
         android:textSize="10sp" />
 
-    <TextView
-        android:id="@+id/textUserId"
-        android:layout_width="wrap_content"
+    <LinearLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="2dp"
-        android:paddingRight="8dp"
-        android:text="USERID"
-        android:textColor="#555555"
-        android:textSize="10sp" />
+        android:gravity="end|bottom"
+        android:orientation="vertical">
 
-    <TextView
-        android:id="@+id/textMessage"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginStart="100dp"
-        android:autoLink="all"
-        android:background="@drawable/bubble_right"
-        android:linksClickable="true"
-        android:padding="8dp"
-        android:text="Message"
-        android:textColor="#FFFFFF"
-        android:textColorLink="#FFFFFF"
-        android:textSize="15sp" />
+        <TextView
+            android:id="@+id/textUserId"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingRight="0dp"
+            android:text="USERID"
+            android:textColor="#555555"
+            android:textSize="10sp" />
 
+        <TextView
+            android:id="@+id/textMessage"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:layout_marginStart="100dp"
+            android:autoLink="all"
+            android:background="@drawable/bubble_right"
+            android:linksClickable="true"
+            android:padding="8dp"
+            android:text="Message"
+            android:textColor="#FFFFFF"
+            android:textColorLink="#FFFFFF"
+            android:textSize="15sp" />
+
+        <LinearLayout
+            android:id="@+id/imageContainer"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:layout_marginStart="80dp"
+            android:gravity="bottom|end"
+            android:orientation="horizontal" />
+
+    </LinearLayout>
 </LinearLayout>

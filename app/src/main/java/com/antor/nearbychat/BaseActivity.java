@@ -43,4 +43,8 @@ public abstract class BaseActivity extends Activity implements LifecycleOwner {
     public androidx.lifecycle.Lifecycle getLifecycle() {
         return lifecycleRegistry;
     }
+
+    protected void showToast(String message) {
+        CustomToast.show(this, message);
+    }
 }

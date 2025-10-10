@@ -11,7 +11,7 @@ android {
         minSdk 26
         targetSdk 35
         versionCode 3
-        versionName "2.6.8"
+        versionName "2.7"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -39,4 +39,5 @@ dependencies {
     implementation libs.lifecycle.livedata.ktx
     implementation libs.zxing.core
     implementation libs.zxing.android.embedded
+    implementation libs.androidx.viewpager2
 }

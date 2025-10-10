@@ -19,9 +19,11 @@ recyclerview = "1.4.0"
 roomRuntime = "2.7.2"
 roomRuntimeVersion = "2.6.0"
 activityVersion = "1.11.0"
+viewpager2 = "1.1.0"
 zxingAndroidEmbedded = "4.3.0"
 
 [libraries]
+androidx-viewpager2 = { module = "androidx.viewpager2:viewpager2", version.ref = "viewpager2" }
 cardview = { module = "androidx.cardview:cardview", version.ref = "cardview" }
 gson = { module = "com.google.code.gson:gson", version.ref = "gson" }
 guava = { module = "com.google.guava:guava", version.ref = "guava" }

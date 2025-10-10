@@ -475,7 +475,6 @@ public class NotepadActivity extends Activity {
                     headerMatcher.start(), headerMatcher.end(),
                     Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
-
         isApplyingSyntax = false;
         editNotepad.setSelection(selectionStart, selectionEnd);
     }

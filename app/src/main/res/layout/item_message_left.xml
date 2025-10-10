@@ -5,7 +5,6 @@
     android:orientation="vertical"
     android:padding="6dp">
 
-
     <TextView
         android:id="@+id/textTimestamp"
         android:layout_width="match_parent"
@@ -15,7 +14,6 @@
         android:text="10:31 PM | 03-09-2025 | 1C"
         android:textColor="#888888"
         android:textSize="10sp" />
-
 
     <LinearLayout
         android:layout_width="wrap_content"
@@ -33,15 +31,14 @@
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:gravity="bottom"
+            android:gravity="start|bottom"
             android:orientation="vertical">
 
             <TextView
                 android:id="@+id/textUserId"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="2dp"
-                android:paddingLeft="8dp"
+                android:paddingLeft="0dp"
                 android:text="USERID"
                 android:textColor="#555555"
                 android:textSize="10sp" />
@@ -50,6 +47,7 @@
                 android:id="@+id/textMessage"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
                 android:layout_marginEnd="80dp"
                 android:autoLink="all"
                 android:background="@drawable/bubble_left"
@@ -60,8 +58,15 @@
                 android:textColorLink="#000000"
                 android:textSize="15sp" />
 
+            <LinearLayout
+                android:id="@+id/imageContainer"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="4dp"
+                android:layout_marginEnd="80dp"
+                android:gravity="bottom|start"/>
+
         </LinearLayout>
-
     </LinearLayout>
-
 </LinearLayout>

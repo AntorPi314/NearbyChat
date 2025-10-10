@@ -252,7 +252,7 @@ public class BleMessagingService extends Service {
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("Nearby Chat Active")
                 .setContentText("Scanning for messages...")
-                .setSmallIcon(R.drawable.ic_nearby_chat)
+                .setSmallIcon(R.drawable.notify)
                 .setContentIntent(pendingIntent)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setOngoing(true)
@@ -707,7 +707,7 @@ public class BleMessagingService extends Service {
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("Nearby Chat")
                 .setContentText(text)
-                .setSmallIcon(R.drawable.ic_nearby_chat)
+                .setSmallIcon(R.drawable.notify)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setOngoing(ongoing)
                 .setShowWhen(false);
