@@ -23,6 +23,8 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import android.os.PowerManager;
 import android.provider.MediaStore;
 import android.provider.Settings;
@@ -30,6 +32,8 @@ import android.app.Dialog;
 import android.graphics.drawable.ColorDrawable;
 import android.view.Gravity;
 import android.view.WindowManager;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import java.io.ByteArrayOutputStream;
 
@@ -77,6 +81,8 @@ public class MainActivity extends BaseActivity {
 
     private String activeChatType = "N";
     private String activeChatId = "";
+    private int inputMode = 0;
+    private EditText inputVideoURL;
 
     private EditText inputMessage;
     private ImageView switchInputImage;
@@ -207,6 +213,7 @@ public class MainActivity extends BaseActivity {
         switchInputImage = findViewById(R.id.switchInputImage);
         inputMessage = findViewById(R.id.inputMessage);
         inputImageURL = findViewById(R.id.inputImageURL);
+        inputVideoURL = findViewById(R.id.inputVideoURL);
 
         textStatus = findViewById(R.id.textStatus);
         setupMessageInput();
@@ -290,16 +297,21 @@ public class MainActivity extends BaseActivity {
     }
 
     private void toggleInputMode() {
-        isImageInputMode = !isImageInputMode;
+        inputMode = (inputMode + 1) % 3;
 
-        if (isImageInputMode) {
-            inputMessage.setVisibility(View.GONE);
+        inputMessage.setVisibility(View.GONE);
+        inputImageURL.setVisibility(View.GONE);
+        inputVideoURL.setVisibility(View.GONE);
+
+        if (inputMode == 0) {
+            inputMessage.setVisibility(View.VISIBLE);
+            switchInputImage.setImageResource(R.drawable.text);
+        } else if (inputMode == 1) {
             inputImageURL.setVisibility(View.VISIBLE);
             switchInputImage.setImageResource(R.drawable.image);
         } else {
-            inputMessage.setVisibility(View.VISIBLE);
-            inputImageURL.setVisibility(View.GONE);
-            switchInputImage.setImageResource(R.drawable.text);
+            inputVideoURL.setVisibility(View.VISIBLE);
+            switchInputImage.setImageResource(R.drawable.video);
         }
     }
 
@@ -1006,24 +1018,32 @@ public class MainActivity extends BaseActivity {
         }
 
         String msg = "";
+        String textMsg = inputMessage.getText().toString().trim();
+        String imageUrls = inputImageURL.getText().toString().trim();
+        String videoUrls = inputVideoURL.getText().toString().trim();
 
-        if (isImageInputMode) {
-            String imageUrls = inputImageURL.getText().toString().trim();
-            if (!imageUrls.isEmpty()) {
-                String processedUrls = processImageUrls(imageUrls);
-                msg = "m:/" + processedUrls;
-            }
-        } else {
-            String textMsg = inputMessage.getText().toString().trim();
-            if (!textMsg.isEmpty()) {
-                msg = textMsg;
+        // Text message always comes first
+        if (!textMsg.isEmpty()) {
+            msg = textMsg;
+        }
+
+        // Add images
+        if (!imageUrls.isEmpty()) {
+            String processedUrls = processAndOptimizeImageUrls(imageUrls);
+            if (!msg.isEmpty()) {
+                msg = msg + "\n" + processedUrls;
+            } else {
+                msg = processedUrls;
             }
         }
-        if (!isImageInputMode) {
-            String imageUrls = inputImageURL.getText().toString().trim();
-            if (!imageUrls.isEmpty()) {
-                String processedUrls = processImageUrls(imageUrls);
-                msg = msg + "\nm:/" + processedUrls;
+
+        // Add videos
+        if (!videoUrls.isEmpty()) {
+            String processedUrls = processAndOptimizeVideoUrls(videoUrls);
+            if (!msg.isEmpty()) {
+                msg = msg + "\n" + processedUrls;
+            } else {
+                msg = processedUrls;
             }
         }
 
@@ -1045,6 +1065,7 @@ public class MainActivity extends BaseActivity {
             bleService.sendMessage(msg, activeChatType, activeChatId);
             inputMessage.setText("");
             inputImageURL.setText("");
+            inputVideoURL.setText("");
             recyclerView.post(() -> {
                 if (chatAdapter != null && chatAdapter.getItemCount() > 0) {
                     recyclerView.smoothScrollToPosition(chatAdapter.getItemCount() - 1);
@@ -1053,6 +1074,117 @@ public class MainActivity extends BaseActivity {
         } else {
             Toast.makeText(this, "Service not ready. Please try again.", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    private String processAndOptimizeImageUrls(String urls) {
+        return "m:/" + optimizeUrls(urls);
+    }
+
+    private String processAndOptimizeVideoUrls(String urls) {
+        return "v:/" + optimizeUrls(urls);
+    }
+
+    private String optimizeUrls(String urls) {
+        String[] urlArray = urls.split(",");
+        Map<String, List<String>> domainMap = new LinkedHashMap<>();
+
+        for (String url : urlArray) {
+            String cleanUrl = url.trim()
+                    .replace("https://", "")
+                    .replace("http://", "");
+
+            // Extract domain and path
+            int firstSlash = cleanUrl.indexOf('/');
+            if (firstSlash == -1) continue;
+
+            String domain = cleanUrl.substring(0, firstSlash);
+            String fullPath = cleanUrl.substring(firstSlash + 1);
+
+            // Find common prefix for this domain
+            if (!domainMap.containsKey(domain)) {
+                domainMap.put(domain, new ArrayList<>());
+            }
+            domainMap.get(domain).add(fullPath);
+        }
+
+        // Build optimized string
+        StringBuilder optimized = new StringBuilder();
+        boolean firstDomain = true;
+
+        for (Map.Entry<String, List<String>> entry : domainMap.entrySet()) {
+            if (!firstDomain) {
+                optimized.append(";");
+            }
+            firstDomain = false;
+
+            String domain = entry.getKey();
+            List<String> paths = entry.getValue();
+
+            // Find common prefix
+            String commonPrefix = findCommonPrefix(paths);
+
+            optimized.append(domain);
+            if (!commonPrefix.isEmpty()) {
+                optimized.append("/").append(commonPrefix).append(">");
+
+                // Add remaining parts
+                for (int i = 0; i < paths.size(); i++) {
+                    String remaining = paths.get(i).substring(commonPrefix.length());
+                    if (remaining.startsWith("/")) {
+                        remaining = remaining.substring(1);
+                    }
+                    optimized.append(remaining);
+                    if (i < paths.size() - 1) {
+                        optimized.append(",");
+                    }
+                }
+            } else {
+                optimized.append(">");
+                for (int i = 0; i < paths.size(); i++) {
+                    optimized.append(paths.get(i));
+                    if (i < paths.size() - 1) {
+                        optimized.append(",");
+                    }
+                }
+            }
+        }
+
+        return optimized.toString();
+    }
+
+    private String findCommonPrefix(List<String> paths) {
+        if (paths.isEmpty()) return "";
+
+        String prefix = paths.get(0);
+        for (String path : paths) {
+            while (!path.startsWith(prefix) && !prefix.isEmpty()) {
+                prefix = prefix.substring(0, prefix.length() - 1);
+            }
+            if (prefix.isEmpty()) break;
+        }
+
+        // Remove trailing slash if exists
+        int lastSlash = prefix.lastIndexOf('/');
+        if (lastSlash > 0) {
+            prefix = prefix.substring(0, lastSlash + 1);
+        }
+
+        return prefix;
+    }
+
+    private String processVideoUrls(String urls) {
+        String[] urlArray = urls.split(",");
+        StringBuilder processed = new StringBuilder();
+
+        for (int i = 0; i < urlArray.length; i++) {
+            String url = urlArray[i].trim();
+            url = url.replace("https://", "").replace("http://", "");
+            processed.append(url);
+            if (i < urlArray.length - 1) {
+                processed.append(",");
+            }
+        }
+        return processed.toString();
     }
 
     private String processImageUrls(String urls) {
@@ -1234,15 +1366,88 @@ public class MainActivity extends BaseActivity {
     private void copyMessageToClipboard(MessageModel msg) {
         ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
         if (clipboard != null) {
-            String messageToCopy = msg.getMessage();
+            String originalMessage = msg.getMessage();
+            String messageToProcess = originalMessage;
+            StringBuffer resultBuffer = new StringBuffer();
 
-            if (messageToCopy.contains("m:/")) {
-                messageToCopy = messageToCopy.replaceAll("m:/", "https://");
+            // Decode optimized image URLs
+            Pattern imagePattern = Pattern.compile("m:/([^\\n]+)");
+            Matcher imageMatcher = imagePattern.matcher(messageToProcess);
+            while (imageMatcher.find()) {
+                String optimized = imageMatcher.group(1);
+                String decoded = decodeOptimizedUrlsForCopy(optimized);
+                // Using Matcher.quoteReplacement to handle any special characters in the replacement string
+                String replacement = Matcher.quoteReplacement("Images:\n" + decoded.replace(",", "\n"));
+                imageMatcher.appendReplacement(resultBuffer, replacement);
             }
+            imageMatcher.appendTail(resultBuffer);
+            messageToProcess = resultBuffer.toString();
+            resultBuffer.setLength(0); // Reset buffer for next operation
 
-            clipboard.setPrimaryClip(ClipData.newPlainText("Copied Message", messageToCopy));
+            // Decode optimized video URLs
+            Pattern videoPattern = Pattern.compile("v:/([^\\n]+)");
+            Matcher videoMatcher = videoPattern.matcher(messageToProcess);
+            while (videoMatcher.find()) {
+                String optimized = videoMatcher.group(1);
+                String decoded = decodeOptimizedUrlsForCopy(optimized);
+                String replacement = Matcher.quoteReplacement("Videos:\n" + decoded.replace(",", "\n"));
+                videoMatcher.appendReplacement(resultBuffer, replacement);
+            }
+            videoMatcher.appendTail(resultBuffer);
+            String finalMessage = resultBuffer.toString();
+
+            clipboard.setPrimaryClip(ClipData.newPlainText("Copied Message", finalMessage));
             Toast.makeText(this, "Copied", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    private String decodeOptimizedUrlsForCopy(String optimizedUrls) {
+        if (!optimizedUrls.contains(">")) {
+            String[] urls = optimizedUrls.split(",");
+            StringBuilder result = new StringBuilder();
+            for (String url : urls) {
+                if (result.length() > 0) result.append(",");
+                result.append("https://").append(url.trim());
+            }
+            return result.toString();
+        }
+
+        StringBuilder decoded = new StringBuilder();
+        String[] domainGroups = optimizedUrls.split(";");
+
+        for (int i = 0; i < domainGroups.length; i++) {
+            String group = domainGroups[i].trim();
+
+            int arrowIndex = group.indexOf('>');
+            if (arrowIndex == -1) continue;
+
+            String domainAndPrefix = group.substring(0, arrowIndex);
+            String files = group.substring(arrowIndex + 1);
+
+            String domain;
+            String prefix = "";
+
+            int lastSlash = domainAndPrefix.lastIndexOf('/');
+            if (lastSlash > 0) {
+                domain = domainAndPrefix.substring(0, domainAndPrefix.indexOf('/'));
+                prefix = domainAndPrefix.substring(domainAndPrefix.indexOf('/') + 1);
+            } else {
+                domain = domainAndPrefix;
+            }
+
+            String[] fileArray = files.split(",");
+            for (int j = 0; j < fileArray.length; j++) {
+                if (decoded.length() > 0) {
+                    decoded.append(",");
+                }
+                decoded.append("https://").append(domain);
+                if (!prefix.isEmpty()) {
+                    decoded.append("/").append(prefix);
+                }
+                decoded.append("/").append(fileArray[j].trim());
+            }
+        }
+        return decoded.toString();
     }
 
     private void restartApp() {

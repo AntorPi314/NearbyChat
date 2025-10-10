@@ -54,5 +54,14 @@
             android:gravity="bottom|end"
             android:orientation="horizontal" />
 
+        <LinearLayout
+            android:id="@+id/videoContainer"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginTop="4dp"
+            android:layout_marginStart="80dp"
+            android:gravity="bottom|end"/>
+
     </LinearLayout>
 </LinearLayout>

@@ -6,6 +6,7 @@ import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
+import android.net.Uri;
 import android.os.Build;
 import android.util.Log;
 import android.view.LayoutInflater;
@@ -26,6 +27,7 @@ import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import android.widget.FrameLayout;
+import android.widget.Toast;
 
 public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder> {
 
@@ -67,24 +69,55 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
 
         String displayMessage = msg.getMessage();
         boolean hasImages = displayMessage.contains("m:/");
+        boolean hasVideos = displayMessage.contains("v:/");
 
         String textPart = "";
         String imagePart = "";
-        if (hasImages) {
+        String videoPart = "";
+
+        if (hasImages || hasVideos) {
             int imageMarkerIndex = displayMessage.indexOf("m:/");
-            if (imageMarkerIndex > 0) {
-                textPart = displayMessage.substring(0, imageMarkerIndex).trim();
+            int videoMarkerIndex = displayMessage.indexOf("v:/");
+
+            int firstMarkerIndex = -1;
+            if (imageMarkerIndex != -1 && videoMarkerIndex != -1) {
+                firstMarkerIndex = Math.min(imageMarkerIndex, videoMarkerIndex);
+            } else if (imageMarkerIndex != -1) {
+                firstMarkerIndex = imageMarkerIndex;
+            } else if (videoMarkerIndex != -1) {
+                firstMarkerIndex = videoMarkerIndex;
             }
-            imagePart = displayMessage.substring(imageMarkerIndex + 3);
+
+            if (firstMarkerIndex > 0) {
+                textPart = displayMessage.substring(0, firstMarkerIndex).trim();
+            }
+
+            if (hasImages) {
+                int start = imageMarkerIndex + 3;
+                int end = displayMessage.length();
+                if (videoMarkerIndex != -1 && videoMarkerIndex > imageMarkerIndex) {
+                    end = videoMarkerIndex;
+                }
+                imagePart = displayMessage.substring(start, end).trim();
+                imagePart = decodeOptimizedUrls(imagePart);
+            }
+
+            if (hasVideos) {
+                int start = videoMarkerIndex + 3;
+                videoPart = displayMessage.substring(start).trim();
+                videoPart = decodeOptimizedUrls(videoPart);
+            }
         } else {
             textPart = displayMessage;
         }
+
         if (!textPart.isEmpty()) {
             holder.message.setVisibility(View.VISIBLE);
             holder.message.setText(textPart);
         } else {
             holder.message.setVisibility(View.GONE);
         }
+
         holder.itemView.setBackgroundColor(Color.TRANSPARENT);
         if (msg.isSelf()) {
             holder.message.setTextColor(msg.isFailed() ? Color.parseColor("#CC0000") : Color.WHITE);
@@ -92,6 +125,7 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
         } else {
             holder.message.setTextColor(Color.BLACK);
         }
+
         if (holder.imageContainer != null) {
             if (hasImages && !imagePart.isEmpty()) {
                 String[] urls = imagePart.split(",");
@@ -116,6 +150,30 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
             }
         }
 
+        if (holder.videoContainer != null) {
+            if (hasVideos && !videoPart.isEmpty()) {
+                String[] urls = videoPart.split(",");
+                ArrayList<String> videoUrls = new ArrayList<>();
+                for (String url : urls) {
+                    if (!url.trim().isEmpty()) {
+                        videoUrls.add(url.trim());
+                    }
+                }
+                String newVideoKey = videoPart;
+                if (!newVideoKey.equals(holder.videoContainer.getTag())) {
+                    holder.videoContainer.setTag(newVideoKey);
+                    holder.videoContainer.setVisibility(View.VISIBLE);
+                    holder.videoContainer.removeAllViews();
+                    setupVideoViews(holder.videoContainer, videoUrls);
+                } else {
+                    holder.videoContainer.setVisibility(View.VISIBLE);
+                }
+            } else {
+                holder.videoContainer.setTag(null);
+                holder.videoContainer.setVisibility(View.GONE);
+            }
+        }
+
         if (holder.profilePic != null) {
             main.loadProfilePictureForAdapter(msg.getSenderId(), holder.profilePic);
             holder.profilePic.setOnClickListener(v -> main.openFriendChat(msg.getSenderId()));
@@ -126,6 +184,144 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
             return true;
         });
         holder.itemView.setOnClickListener(v -> clickListener.onClick(msg));
+    }
+
+    private String decodeOptimizedUrls(String optimizedUrls) {
+        if (!optimizedUrls.contains(">")) {
+            // Not optimized format, return as is
+            return optimizedUrls;
+        }
+
+        StringBuilder decoded = new StringBuilder();
+        String[] domainGroups = optimizedUrls.split(";");
+
+        for (int i = 0; i < domainGroups.length; i++) {
+            String group = domainGroups[i].trim();
+
+            int arrowIndex = group.indexOf('>');
+            if (arrowIndex == -1) continue;
+
+            String domainAndPrefix = group.substring(0, arrowIndex);
+            String files = group.substring(arrowIndex + 1);
+
+            // Extract domain and prefix
+            String domain;
+            String prefix = "";
+
+            int lastSlash = domainAndPrefix.lastIndexOf('/');
+            if (lastSlash > 0) {
+                domain = domainAndPrefix.substring(0, domainAndPrefix.indexOf('/'));
+                prefix = domainAndPrefix.substring(domainAndPrefix.indexOf('/') + 1);
+            } else {
+                domain = domainAndPrefix;
+            }
+
+            // Build full URLs
+            String[] fileArray = files.split(",");
+            for (int j = 0; j < fileArray.length; j++) {
+                if (decoded.length() > 0) {
+                    decoded.append(",");
+                }
+                decoded.append(domain);
+                if (!prefix.isEmpty()) {
+                    decoded.append("/").append(prefix);
+                }
+                decoded.append("/").append(fileArray[j].trim());
+            }
+        }
+
+        return decoded.toString();
+    }
+
+    private void setupVideoViews(LinearLayout videoContainer, ArrayList<String> videoUrls) {
+        int columns = 3;
+        int totalVideos = videoUrls.size();
+        int rows = (int) Math.ceil(totalVideos / (double) columns);
+
+        for (int row = 0; row < rows; row++) {
+            LinearLayout rowLayout = new LinearLayout(context);
+            rowLayout.setOrientation(LinearLayout.HORIZONTAL);
+            rowLayout.setLayoutParams(new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+            ));
+
+            for (int col = 0; col < columns; col++) {
+                int index = row * columns + col;
+                if (index >= totalVideos) break;
+
+                final String videoUrl = videoUrls.get(index);
+
+                FrameLayout videoFrame = new FrameLayout(context);
+                LinearLayout.LayoutParams frameParams = new LinearLayout.LayoutParams(dpToPx(60), dpToPx(60));
+                if (col < columns - 1 && index < totalVideos - 1) {
+                    frameParams.setMarginEnd(dpToPx(6));
+                }
+                if (row < rows - 1) {
+                    frameParams.bottomMargin = dpToPx(6);
+                }
+                videoFrame.setLayoutParams(frameParams);
+
+                View blackBg = new View(context);
+                FrameLayout.LayoutParams bgParams = new FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT
+                );
+                blackBg.setLayoutParams(bgParams);
+                blackBg.setBackgroundColor(0xFF000000);
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    videoFrame.setClipToOutline(true);
+                    videoFrame.setOutlineProvider(new android.view.ViewOutlineProvider() {
+                        @Override
+                        public void getOutline(android.view.View view, android.graphics.Outline outline) {
+                            outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), dpToPx(8));
+                        }
+                    });
+                }
+
+                ImageView playIcon = new ImageView(context);
+                FrameLayout.LayoutParams playParams = new FrameLayout.LayoutParams(
+                        dpToPx(30),
+                        dpToPx(30)
+                );
+                playParams.gravity = android.view.Gravity.CENTER;
+                playIcon.setLayoutParams(playParams);
+                playIcon.setImageResource(R.drawable.ic_play_video);
+                playIcon.setColorFilter(null); // Remove color filter to use original drawable colors
+
+                videoFrame.addView(blackBg);
+                videoFrame.addView(playIcon);
+
+                videoFrame.setOnClickListener(v -> openVideoPlayer(videoUrl));
+
+                rowLayout.addView(videoFrame);
+            }
+
+            videoContainer.addView(rowLayout);
+        }
+    }
+
+    private void openVideoPlayer(String videoUrl) {
+        try {
+            String fullUrl = videoUrl;
+            if (!fullUrl.startsWith("http://") && !fullUrl.startsWith("https://")) {
+                fullUrl = "https://" + fullUrl;
+            }
+
+            Intent intent = new Intent(Intent.ACTION_VIEW);
+            intent.setDataAndType(Uri.parse(fullUrl), "video/*");
+            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+
+            if (intent.resolveActivity(context.getPackageManager()) != null) {
+                context.startActivity(Intent.createChooser(intent, "Play video with"));
+            } else {
+                Toast.makeText(context, "No video player found", Toast.LENGTH_SHORT).show();
+            }
+        } catch (Exception e) {
+            Log.e("ChatAdapter", "Error opening video player", e);
+            Toast.makeText(context, "Error playing video", Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void setupImageViews(LinearLayout imageContainer, final ArrayList<String> imageUrls, boolean isSelf) {
@@ -276,6 +472,7 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
         TextView senderId, message, timestamp;
         ImageView profilePic;
         LinearLayout imageContainer;
+        LinearLayout videoContainer;  // ADD THIS LINE
 
         public ChatViewHolder(@NonNull View itemView) {
             super(itemView);
@@ -284,6 +481,7 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
             timestamp = itemView.findViewById(R.id.textTimestamp);
             profilePic = itemView.findViewById(R.id.profilePicRound);
             imageContainer = itemView.findViewById(R.id.imageContainer);
+            videoContainer = itemView.findViewById(R.id.videoContainer);  // ADD THIS LINE
         }
     }
 }
