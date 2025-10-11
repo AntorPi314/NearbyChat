@@ -116,8 +116,8 @@
             android:layout_marginBottom="10dp"
             android:background="@drawable/btn_bg_round"
             android:drawableStart="@drawable/ic_settings"
-            android:drawableTint="#FFFFFF"
             android:drawablePadding="11dp"
+            android:drawableTint="#FFFFFF"
             android:gravity="center_vertical|start"
             android:paddingStart="12dp"
             android:paddingTop="0dp"
@@ -132,7 +132,7 @@
             android:layout_width="match_parent"
             android:layout_height="36dp"
             android:layout_marginBottom="10dp"
-            android:background="@drawable/btn_bg_round"
+            android:background="@drawable/btn_bg_round_highlight"
             android:drawableStart="@drawable/ic_support_dev"
             android:drawablePadding="11dp"
             android:gravity="center_vertical|start"
@@ -142,7 +142,8 @@
             android:paddingBottom="0dp"
             android:text="Support Developer"
             android:textAllCaps="false"
-            android:textColor="#EFE7E7" />
+            android:textColor="#FFFFFF"
+            android:textStyle="bold" />
 
         <Button
             android:id="@+id/id_about"

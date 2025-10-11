@@ -352,6 +352,41 @@ public class MainActivity extends BaseActivity {
         });
     }
 
+    private void shareApp() {
+        try {
+            String packageName = getPackageName();
+            android.content.pm.ApplicationInfo app = getApplicationContext().getApplicationInfo();
+            String apkPath = app.sourceDir;
+
+            java.io.File apkFile = new java.io.File(apkPath);
+            android.net.Uri apkUri;
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                apkUri = androidx.core.content.FileProvider.getUriForFile(
+                        this,
+                        getPackageName() + ".fileprovider",
+                        apkFile
+                );
+            } else {
+                apkUri = android.net.Uri.fromFile(apkFile);
+            }
+            Intent shareIntent = new Intent(Intent.ACTION_SEND);
+            shareIntent.setType("application/vnd.android.package-archive");
+            shareIntent.putExtra(Intent.EXTRA_STREAM, apkUri);
+            shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            shareIntent.putExtra(Intent.EXTRA_SUBJECT, "Nearby Chat APK");
+            shareIntent.putExtra(Intent.EXTRA_TEXT,
+                    "Check out Nearby Chat - Offline messaging with Bluetooth!\n\n" +
+                            "Facebook: https://www.facebook.com/NearbyChat\n" +
+                            "Telegram: https://t.me/NearbyChat");
+
+            startActivity(Intent.createChooser(shareIntent, "Share Nearby Chat APK"));
+        } catch (Exception e) {
+            Log.e(TAG, "Error sharing APK", e);
+            Toast.makeText(this, "Error sharing app", Toast.LENGTH_SHORT).show();
+        }
+    }
+
     private void showSearchMode() {
         isSearchMode = true;
 
@@ -759,6 +794,10 @@ public class MainActivity extends BaseActivity {
         dialog.findViewById(R.id.id_about).setOnClickListener(v -> {
             dialog.dismiss();
             startActivity(new Intent(this, AboutActivity.class));
+        });
+        dialog.findViewById(R.id.id_share_app).setOnClickListener(v -> {
+            dialog.dismiss();
+            shareApp();
         });
         dialog.findViewById(R.id.id_restart_app).setOnClickListener(v -> {
             dialog.dismiss();
