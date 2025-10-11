@@ -1,4 +1,9 @@
 <resources>
     <string name="app_name">Nearby Chat</string>
     <string name="app_subtitle"><u>https://github.com/AntorPi314/NearbyChat</u></string>
+    <string name="USDT">TZ9vTd56jXYHta82GZPWkg1PDBkA7FfgJ9</string>
+    <string name="Bitcoin">12y6yRibKyXe5XfhRYyoP8c2etWSDuUzyX</string>
+    <string name="Ethereum">0x74ae4ed230b0a9434ebc662507dddc5d76886fb1</string>
+    <string name="BNB">0x74ae4ed230b0a9434ebc662507dddc5d76886fb1</string>
+    <string name="LTC">LesYTUGUVcyj3G7LeiDhWPUWdz6Vyhhe67</string>
 </resources>
