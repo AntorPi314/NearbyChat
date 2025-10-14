@@ -518,6 +518,9 @@ public class BleMessagingService extends Service {
                 if (msgToSave != null) {
                     addMessage(msgToSave);
                 }
+                if ("F".equals(chatType) && !chatId.isEmpty()) {
+                    autoAddFriendIfSending(chatId);
+                }
                 schedulePacketsForAdvertising(packets, msgToSave);
 
             } catch (Exception e) {
@@ -527,6 +530,36 @@ public class BleMessagingService extends Service {
                 }
             }
         });
+    }
+
+    private void autoAddFriendIfSending(String friendAsciiId) {
+        try {
+            long bits = MessageHelper.asciiIdToTimestamp(friendAsciiId);
+            String friendDisplayId = MessageHelper.timestampToDisplayId(bits);
+
+            SharedPreferences prefs = getSharedPreferences("NearbyChatPrefs", MODE_PRIVATE);
+            String friendsJson = prefs.getString("friendsList", null);
+            Gson gson = new Gson();
+            Type type = new TypeToken<List<FriendModel>>() {}.getType();
+            List<FriendModel> friends = gson.fromJson(friendsJson, type);
+            if (friends == null) {
+                friends = new ArrayList<>();
+            }
+            boolean exists = false;
+            for (FriendModel f : friends) {
+                if (f.getDisplayId().equals(friendDisplayId)) {
+                    exists = true;
+                    break;
+                }
+            }
+            if (!exists) {
+                friends.add(new FriendModel(friendDisplayId, "", ""));
+                prefs.edit().putString("friendsList", gson.toJson(friends)).apply();
+                Log.d(TAG, "Auto-added friend when sending: " + friendDisplayId);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error auto-adding friend when sending", e);
+        }
     }
 
     public void retransmitMessage(MessageModel messageToRetransmit) {
