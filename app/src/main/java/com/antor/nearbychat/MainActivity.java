@@ -570,10 +570,9 @@ public class MainActivity extends BaseActivity {
             }
         }
         if (friendToEdit == null) {
-            Toast.makeText(this, "Could not find friend to edit.", Toast.LENGTH_SHORT).show();
-            return;
+            friendToEdit = new FriendModel(displayIdToFind, "", "");
+            friendPosition = -1;
         }
-
         Dialog dialog = new Dialog(this);
         dialog.setContentView(R.layout.dialog_add_edit_friend);
         dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
@@ -593,8 +592,12 @@ public class MainActivity extends BaseActivity {
         editId.setText(friendToEdit.getDisplayId());
         editKey.setText(friendToEdit.getEncryptionKey());
         editId.setEnabled(false);
-        btnDelete.setVisibility(View.VISIBLE);
 
+        if (friendPosition != -1) {
+            btnDelete.setVisibility(View.VISIBLE);
+        } else {
+            btnDelete.setVisibility(View.GONE);
+        }
         final List<FriendModel> finalFriendsList = friendsList;
         final int finalFriendPosition = friendPosition;
         final FriendModel finalFriendToEdit = friendToEdit;
@@ -621,34 +624,44 @@ public class MainActivity extends BaseActivity {
                 startActivity(intent);
             });
         }
-
         btnCancel.setOnClickListener(v -> dialog.dismiss());
+
         btnDelete.setOnClickListener(v -> {
-            finalFriendsList.remove(finalFriendPosition);
-            prefs.edit().putString(KEY_FRIENDS_LIST, gson.toJson(finalFriendsList)).apply();
-            Toast.makeText(this, "Friend deleted. Returning to Nearby Chat.", Toast.LENGTH_SHORT).show();
-            activeChatType = "N";
-            activeChatId = "";
-            saveActiveChat();
-            updateChatUIForSelection();
+            if (finalFriendPosition != -1) {
+                finalFriendsList.remove(finalFriendPosition);
+                prefs.edit().putString(KEY_FRIENDS_LIST, gson.toJson(finalFriendsList)).apply();
+                Toast.makeText(this, "Friend deleted. Returning to Nearby Chat.", Toast.LENGTH_SHORT).show();
+                activeChatType = "N";
+                activeChatId = "";
+                saveActiveChat();
+                updateChatUIForSelection();
+            }
             dialog.dismiss();
         });
         btnSave.setOnClickListener(v -> {
             String name = editName.getText().toString().trim();
             String key = editKey.getText().toString().trim();
 
-            if (name.isEmpty()) {
-                Toast.makeText(this, "Name cannot be empty", Toast.LENGTH_SHORT).show();
-                return;
-            }
             finalFriendToEdit.setName(name);
             finalFriendToEdit.setEncryptionKey(key);
 
-            finalFriendsList.set(finalFriendPosition, finalFriendToEdit);
+            boolean existsInList = false;
+            for (int i = 0; i < finalFriendsList.size(); i++) {
+                if (finalFriendsList.get(i).getDisplayId().equals(finalFriendToEdit.getDisplayId())) {
+                    finalFriendsList.set(i, finalFriendToEdit);
+                    existsInList = true;
+                    break;
+                }
+            }
+            if (!existsInList) {
+                finalFriendsList.add(finalFriendToEdit);
+            }
             prefs.edit().putString(KEY_FRIENDS_LIST, gson.toJson(finalFriendsList)).apply();
             updateChatUIForSelection();
+            Toast.makeText(this, "Friend saved", Toast.LENGTH_SHORT).show();
             dialog.dismiss();
         });
+
         dialog.show();
     }
 
@@ -681,19 +694,22 @@ public class MainActivity extends BaseActivity {
 
             SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
             String friendsJson = prefs.getString(KEY_FRIENDS_LIST, null);
+            String friendName = displayId; // Default to displayId
+
             if (friendsJson != null) {
-                Type type = new TypeToken<List<FriendModel>>() {
-                }.getType();
+                Type type = new TypeToken<List<FriendModel>>() {}.getType();
                 List<FriendModel> friends = gson.fromJson(friendsJson, type);
-                String friendName = "Friend";
                 for (FriendModel f : friends) {
                     if (f.getDisplayId().equals(displayId)) {
-                        friendName = f.getName();
+                        String name = f.getName();
+                        if (name != null && !name.isEmpty()) {
+                            friendName = name;
+                        }
                         break;
                     }
                 }
-                appTitle.setText(friendName);
             }
+            appTitle.setText(friendName);
             ProfilePicLoader.loadProfilePicture(this, displayId, appIcon);
         }
         messageList.clear();
@@ -875,20 +891,6 @@ public class MainActivity extends BaseActivity {
     }
 
     public void openFriendChat(String friendDisplayId) {
-        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        String friendsJson = prefs.getString(KEY_FRIENDS_LIST, null);
-        List<FriendModel> friends = new ArrayList<>();
-        if (friendsJson != null) {
-            Type type = new TypeToken<List<FriendModel>>() {
-            }.getType();
-            friends = gson.fromJson(friendsJson, type);
-        }
-        boolean exists = friends.stream().anyMatch(f -> f.getDisplayId().equals(friendDisplayId));
-        if (!exists) {
-            friends.add(new FriendModel(friendDisplayId, getDisplayName(friendDisplayId), ""));
-            prefs.edit().putString(KEY_FRIENDS_LIST, gson.toJson(friends)).apply();
-            Toast.makeText(this, "Added to Friends: " + getDisplayName(friendDisplayId), Toast.LENGTH_SHORT).show();
-        }
         long bits = MessageHelper.displayIdToTimestamp(friendDisplayId);
         String asciiId = MessageHelper.timestampToAsciiId(bits);
         activeChatType = "F";
@@ -1675,7 +1677,27 @@ public class MainActivity extends BaseActivity {
     }
 
     public String getDisplayName(String senderId) {
-        return nameMap.getOrDefault(senderId, senderId);
+        String name = nameMap.get(senderId);
+
+        if (name != null && !name.isEmpty()) {
+            return name;
+        }
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        String friendsJson = prefs.getString(KEY_FRIENDS_LIST, null);
+        if (friendsJson != null) {
+            Type type = new TypeToken<List<FriendModel>>() {}.getType();
+            List<FriendModel> friends = gson.fromJson(friendsJson, type);
+            for (FriendModel f : friends) {
+                if (f.getDisplayId().equals(senderId)) {
+                    String friendName = f.getName();
+                    if (friendName != null && !friendName.isEmpty()) {
+                        return friendName;
+                    }
+                    break;
+                }
+            }
+        }
+        return senderId;
     }
 
     private boolean isAtBottom() {

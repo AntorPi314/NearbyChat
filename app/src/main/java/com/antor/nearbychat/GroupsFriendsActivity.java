@@ -501,8 +501,8 @@ public class GroupsFriendsActivity extends Activity {
             String name = editName.getText().toString().trim();
             String id = editId.getText().toString().trim();
             String key = editKey.getText().toString().trim();
-            if (name.isEmpty() || id.isEmpty()) {
-                Toast.makeText(this, "Fields cannot be empty", Toast.LENGTH_SHORT).show();
+            if (id.isEmpty()) {
+                Toast.makeText(this, "Friend ID cannot be empty", Toast.LENGTH_SHORT).show();
                 return;
             }
             if (id.length() != 8) {

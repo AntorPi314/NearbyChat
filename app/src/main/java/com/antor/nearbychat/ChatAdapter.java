@@ -64,7 +64,14 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
         MessageModel msg = messageList.get(position);
         MainActivity main = (MainActivity) context;
 
-        holder.senderId.setText(main.getDisplayName(msg.getSenderId()));
+        String displayName = main.getDisplayName(msg.getSenderId());
+
+        if (displayName == null || displayName.isEmpty() || displayName.equals(msg.getSenderId())) {
+            holder.senderId.setText(msg.getSenderId());
+        } else {
+            holder.senderId.setText(displayName);
+        }
+
         holder.timestamp.setText(msg.getTimestamp());
 
         String displayMessage = msg.getMessage();

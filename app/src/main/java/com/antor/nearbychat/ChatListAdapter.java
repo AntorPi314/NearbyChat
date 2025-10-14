@@ -46,7 +46,11 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.ChatVi
     @Override
     public void onBindViewHolder(@NonNull ChatViewHolder holder, int position) {
         GroupsFriendsActivity.ChatItem chat = chatList.get(position);
-        holder.chatName.setText(chat.name);
+        String displayName = chat.name;
+        if ((displayName == null || displayName.isEmpty()) && "F".equals(chat.type)) {
+            displayName = chat.displayId;
+        }
+        holder.chatName.setText(displayName);
         holder.lastMessage.setText(chat.lastMessage);
         holder.timestamp.setText(chat.lastMessageTime);
 
