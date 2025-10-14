@@ -12,7 +12,6 @@
         android:orientation="vertical"
         android:padding="16dp">
 
-        <!-- Back Button -->
         <ImageView
             android:id="@+id/backButton"
             android:layout_width="40dp"
@@ -24,7 +23,6 @@
             android:src="@drawable/back"
             android:tint="#EAECEF" />
 
-        <!-- Profile Section -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -99,13 +97,12 @@
                 android:src="@drawable/ic_youtube"/>
         </LinearLayout>
 
-        <!-- Donate Section -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="8dp"
+            android:layout_marginBottom="4dp"
             android:text="Donate Cryptocurrency"
-            android:textColor="#EAECEF"
+            android:textColor="#E0BC2E"
             android:textSize="18sp"
             android:textStyle="bold" />
 
@@ -205,11 +202,18 @@
             </LinearLayout>
         </LinearLayout>
 
-        <!-- Footer -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_weight="1">
+
+        </LinearLayout>
+
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="18dp"
+            android:layout_marginTop="0dp"
             android:gravity="center"
             android:text="Thank you for your support! 💛"
             android:textColor="#848E9C"

@@ -1,67 +1,113 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.cardview.widget.CardView xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="280dp"
     android:layout_height="wrap_content"
-    android:layout_gravity="center_horizontal"
-    android:layout_margin="16dp"
-    android:fitsSystemWindows="true"
-    app:cardBackgroundColor="@android:color/white"
-    app:cardCornerRadius="16dp"
-    app:cardElevation="8dp">
+    android:layout_gravity="center_horizontal|center_vertical"
+    android:background="@drawable/dialog_background"
+    android:orientation="vertical"
+    android:paddingTop="4dp"
+    android:paddingStart="4dp"
+    android:paddingBottom="8dp"
+    android:paddingEnd="4dp"
+    android:elevation="1dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="horizontal"
+        android:gravity="end">
+
+        <ImageView
+            android:id="@+id/qrCodeShow"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal|center_vertical"
+            android:paddingStart="8dp"
+            android:paddingTop="18dp"
+            android:paddingEnd="18dp"
+            android:paddingBottom="8dp"
+            android:scaleType="centerInside"
+            android:src="@drawable/qr_code"
+            android:tint="#424449" />
+
+    </LinearLayout>
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="center_horizontal"
         android:orientation="vertical"
-        android:paddingStart="16dp"
-        android:paddingTop="5dp"
-        android:paddingEnd="16dp"
-        android:paddingBottom="12dp">
+        android:layout_marginTop="-26dp"
+        android:paddingStart="8dp"
+        android:paddingTop="0dp"
+        android:paddingEnd="8dp"
+        android:paddingBottom="4dp" >
+
+        <LinearLayout
+            android:id="@+id/myInfo"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center_horizontal">
 
         <ImageView
-            android:id="@+id/profilePicRound"
-            android:layout_width="60dp"
-            android:layout_height="60dp"
-            android:layout_marginTop="8dp"
-            android:layout_marginBottom="4dp"
-            android:background="@drawable/circle_bg"
-            android:contentDescription="Profile Picture"
-            android:padding="0dp"
-            android:src="@drawable/profile_pic_round_vector" />
+                android:visibility="gone"
+                android:layout_width="90dp"
+                android:layout_height="25dp"
+                android:layout_marginTop="4dp"
+                android:layout_marginBottom="4dp"
+                android:padding="0dp"
+                android:src="@drawable/free_palestine" />
 
-        <TextView
-            android:id="@+id/textName"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="YOUR_Name"
-            android:textColor="#3A3737"
-            android:textSize="14sp"
-            android:textStyle="bold" />
+            <ImageView
+                android:id="@+id/profilePicRound"
+                android:layout_width="60dp"
+                android:layout_height="60dp"
+                android:layout_marginTop="4dp"
+                android:layout_marginBottom="4dp"
+                android:background="@drawable/circle_bg"
+                android:contentDescription="Profile Picture"
+                android:padding="0dp"
+                android:src="@drawable/profile_pic_round_vector" />
 
-        <TextView
-            android:id="@+id/textID"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="YOUR_ID"
-            android:textColor="#7A6F6F"
-            android:textSize="11sp"
-            android:textStyle="bold" />
+            <TextView
+                android:visibility="visible"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="🇵🇸  Free Palestine"
+                android:textColor="#817777"
+                android:textSize="9sp"
+                android:textStyle="bold" />
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="🇵🇸  Free Palestine"
-            android:textColor="#000000"
-            android:textSize="10sp"
-            android:textStyle="bold" />
+            <TextView
+                android:id="@+id/textName"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Unknow_Name"
+                android:textColor="#3A3737"
+                android:gravity="center_horizontal"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/textID"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingBottom="10dp"
+                android:text="YOUR_ID"
+                android:textColor="#7A6F6F"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+        </LinearLayout>
+
 
         <Button
             android:id="@+id/id_saved"
             android:layout_width="match_parent"
             android:layout_height="36dp"
-            android:layout_marginTop="10dp"
+            android:layout_marginTop="0dp"
             android:layout_marginBottom="10dp"
             android:background="@drawable/btn_bg_round"
             android:drawableStart="@drawable/saved"
@@ -196,4 +242,4 @@
             android:textColor="#EFE7E7" />
 
     </LinearLayout>
-</androidx.cardview.widget.CardView>
+</LinearLayout>

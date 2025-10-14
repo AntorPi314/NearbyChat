@@ -768,16 +768,43 @@ public class MainActivity extends BaseActivity {
         lp.gravity = Gravity.CENTER;
         dialog.getWindow().setAttributes(lp);
 
+        ImageView qrCodeShow = dialog.findViewById(R.id.qrCodeShow);
         TextView textID = dialog.findViewById(R.id.textID);
+        TextView textName = dialog.findViewById(R.id.textName);
         ImageView profilePic = dialog.findViewById(R.id.profilePicRound);
 
-        textID.setText(getDisplayName(userId));
+        textID.setText(userId);
+
+        String displayName = nameMap.get(userId);
+        if (displayName == null || displayName.isEmpty()) {
+            textName.setText("Unknown_Name");
+        } else {
+            textName.setText(displayName);
+        }
+
         ProfilePicLoader.loadProfilePicture(this, userId, profilePic);
 
+        if (qrCodeShow != null) {
+            qrCodeShow.setOnClickListener(v -> {
+                dialog.dismiss();
+                showMyQRCode();
+            });
+        }
         profilePic.setOnClickListener(v -> {
             currentUserId = userId;
             currentProfilePic = profilePic;
             showImagePickerDialog(userId, profilePic);
+        });
+        textName.setOnClickListener(v -> {
+            dialog.dismiss();
+            showEditMyProfileDialog();
+        });
+        textID.setOnClickListener(v -> {
+            ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            if (clipboard != null) {
+                clipboard.setPrimaryClip(ClipData.newPlainText("User ID", userId));
+                Toast.makeText(this, "ID copied: " + userId, Toast.LENGTH_SHORT).show();
+            }
         });
         dialog.findViewById(R.id.id_notepad).setOnClickListener(v -> {
             dialog.dismiss();
@@ -804,6 +831,20 @@ public class MainActivity extends BaseActivity {
             restartApp();
         });
         dialog.show();
+    }
+
+    private void showMyQRCode() {
+        String displayName = nameMap.get(userId);
+        if (displayName == null || displayName.isEmpty()) {
+            displayName = "Unknown_Name";
+        }
+        String qrData = "FRIEND:" + userId + "|" + displayName + "|";
+
+        Intent intent = new Intent(this, QRCodeActivity.class);
+        intent.putExtra("qr_data", qrData);
+        intent.putExtra("qr_type", "friend");
+        intent.putExtra("display_name", displayName);
+        startActivity(intent);
     }
 
     private void setupMessageInput() {
@@ -854,6 +895,37 @@ public class MainActivity extends BaseActivity {
         activeChatId = asciiId;
         saveActiveChat();
         updateChatUIForSelection();
+    }
+
+    private void showEditMyProfileDialog() {
+        Dialog dialog = new Dialog(this);
+        dialog.setContentView(R.layout.dialog_edit_me);
+        dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+
+        EditText editName = dialog.findViewById(R.id.editName);
+        Button btnCancel = dialog.findViewById(R.id.btnCancel);
+        Button btnAdd = dialog.findViewById(R.id.btnAdd);
+
+        String currentName = getDisplayName(userId);
+        editName.setText(currentName);
+        btnAdd.setText("Save");
+
+        btnCancel.setOnClickListener(v -> dialog.dismiss());
+
+        btnAdd.setOnClickListener(v -> {
+            String newName = editName.getText().toString().trim();
+            if (newName.isEmpty()) {
+                Toast.makeText(this, "Name cannot be empty", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            nameMap.put(userId, newName);
+            saveNameMap();
+
+            Toast.makeText(this, "Name updated", Toast.LENGTH_SHORT).show();
+            dialog.dismiss();
+        });
+
+        dialog.show();
     }
 
     private void initUserId() {
