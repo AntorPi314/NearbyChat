@@ -13,6 +13,7 @@ public class MessageModel {
     private String chatId;
     private boolean isRead = true;
     private boolean isFailed = false;
+    private boolean isSaved = false;
 
     private int chunkCount = 1;
 
@@ -83,4 +84,7 @@ public class MessageModel {
 
     public boolean isRead() { return isRead; }
     public void setRead(boolean read) { isRead = read; }
+
+    public boolean isSaved() { return isSaved; }
+    public void setSaved(boolean saved) { isSaved = saved; }
 }

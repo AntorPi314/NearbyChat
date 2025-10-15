@@ -10,7 +10,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase;
 
 @Database(
         entities = {MessageEntity.class},
-        version = 6,
+        version = 7,
         exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -22,6 +22,13 @@ public abstract class AppDatabase extends RoomDatabase {
         @Override
         public void migrate(@NonNull SupportSQLiteDatabase database) {
             database.execSQL("ALTER TABLE messages ADD COLUMN isRead INTEGER NOT NULL DEFAULT 1");
+        }
+    };
+
+    static final Migration MIGRATION_6_7 = new Migration(6, 7) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase database) {
+            database.execSQL("ALTER TABLE messages ADD COLUMN isSaved INTEGER NOT NULL DEFAULT 0");
         }
     };
 
@@ -57,7 +64,7 @@ public abstract class AppDatabase extends RoomDatabase {
                                     AppDatabase.class,
                                     "nearby_chat_database"
                             )
-                            .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                            .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                             .fallbackToDestructiveMigration()
                             .build();
                 }

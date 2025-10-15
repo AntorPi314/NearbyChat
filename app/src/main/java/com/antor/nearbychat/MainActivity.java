@@ -138,6 +138,8 @@ public class MainActivity extends BaseActivity {
     private FrameLayout sendButtonContainer;
     private boolean isAdvertising = false;
 
+    private boolean isShowingSavedMessages = false;
+    private androidx.lifecycle.LiveData<List<com.antor.nearbychat.Database.MessageEntity>> savedMessagesLiveData = null;
 
     private boolean isKeyboardVisible = false;
 
@@ -829,6 +831,10 @@ public class MainActivity extends BaseActivity {
                 Toast.makeText(this, "ID copied: " + userId, Toast.LENGTH_SHORT).show();
             }
         });
+        dialog.findViewById(R.id.id_saved).setOnClickListener(v -> {
+            dialog.dismiss();
+            showSavedMessages();
+        });
         dialog.findViewById(R.id.id_notepad).setOnClickListener(v -> {
             dialog.dismiss();
             startActivity(new Intent(this, NotepadActivity.class));
@@ -1445,9 +1451,12 @@ public class MainActivity extends BaseActivity {
         if (msg.isFailed()) {
             options = new ArrayList<>(Collections.singletonList("Remove"));
         } else {
-            options = new ArrayList<>(Arrays.asList("Copy", "Remove"));
-            boolean shouldHideRetransmit = "F".equals(activeChatType) && !msg.isSelf();
+            options = new ArrayList<>();
+            options.add("Copy");
+            options.add("Save");
+            options.add("Remove");
 
+            boolean shouldHideRetransmit = "F".equals(activeChatType) && !msg.isSelf();
             if (!shouldHideRetransmit) {
                 options.add("Retransmit");
             }
@@ -1458,6 +1467,9 @@ public class MainActivity extends BaseActivity {
                     switch (selectedOption) {
                         case "Copy":
                             copyMessageToClipboard(msg);
+                            break;
+                        case "Save":
+                            saveMessage(msg);
                             break;
                         case "Remove":
                             removeMessage(msg);
@@ -1483,6 +1495,61 @@ public class MainActivity extends BaseActivity {
                 runOnUiThread(() -> Toast.makeText(this, "Error removing message", Toast.LENGTH_SHORT).show());
             }
         }).start();
+    }
+
+    private void saveMessage(MessageModel msg) {
+        new Thread(() -> {
+            try {
+                messageDao.saveMessage(msg.getSenderId(), msg.getMessageId(), msg.getTimestamp());
+                runOnUiThread(() -> Toast.makeText(this, "Message saved", Toast.LENGTH_SHORT).show());
+            } catch (Exception e) {
+                runOnUiThread(() -> Toast.makeText(this, "Error saving message", Toast.LENGTH_SHORT).show());
+            }
+        }).start();
+    }
+
+    private void showSavedMessages() {
+        isShowingSavedMessages = true;
+
+        appTitle.setText("Saved");
+        appIcon.setImageResource(R.drawable.saved_blue);
+        findViewById(R.id.inputContainer).setVisibility(View.GONE);
+
+        if (currentMessagesLiveData != null) {
+            currentMessagesLiveData.removeObservers(this);
+        }
+        if (savedMessagesLiveData != null) {
+            savedMessagesLiveData.removeObservers(this);
+        }
+        savedMessagesLiveData = messageDao.getSavedMessages();
+        savedMessagesLiveData.observe(this, messages -> {
+            if (messages != null) {
+                messageList.clear();
+                for (com.antor.nearbychat.Database.MessageEntity entity : messages) {
+                    messageList.add(entity.toMessageModel());
+                }
+                chatAdapter.notifyDataSetChanged();
+
+                if (messageList.isEmpty()) {
+                    textStatus.setText("No saved messages");
+                    textStatus.setVisibility(View.VISIBLE);
+                    recyclerView.setVisibility(View.GONE);
+                } else {
+                    textStatus.setVisibility(View.GONE);
+                    recyclerView.setVisibility(View.VISIBLE);
+                }
+            }
+        });
+    }
+    private void exitSavedMessages() {
+        isShowingSavedMessages = false;
+        findViewById(R.id.inputContainer).setVisibility(View.VISIBLE);
+
+        if (savedMessagesLiveData != null) {
+            savedMessagesLiveData.removeObservers(this);
+            savedMessagesLiveData = null;
+        }
+        updateChatUIForSelection();
     }
 
     private void copyMessageToClipboard(MessageModel msg) {
@@ -1752,6 +1819,10 @@ public class MainActivity extends BaseActivity {
     public void onBackPressed() {
         if (isSearchMode) {
             hideSearchMode();
+            return;
+        }
+        if (isShowingSavedMessages) {
+            exitSavedMessages();
             return;
         }
         if (!"N".equals(activeChatType)) {

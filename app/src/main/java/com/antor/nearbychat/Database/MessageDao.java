@@ -71,4 +71,16 @@ public interface MessageDao {
     @Query("SELECT COUNT(DISTINCT (chatType || chatId)) FROM messages WHERE isRead = 0 AND isSelf = 0")
     LiveData<Integer> getTotalUnreadMessageCount();
 
+
+    @Query("SELECT * FROM messages WHERE isSaved = 1 ORDER BY timestampMillis DESC")
+    LiveData<List<MessageEntity>> getSavedMessages();
+
+    @Query("UPDATE messages SET isSaved = 1 WHERE senderId = :senderId AND messageId = :messageId AND timestamp = :timestamp")
+    void saveMessage(String senderId, String messageId, String timestamp);
+
+    @Query("UPDATE messages SET isSaved = 0 WHERE senderId = :senderId AND messageId = :messageId AND timestamp = :timestamp")
+    void unsaveMessage(String senderId, String messageId, String timestamp);
+
+    @Query("SELECT COUNT(*) FROM messages WHERE isSaved = 1")
+    int getSavedMessageCount();
 }

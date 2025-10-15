@@ -26,7 +26,7 @@ public class MessageEntity {
     public String missingChunksJson = "[]";
 
     public boolean isFailed = false;
-
+    public boolean isSaved = false;
     public boolean isRead = true;
 
     public long senderTimestampBits = 0;
@@ -68,6 +68,7 @@ public class MessageEntity {
         entity.chatId = messageModel.getChatId();
         entity.isRead = messageModel.isRead();
         entity.isFailed = messageModel.isFailed();
+        entity.isSaved = messageModel.isSaved();
         return entity;
     }
 
@@ -89,6 +90,7 @@ public class MessageEntity {
         model.setChatType(chatType);
         model.setChatId(chatId);
         model.setFailed(isFailed);
+        model.setSaved(isSaved);
         return model;
     }
 }
