@@ -22,6 +22,7 @@ import android.app.Activity;
 
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+
 import com.antor.nearbychat.Database.AppDatabase;
 import com.antor.nearbychat.Message.MessageHelper;
 import com.google.gson.Gson;
@@ -386,7 +387,7 @@ public class GroupsFriendsActivity extends Activity {
                 qrCodeShow.setOnClickListener(v -> {
                     long bits = asciiIdToTimestamp(group.getId());
                     String displayId = getUserIdString(bits);
-                    String qrData = "GROUP:" + group.getId() + "|" + group.getName() + "|" + group.getEncryptionKey();
+                    String qrData = "GROUP:" + displayId + "|" + group.getName() + "|" + group.getEncryptionKey();  // <-- এখানে পরিবর্তন
                     Intent intent = new Intent(this, QRCodeActivity.class);
                     intent.putExtra("qr_data", qrData);
                     intent.putExtra("qr_type", "group");

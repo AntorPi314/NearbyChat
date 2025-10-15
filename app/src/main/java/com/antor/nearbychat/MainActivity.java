@@ -511,7 +511,9 @@ public class MainActivity extends BaseActivity {
         if (qrCodeShow != null) {
             qrCodeShow.setVisibility(View.VISIBLE);
             qrCodeShow.setOnClickListener(v -> {
-                String qrData = "GROUP:" + finalGroupToEdit.getId() + "|" +
+                long bits = MessageHelper.asciiIdToTimestamp(finalGroupToEdit.getId());
+                String displayId = getUserIdString(bits);
+                String qrData = "GROUP:" + displayId + "|" +
                         finalGroupToEdit.getName() + "|" +
                         finalGroupToEdit.getEncryptionKey();
                 Intent intent = new Intent(this, QRCodeActivity.class);
@@ -521,7 +523,6 @@ public class MainActivity extends BaseActivity {
                 startActivity(intent);
             });
         }
-
         btnCancel.setOnClickListener(v -> dialog.dismiss());
         btnDelete.setOnClickListener(v -> {
             finalGroupsList.remove(finalGroupPosition);

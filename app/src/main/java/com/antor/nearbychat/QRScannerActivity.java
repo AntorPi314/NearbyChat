@@ -75,14 +75,19 @@ public class QRScannerActivity extends Activity {
             } else if (qrContent.startsWith("GROUP:")) {
                 String groupData = qrContent.substring(6);
                 String[] parts = groupData.split("\\|");
-                if (parts.length >= 3) {
-                    addGroup(parts[0], parts[1], parts[2]);
+                if (parts.length >= 2) {
+                    String groupId = parts[0];
+                    String groupName = parts[1];
+                    String encryptionKey = parts.length > 2 ? parts[2] : "";
+                    addGroup(groupId, groupName, encryptionKey);
+                } else {
+                    Toast.makeText(this, "Invalid QR code format", Toast.LENGTH_SHORT).show();
                 }
             } else {
                 Toast.makeText(this, "Invalid QR code format", Toast.LENGTH_SHORT).show();
             }
         } catch (Exception e) {
-            Toast.makeText(this, "Error processing QR code", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Error processing QR code: " + e.getMessage(), Toast.LENGTH_LONG).show();
             e.printStackTrace();
         }
         finish();
@@ -115,9 +120,12 @@ public class QRScannerActivity extends Activity {
         }
     }
 
-    private void addGroup(String groupId, String name, String encryptionKey) {
+    private void addGroup(String groupDisplayId, String name, String encryptionKey) {
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         Gson gson = new Gson();
+
+        long bits = com.antor.nearbychat.Message.MessageHelper.displayIdToTimestamp(groupDisplayId);
+        String groupId = com.antor.nearbychat.Message.MessageHelper.timestampToAsciiId(bits);
 
         String groupsJson = prefs.getString(KEY_GROUPS_LIST, null);
         Type type = new TypeToken<ArrayList<GroupModel>>() {}.getType();
@@ -132,7 +140,6 @@ public class QRScannerActivity extends Activity {
                 break;
             }
         }
-
         if (!exists) {
             groups.add(new GroupModel(groupId, name, encryptionKey));
             prefs.edit().putString(KEY_GROUPS_LIST, gson.toJson(groups)).apply();
