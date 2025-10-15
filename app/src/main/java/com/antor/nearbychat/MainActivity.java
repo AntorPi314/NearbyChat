@@ -55,6 +55,8 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.antor.nearbychat.Database.AppDatabase;
+import com.antor.nearbychat.Database.SavedMessageDao;
+import com.antor.nearbychat.Database.SavedMessageEntity;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 
@@ -1144,6 +1146,10 @@ public class MainActivity extends BaseActivity {
             }
             return;
         }
+        if (isShowingSavedMessages) {
+            Toast.makeText(this, "Cannot send messages from Saved view", Toast.LENGTH_SHORT).show();
+            return;
+        }
 
         String msg = "";
         String textMsg = inputMessage.getText().toString().trim();
@@ -1362,6 +1368,14 @@ public class MainActivity extends BaseActivity {
 
             Log.d(TAG, "Chat selected: type=" + activeChatType + " id=" + activeChatId);
 
+            if (isShowingSavedMessages) {
+                isShowingSavedMessages = false;
+                enableInputContainer();
+                if (savedMessagesLiveData != null) {
+                    savedMessagesLiveData.removeObservers(this);
+                    savedMessagesLiveData = null;
+                }
+            }
             updateChatUIForSelection();
             return;
         }
@@ -1446,13 +1460,19 @@ public class MainActivity extends BaseActivity {
         if (!msg.isComplete() && !msg.isFailed()) {
             return;
         }
-        final List<String> options;
 
-        if (msg.isFailed()) {
-            options = new ArrayList<>(Collections.singletonList("Remove"));
-        } else {
-            options = new ArrayList<>();
+        final List<String> options = new ArrayList<>();
+
+        if (isShowingSavedMessages) {
             options.add("Copy");
+            options.add("Edit");
+            options.add("Unsave");
+            options.add("Retransmit");
+        } else if (msg.isFailed()) {
+            options.add("Remove");
+        } else {
+            options.add("Copy");
+            options.add("Edit");
             options.add("Save");
             options.add("Remove");
 
@@ -1461,6 +1481,7 @@ public class MainActivity extends BaseActivity {
                 options.add("Retransmit");
             }
         }
+
         new AlertDialog.Builder(this).setTitle("Message Options")
                 .setItems(options.toArray(new String[0]), (dialog, which) -> {
                     String selectedOption = options.get(which);
@@ -1468,8 +1489,14 @@ public class MainActivity extends BaseActivity {
                         case "Copy":
                             copyMessageToClipboard(msg);
                             break;
+                        case "Edit":
+                            editMessage(msg);
+                            break;
                         case "Save":
                             saveMessage(msg);
+                            break;
+                        case "Unsave":
+                            unsaveMessage(msg);
                             break;
                         case "Remove":
                             removeMessage(msg);
@@ -1486,6 +1513,175 @@ public class MainActivity extends BaseActivity {
                 }).show();
     }
 
+    private void editMessage(MessageModel msg) {
+        String messageText = msg.getMessage();
+
+        // Reset all inputs first
+        inputMessage.setText("");
+        inputImageURL.setText("");
+        inputVideoURL.setText("");
+
+        // Variables to store extracted parts
+        String textPart = "";
+        String imagePart = "";
+        String videoPart = "";
+
+        // Check if message contains image or video markers
+        boolean hasImages = messageText.contains("m:/");
+        boolean hasVideos = messageText.contains("v:/");
+
+        if (hasImages || hasVideos) {
+            int imageMarkerIndex = messageText.indexOf("m:/");
+            int videoMarkerIndex = messageText.indexOf("v:/");
+
+            // Find first marker
+            int firstMarkerIndex = -1;
+            if (imageMarkerIndex != -1 && videoMarkerIndex != -1) {
+                firstMarkerIndex = Math.min(imageMarkerIndex, videoMarkerIndex);
+            } else if (imageMarkerIndex != -1) {
+                firstMarkerIndex = imageMarkerIndex;
+            } else if (videoMarkerIndex != -1) {
+                firstMarkerIndex = videoMarkerIndex;
+            }
+
+            // Extract text part (before any marker)
+            if (firstMarkerIndex > 0) {
+                textPart = messageText.substring(0, firstMarkerIndex).trim();
+            }
+
+            // Extract image URLs
+            if (hasImages) {
+                int start = imageMarkerIndex + 3;
+                int end = messageText.length();
+                if (videoMarkerIndex != -1 && videoMarkerIndex > imageMarkerIndex) {
+                    end = videoMarkerIndex;
+                }
+                imagePart = messageText.substring(start, end).trim();
+                // Decode optimized URLs
+                imagePart = decodeOptimizedUrlsForEdit(imagePart);
+            }
+
+            // Extract video URLs
+            if (hasVideos) {
+                int start = videoMarkerIndex + 3;
+                videoPart = messageText.substring(start).trim();
+                // Decode optimized URLs
+                videoPart = decodeOptimizedUrlsForEdit(videoPart);
+            }
+        } else {
+            // No markers, just text
+            textPart = messageText;
+        }
+
+        // Set the extracted parts to respective EditTexts
+        if (!textPart.isEmpty()) {
+            inputMessage.setText(textPart);
+        }
+
+        if (!imagePart.isEmpty()) {
+            inputImageURL.setText(imagePart);
+        }
+
+        if (!videoPart.isEmpty()) {
+            inputVideoURL.setText(videoPart);
+        }
+
+        // Switch to appropriate input mode based on what's available
+        if (!textPart.isEmpty()) {
+            // Show text input
+            inputMode = 0;
+            inputMessage.setVisibility(View.VISIBLE);
+            inputImageURL.setVisibility(View.GONE);
+            inputVideoURL.setVisibility(View.GONE);
+            switchInputImage.setImageResource(R.drawable.text);
+
+            // Focus on text input and move cursor to end
+            inputMessage.requestFocus();
+            inputMessage.setSelection(inputMessage.getText().length());
+        } else if (!imagePart.isEmpty()) {
+            // Show image input
+            inputMode = 1;
+            inputMessage.setVisibility(View.GONE);
+            inputImageURL.setVisibility(View.VISIBLE);
+            inputVideoURL.setVisibility(View.GONE);
+            switchInputImage.setImageResource(R.drawable.image);
+
+            inputImageURL.requestFocus();
+            inputImageURL.setSelection(inputImageURL.getText().length());
+        } else if (!videoPart.isEmpty()) {
+            // Show video input
+            inputMode = 2;
+            inputMessage.setVisibility(View.GONE);
+            inputImageURL.setVisibility(View.GONE);
+            inputVideoURL.setVisibility(View.VISIBLE);
+            switchInputImage.setImageResource(R.drawable.video);
+
+            inputVideoURL.requestFocus();
+            inputVideoURL.setSelection(inputVideoURL.getText().length());
+        }
+
+        Toast.makeText(this, "Message loaded for editing", Toast.LENGTH_SHORT).show();
+    }
+
+    private String decodeOptimizedUrlsForEdit(String optimizedUrls) {
+        if (!optimizedUrls.contains(">")) {
+            // Not optimized format, return as is
+            return optimizedUrls;
+        }
+
+        StringBuilder decoded = new StringBuilder();
+        String[] domainGroups = optimizedUrls.split(";");
+
+        for (int i = 0; i < domainGroups.length; i++) {
+            String group = domainGroups[i].trim();
+
+            int arrowIndex = group.indexOf('>');
+            if (arrowIndex == -1) continue;
+
+            String domainAndPrefix = group.substring(0, arrowIndex);
+            String files = group.substring(arrowIndex + 1);
+
+            // Extract domain and prefix
+            String domain;
+            String prefix = "";
+
+            int lastSlash = domainAndPrefix.lastIndexOf('/');
+            if (lastSlash > 0) {
+                domain = domainAndPrefix.substring(0, domainAndPrefix.indexOf('/'));
+                prefix = domainAndPrefix.substring(domainAndPrefix.indexOf('/') + 1);
+            } else {
+                domain = domainAndPrefix;
+            }
+
+            // Build full URLs
+            String[] fileArray = files.split(",");
+            for (int j = 0; j < fileArray.length; j++) {
+                if (decoded.length() > 0) {
+                    decoded.append(",");
+                }
+                decoded.append(domain);
+                if (!prefix.isEmpty()) {
+                    decoded.append("/").append(prefix);
+                }
+                decoded.append("/").append(fileArray[j].trim());
+            }
+        }
+
+        return decoded.toString();
+    }
+
+    private void unsaveMessage(MessageModel msg) {
+        new Thread(() -> {
+            try {
+                database.savedMessageDao().deleteSavedMessage(
+                        msg.getSenderId(), msg.getMessageId(), msg.getTimestamp());
+                runOnUiThread(() -> Toast.makeText(this, "Message unsaved", Toast.LENGTH_SHORT).show());
+            } catch (Exception e) {
+                runOnUiThread(() -> Toast.makeText(this, "Error unsaving message", Toast.LENGTH_SHORT).show());
+            }
+        }).start();
+    }
+
     private void removeMessage(MessageModel msg) {
         new Thread(() -> {
             try {
@@ -1500,8 +1696,24 @@ public class MainActivity extends BaseActivity {
     private void saveMessage(MessageModel msg) {
         new Thread(() -> {
             try {
-                messageDao.saveMessage(msg.getSenderId(), msg.getMessageId(), msg.getTimestamp());
-                runOnUiThread(() -> Toast.makeText(this, "Message saved", Toast.LENGTH_SHORT).show());
+                // Get MessageEntity from database
+                com.antor.nearbychat.Database.MessageEntity entity =
+                        messageDao.getMessageEntity(msg.getSenderId(), msg.getMessageId(), msg.getTimestamp());
+
+                if (entity != null) {
+                    // Check if already saved
+                    SavedMessageDao savedDao = database.savedMessageDao();
+                    int exists = savedDao.savedMessageExists(msg.getSenderId(), msg.getMessageId(), msg.getTimestamp());
+
+                    if (exists == 0) {
+                        // Create copy in saved_messages table
+                        SavedMessageEntity savedEntity = SavedMessageEntity.fromMessageEntity(entity);
+                        savedDao.insertSavedMessage(savedEntity);
+                        runOnUiThread(() -> Toast.makeText(this, "Message saved", Toast.LENGTH_SHORT).show());
+                    } else {
+                        runOnUiThread(() -> Toast.makeText(this, "Already saved", Toast.LENGTH_SHORT).show());
+                    }
+                }
             } catch (Exception e) {
                 runOnUiThread(() -> Toast.makeText(this, "Error saving message", Toast.LENGTH_SHORT).show());
             }
@@ -1513,7 +1725,8 @@ public class MainActivity extends BaseActivity {
 
         appTitle.setText("Saved");
         appIcon.setImageResource(R.drawable.saved_blue);
-        findViewById(R.id.inputContainer).setVisibility(View.GONE);
+
+        disableInputContainer();
 
         if (currentMessagesLiveData != null) {
             currentMessagesLiveData.removeObservers(this);
@@ -1521,11 +1734,15 @@ public class MainActivity extends BaseActivity {
         if (savedMessagesLiveData != null) {
             savedMessagesLiveData.removeObservers(this);
         }
-        savedMessagesLiveData = messageDao.getSavedMessages();
-        savedMessagesLiveData.observe(this, messages -> {
+
+        // USE SavedMessageDao instead
+        androidx.lifecycle.LiveData<List<SavedMessageEntity>> savedLiveData =
+                database.savedMessageDao().getAllSavedMessages();
+
+        savedLiveData.observe(this, messages -> {
             if (messages != null) {
                 messageList.clear();
-                for (com.antor.nearbychat.Database.MessageEntity entity : messages) {
+                for (SavedMessageEntity entity : messages) {
                     messageList.add(entity.toMessageModel());
                 }
                 chatAdapter.notifyDataSetChanged();
@@ -1541,15 +1758,48 @@ public class MainActivity extends BaseActivity {
             }
         });
     }
+
     private void exitSavedMessages() {
         isShowingSavedMessages = false;
-        findViewById(R.id.inputContainer).setVisibility(View.VISIBLE);
+        enableInputContainer();
 
         if (savedMessagesLiveData != null) {
             savedMessagesLiveData.removeObservers(this);
             savedMessagesLiveData = null;
         }
         updateChatUIForSelection();
+    }
+
+    private void disableInputContainer() {
+        inputMessage.setEnabled(false);
+        inputImageURL.setEnabled(false);
+        inputVideoURL.setEnabled(false);
+
+        inputMessage.setHintTextColor(Color.parseColor("#CCCCCC"));
+        inputImageURL.setHintTextColor(Color.parseColor("#CCCCCC"));
+        inputVideoURL.setHintTextColor(Color.parseColor("#CCCCCC"));
+
+        inputMessage.setTextColor(Color.parseColor("#CCCCCC"));
+        inputImageURL.setTextColor(Color.parseColor("#CCCCCC"));
+        inputImageURL.setTextColor(Color.parseColor("#CCCCCC"));
+
+        sendButtonContainer.setAlpha(0.6f);
+    }
+
+    private void enableInputContainer() {
+        inputMessage.setEnabled(true);
+        inputImageURL.setEnabled(true);
+        inputVideoURL.setEnabled(true);
+
+        inputMessage.setHintTextColor(Color.parseColor("#787878"));
+        inputImageURL.setHintTextColor(Color.parseColor("#787878"));
+        inputVideoURL.setHintTextColor(Color.parseColor("#787878"));
+
+        inputMessage.setTextColor(Color.parseColor("#000000"));
+        inputImageURL.setTextColor(Color.parseColor("#000000"));
+        inputImageURL.setTextColor(Color.parseColor("#000000"));
+
+        sendButtonContainer.setAlpha(1.0f);
     }
 
     private void copyMessageToClipboard(MessageModel msg) {

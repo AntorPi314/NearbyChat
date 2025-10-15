@@ -9,14 +9,48 @@ import androidx.room.migration.Migration;
 import androidx.sqlite.db.SupportSQLiteDatabase;
 
 @Database(
-        entities = {MessageEntity.class},
-        version = 7,
+        entities = {MessageEntity.class, SavedMessageEntity.class},
+        version = 10,
         exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
 
     public abstract MessageDao messageDao();
+    public abstract SavedMessageDao savedMessageDao();
     private static volatile AppDatabase INSTANCE;
+
+    static final Migration MIGRATION_9_10 = new Migration(9, 10) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase database) {
+            // Add isRead column to messages table
+            database.execSQL("ALTER TABLE messages ADD COLUMN isRead INTEGER NOT NULL DEFAULT 1");
+        }
+    };
+
+    static final Migration MIGRATION_8_9 = new Migration(8, 9) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase database) {
+            database.execSQL("CREATE TABLE IF NOT EXISTS `saved_messages` (" +
+                    "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                    "`chatType` TEXT, " +
+                    "`chatId` TEXT, " +
+                    "`senderId` TEXT, " +
+                    "`message` TEXT, " +
+                    "`isSelf` INTEGER NOT NULL, " +
+                    "`timestamp` TEXT, " +
+                    "`messageId` TEXT, " +
+                    "`savedTimestamp` INTEGER NOT NULL, " +
+                    "`originalTimestampMillis` INTEGER NOT NULL)");
+        }
+    };
+
+    static final Migration MIGRATION_7_8 = new Migration(7, 8) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase database) {
+            // This migration was for savedTimestamp in messages table
+            // Since we're not using it anymore, just skip
+        }
+    };
 
     static final Migration MIGRATION_5_6 = new Migration(5, 6) {
         @Override
@@ -64,7 +98,16 @@ public abstract class AppDatabase extends RoomDatabase {
                                     AppDatabase.class,
                                     "nearby_chat_database"
                             )
-                            .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                            .addMigrations(
+                                    MIGRATION_2_3,
+                                    MIGRATION_3_4,
+                                    MIGRATION_4_5,
+                                    MIGRATION_5_6,
+                                    MIGRATION_6_7,
+                                    MIGRATION_7_8,
+                                    MIGRATION_8_9,
+                                    MIGRATION_9_10
+                            )
                             .fallbackToDestructiveMigration()
                             .build();
                 }
