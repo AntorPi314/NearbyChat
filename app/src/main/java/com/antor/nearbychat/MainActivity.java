@@ -513,9 +513,12 @@ public class MainActivity extends BaseActivity {
             qrCodeShow.setOnClickListener(v -> {
                 long bits = MessageHelper.asciiIdToTimestamp(finalGroupToEdit.getId());
                 String displayId = getUserIdString(bits);
-                String qrData = "GROUP:" + displayId + "|" +
+                String plainText = displayId + "|" +
                         finalGroupToEdit.getName() + "|" +
                         finalGroupToEdit.getEncryptionKey();
+                String encryptedData = QREncryption.encrypt(plainText);
+                String qrData = "GROUP:" + encryptedData;
+
                 Intent intent = new Intent(this, QRCodeActivity.class);
                 intent.putExtra("qr_data", qrData);
                 intent.putExtra("qr_type", "group");
@@ -615,9 +618,12 @@ public class MainActivity extends BaseActivity {
         if (qrCodeShow != null) {
             qrCodeShow.setVisibility(View.VISIBLE);
             qrCodeShow.setOnClickListener(v -> {
-                String qrData = "FRIEND:" + finalFriendToEdit.getDisplayId() + "|" +
+                String plainText = finalFriendToEdit.getDisplayId() + "|" +
                         finalFriendToEdit.getName() + "|" +
                         finalFriendToEdit.getEncryptionKey();
+                String encryptedData = QREncryption.encrypt(plainText);
+                String qrData = "FRIEND:" + encryptedData;
+
                 Intent intent = new Intent(this, QRCodeActivity.class);
                 intent.putExtra("qr_data", qrData);
                 intent.putExtra("qr_type", "friend");
@@ -855,7 +861,9 @@ public class MainActivity extends BaseActivity {
         if (displayName == null || displayName.isEmpty()) {
             displayName = "Unknown_Name";
         }
-        String qrData = "FRIEND:" + userId + "|" + displayName + "|";
+        String plainText = userId + "|" + displayName + "|";
+        String encryptedData = QREncryption.encrypt(plainText);
+        String qrData = "FRIEND:" + encryptedData;
 
         Intent intent = new Intent(this, QRCodeActivity.class);
         intent.putExtra("qr_data", qrData);

@@ -7,13 +7,16 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.widget.Toast;
+
 import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import com.google.zxing.integration.android.IntentIntegrator;
 import com.google.zxing.integration.android.IntentResult;
+
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.List;
@@ -66,28 +69,43 @@ public class QRScannerActivity extends Activity {
 
     private void processQRCode(String qrContent) {
         try {
-            if (qrContent.startsWith("FRIEND:")) {
-                String friendData = qrContent.substring(7);
-                String[] parts = friendData.split("\\|");
+            String encryptedData;
+            boolean isFriend = qrContent.startsWith("FRIEND:");
+            boolean isGroup = qrContent.startsWith("GROUP:");
+
+            if (!isFriend && !isGroup) {
+                Toast.makeText(this, "Invalid QR code format", Toast.LENGTH_SHORT).show();
+                finish();
+                return;
+            }
+            encryptedData = isFriend ? qrContent.substring(7) : qrContent.substring(6);
+            String decryptedData = QREncryption.decrypt(encryptedData);
+
+            if (decryptedData == null) {
+                Toast.makeText(this, "Invalid or tampered QR code", Toast.LENGTH_SHORT).show();
+                finish();
+                return;
+            }
+            String[] parts = decryptedData.split("\\|", -1);
+
+            if (isFriend) {
                 if (parts.length >= 2) {
                     addFriend(parts[0], parts[1], parts.length > 2 ? parts[2] : "");
+                } else {
+                    Toast.makeText(this, "Invalid Friend QR data", Toast.LENGTH_SHORT).show();
                 }
-            } else if (qrContent.startsWith("GROUP:")) {
-                String groupData = qrContent.substring(6);
-                String[] parts = groupData.split("\\|");
+            } else {
                 if (parts.length >= 2) {
                     String groupId = parts[0];
                     String groupName = parts[1];
                     String encryptionKey = parts.length > 2 ? parts[2] : "";
                     addGroup(groupId, groupName, encryptionKey);
                 } else {
-                    Toast.makeText(this, "Invalid QR code format", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, "Invalid Group QR data", Toast.LENGTH_SHORT).show();
                 }
-            } else {
-                Toast.makeText(this, "Invalid QR code format", Toast.LENGTH_SHORT).show();
             }
         } catch (Exception e) {
-            Toast.makeText(this, "Error processing QR code: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "Error processing QR code", Toast.LENGTH_LONG).show();
             e.printStackTrace();
         }
         finish();
@@ -98,7 +116,8 @@ public class QRScannerActivity extends Activity {
         Gson gson = new Gson();
 
         String friendsJson = prefs.getString(KEY_FRIENDS_LIST, null);
-        Type type = new TypeToken<ArrayList<FriendModel>>() {}.getType();
+        Type type = new TypeToken<ArrayList<FriendModel>>() {
+        }.getType();
         List<FriendModel> friends = friendsJson != null ? gson.fromJson(friendsJson, type) : new ArrayList<>();
 
         if (friends == null) friends = new ArrayList<>();
@@ -128,7 +147,8 @@ public class QRScannerActivity extends Activity {
         String groupId = com.antor.nearbychat.Message.MessageHelper.timestampToAsciiId(bits);
 
         String groupsJson = prefs.getString(KEY_GROUPS_LIST, null);
-        Type type = new TypeToken<ArrayList<GroupModel>>() {}.getType();
+        Type type = new TypeToken<ArrayList<GroupModel>>() {
+        }.getType();
         List<GroupModel> groups = groupsJson != null ? gson.fromJson(groupsJson, type) : new ArrayList<>();
 
         if (groups == null) groups = new ArrayList<>();
@@ -160,5 +180,6 @@ public class QRScannerActivity extends Activity {
                 finish();
             }
         }
+
     }
 }
