@@ -201,7 +201,8 @@ public class BleMessagingService extends Service {
             String chatType = intent.getStringExtra("chat_type");
             String chatId = intent.getStringExtra("chat_id");
             if (message != null && chatType != null && chatId != null) {
-                sendMessage(message, chatType, chatId);
+                String payload = PayloadCompress.buildPayload(message, null, null);
+                sendMessage(message, payload, chatType, chatId);
             }
         }
         return START_STICKY;
@@ -506,11 +507,10 @@ public class BleMessagingService extends Service {
         });
     }
 
-    public void sendMessage(String message, String chatType, String chatId) {
+    public void sendMessage(String originalMessage, String payload, String chatType, String chatId) {
         processingExecutor.submit(() -> {
             try {
-                MessageConverterForBle converter = new MessageConverterForBle(
-                        this, message, chatType, chatId, userId, userIdBits, MAX_PAYLOAD_SIZE);
+                MessageConverterForBle converter = new MessageConverterForBle(this, originalMessage, payload, chatType, chatId, userId, userIdBits, MAX_PAYLOAD_SIZE);
                 converter.process();
                 MessageModel msgToSave = converter.getMessageToSave();
                 List<byte[]> packets = converter.getBlePacketsToSend();

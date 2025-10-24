@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
+import com.antor.nearbychat.PayloadCompress;
 
 public class MessageProcessor {
     private static final String TAG = "MessageProcessor";
@@ -182,23 +183,40 @@ public class MessageProcessor {
     private MessageModel buildMessageModelFromPayload(String payload, String senderDisplayId, String messageDisplayId,
                                                       long senderIdBits, long messageIdBits, int totalChunks,
                                                       boolean isComplete, String chatType, String chatId) {
-        String decryptedMessage;
+        String decryptedPayload;
 
         if ("N".equals(chatType)) {
-            decryptedMessage = payload;
+            decryptedPayload = payload;
         } else {
             String password = MessageHelper.getPasswordForChat(context, chatType, chatId, senderDisplayId);
-            decryptedMessage = CryptoUtils.decrypt(payload, password);
+            decryptedPayload = CryptoUtils.decrypt(payload, password);
 
-            if (decryptedMessage == null) {
+            if (decryptedPayload == null) {
                 Log.w(TAG, "Decryption failed for message from " + senderDisplayId);
-                decryptedMessage = "[Decryption Failed]";
+                decryptedPayload = "[Decryption Failed]";
             }
+        }
+
+        // NEW: Parse the decrypted payload to get original content
+        PayloadCompress.ParsedPayload parsedData = PayloadCompress.parsePayload(decryptedPayload);
+
+        // Reconstruct the message in the format ChatAdapter expects
+        StringBuilder finalMessageContent = new StringBuilder();
+        if (parsedData.message != null && !parsedData.message.isEmpty()) {
+            finalMessageContent.append(parsedData.message);
+        }
+        if (parsedData.imageUrls != null && !parsedData.imageUrls.isEmpty()) {
+            if (finalMessageContent.length() > 0) finalMessageContent.append("\n");
+            finalMessageContent.append("m:/").append(parsedData.imageUrls);
+        }
+        if (parsedData.videoUrls != null && !parsedData.videoUrls.isEmpty()) {
+            if (finalMessageContent.length() > 0) finalMessageContent.append("\n");
+            finalMessageContent.append("v:/").append(parsedData.videoUrls);
         }
 
         MessageModel newMsg = new MessageModel(
                 senderDisplayId,
-                decryptedMessage,
+                finalMessageContent.toString(), // Use the reconstructed message
                 false,
                 createFormattedTimestamp(totalChunks, messageIdBits),
                 senderIdBits,
@@ -209,7 +227,7 @@ public class MessageProcessor {
         newMsg.setChatType(chatType);
         newMsg.setChatId(chatId != null ? chatId : "");
 
-        Log.d(TAG, "✓ Successfully processed message from " + senderDisplayId + " for chatType=" + chatType + " chatId=" + newMsg.getChatId());
+        Log.d(TAG, "✓ Successfully processed and parsed message from " + senderDisplayId + " for chatType=" + chatType + " chatId=" + newMsg.getChatId());
         return newMsg;
     }
 

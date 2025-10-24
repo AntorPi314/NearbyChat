@@ -106,13 +106,15 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
                     end = videoMarkerIndex;
                 }
                 imagePart = displayMessage.substring(start, end).trim();
-                imagePart = decodeOptimizedUrls(imagePart);
+                // REMOVE THE LINE BELOW
+                // imagePart = decodeOptimizedUrls(imagePart);
             }
 
             if (hasVideos) {
                 int start = videoMarkerIndex + 3;
                 videoPart = displayMessage.substring(start).trim();
-                videoPart = decodeOptimizedUrls(videoPart);
+                // REMOVE THE LINE BELOW
+                // videoPart = decodeOptimizedUrls(videoPart);
             }
         } else {
             textPart = displayMessage;

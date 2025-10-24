@@ -1140,9 +1140,6 @@ public class MainActivity extends BaseActivity {
         if (isAdvertising) {
             if (bleService != null && isServiceBound) {
                 bleService.cancelAdvertising();
-                isAdvertising = false;
-                sendButton.setVisibility(View.VISIBLE);
-                loadingContainer.setVisibility(View.GONE);
             }
             return;
         }
@@ -1151,43 +1148,79 @@ public class MainActivity extends BaseActivity {
             return;
         }
 
-        String msg = "";
         String textMsg = inputMessage.getText().toString().trim();
-        String imageUrls = inputImageURL.getText().toString().trim();
-        String videoUrls = inputVideoURL.getText().toString().trim();
+        String imageUrlsRaw = inputImageURL.getText().toString().trim(); // Get raw text
+        String videoUrlsRaw = inputVideoURL.getText().toString().trim(); // Get raw text
 
-        // Text message always comes first
-        if (!textMsg.isEmpty()) {
-            msg = textMsg;
-        }
-
-        // Add images
-        if (!imageUrls.isEmpty()) {
-            String processedUrls = processAndOptimizeImageUrls(imageUrls);
-            if (!msg.isEmpty()) {
-                msg = msg + "\n" + processedUrls;
-            } else {
-                msg = processedUrls;
-            }
-        }
-
-        // Add videos
-        if (!videoUrls.isEmpty()) {
-            String processedUrls = processAndOptimizeVideoUrls(videoUrls);
-            if (!msg.isEmpty()) {
-                msg = msg + "\n" + processedUrls;
-            } else {
-                msg = processedUrls;
-            }
-        }
-
-        if (msg.isEmpty()) {
+        if (textMsg.isEmpty() && imageUrlsRaw.isEmpty() && videoUrlsRaw.isEmpty()) {
             Toast.makeText(this, "Message cannot be empty!", Toast.LENGTH_SHORT).show();
             return;
         }
 
-        if (msg.length() > MAX_MESSAGE_LENGTH) {
-            Toast.makeText(this, "Message too long (" + msg.length() + "/" + MAX_MESSAGE_LENGTH + ")", Toast.LENGTH_SHORT).show();
+        // --- START: FIX ---
+        // Normalize URLs for local display, mimicking simplifyLinks parsing and desimplifyLinks joining.
+        // This ensures the sender's adapter gets the same comma-separated format as the receiver.
+
+        String normalizedImageUrls = "";
+        if (!imageUrlsRaw.isEmpty()) {
+            String[] parsedImageUrls = imageUrlsRaw.trim().split("[\\s,]+");
+            List<String> cleanImageUrls = new ArrayList<>();
+            for (String url : parsedImageUrls) {
+                if (url != null && !url.trim().isEmpty()) {
+                    cleanImageUrls.add(url.trim());
+                }
+            }
+            // Use a simple loop for compatibility instead of String.join
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < cleanImageUrls.size(); i++) {
+                sb.append(cleanImageUrls.get(i));
+                if (i < cleanImageUrls.size() - 1) {
+                    sb.append(",");
+                }
+            }
+            normalizedImageUrls = sb.toString();
+        }
+
+        String normalizedVideoUrls = "";
+        if (!videoUrlsRaw.isEmpty()) {
+            String[] parsedVideoUrls = videoUrlsRaw.trim().split("[\\s,]+");
+            List<String> cleanVideoUrls = new ArrayList<>();
+            for (String url : parsedVideoUrls) {
+                if (url != null && !url.trim().isEmpty()) {
+                    cleanVideoUrls.add(url.trim());
+                }
+            }
+            // Use a simple loop for compatibility
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < cleanVideoUrls.size(); i++) {
+                sb.append(cleanVideoUrls.get(i));
+                if (i < cleanVideoUrls.size() - 1) {
+                    sb.append(",");
+                }
+            }
+            normalizedVideoUrls = sb.toString();
+        }
+
+        // --- Reconstruct the original message for local display using NORMALIZED urls ---
+        StringBuilder originalMessageForDisplay = new StringBuilder();
+        if (!textMsg.isEmpty()) {
+            originalMessageForDisplay.append(textMsg);
+        }
+        if (!normalizedImageUrls.isEmpty()) {
+            if (originalMessageForDisplay.length() > 0) originalMessageForDisplay.append("\n");
+            originalMessageForDisplay.append("m:/").append(normalizedImageUrls); // Use normalized
+        }
+        if (!normalizedVideoUrls.isEmpty()) {
+            if (originalMessageForDisplay.length() > 0) originalMessageForDisplay.append("\n");
+            originalMessageForDisplay.append("v:/").append(normalizedVideoUrls); // Use normalized
+        }
+        // --- END: FIX ---
+
+        // Build payload for sending using RAW urls (PayloadCompress will handle parsing)
+        String compressedPayload = PayloadCompress.buildPayload(textMsg, imageUrlsRaw, videoUrlsRaw);
+
+        if (compressedPayload.length() > MAX_MESSAGE_LENGTH) {
+            Toast.makeText(this, "Message too long (" + compressedPayload.length() + "/" + MAX_MESSAGE_LENGTH + ")", Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -1196,7 +1229,9 @@ public class MainActivity extends BaseActivity {
         }
 
         if (isServiceBound && bleService != null) {
-            bleService.sendMessage(msg, activeChatType, activeChatId);
+            // Send the locally-formatted message AND the compressed payload
+            bleService.sendMessage(originalMessageForDisplay.toString(), compressedPayload, activeChatType, activeChatId);
+
             inputMessage.setText("");
             inputImageURL.setText("");
             inputVideoURL.setText("");
@@ -1208,132 +1243,6 @@ public class MainActivity extends BaseActivity {
         } else {
             Toast.makeText(this, "Service not ready. Please try again.", Toast.LENGTH_SHORT).show();
         }
-    }
-
-    private String processAndOptimizeImageUrls(String urls) {
-        return "m:/" + optimizeUrls(urls);
-    }
-
-    private String processAndOptimizeVideoUrls(String urls) {
-        return "v:/" + optimizeUrls(urls);
-    }
-
-    private String optimizeUrls(String urls) {
-        String[] urlArray = urls.split(",");
-        Map<String, List<String>> domainMap = new LinkedHashMap<>();
-
-        for (String url : urlArray) {
-            String cleanUrl = url.trim()
-                    .replace("https://", "")
-                    .replace("http://", "");
-
-            // Extract domain and path
-            int firstSlash = cleanUrl.indexOf('/');
-            if (firstSlash == -1) continue;
-
-            String domain = cleanUrl.substring(0, firstSlash);
-            String fullPath = cleanUrl.substring(firstSlash + 1);
-
-            // Find common prefix for this domain
-            if (!domainMap.containsKey(domain)) {
-                domainMap.put(domain, new ArrayList<>());
-            }
-            domainMap.get(domain).add(fullPath);
-        }
-
-        // Build optimized string
-        StringBuilder optimized = new StringBuilder();
-        boolean firstDomain = true;
-
-        for (Map.Entry<String, List<String>> entry : domainMap.entrySet()) {
-            if (!firstDomain) {
-                optimized.append(";");
-            }
-            firstDomain = false;
-
-            String domain = entry.getKey();
-            List<String> paths = entry.getValue();
-
-            // Find common prefix
-            String commonPrefix = findCommonPrefix(paths);
-
-            optimized.append(domain);
-            if (!commonPrefix.isEmpty()) {
-                optimized.append("/").append(commonPrefix).append(">");
-
-                // Add remaining parts
-                for (int i = 0; i < paths.size(); i++) {
-                    String remaining = paths.get(i).substring(commonPrefix.length());
-                    if (remaining.startsWith("/")) {
-                        remaining = remaining.substring(1);
-                    }
-                    optimized.append(remaining);
-                    if (i < paths.size() - 1) {
-                        optimized.append(",");
-                    }
-                }
-            } else {
-                optimized.append(">");
-                for (int i = 0; i < paths.size(); i++) {
-                    optimized.append(paths.get(i));
-                    if (i < paths.size() - 1) {
-                        optimized.append(",");
-                    }
-                }
-            }
-        }
-
-        return optimized.toString();
-    }
-
-    private String findCommonPrefix(List<String> paths) {
-        if (paths.isEmpty()) return "";
-
-        String prefix = paths.get(0);
-        for (String path : paths) {
-            while (!path.startsWith(prefix) && !prefix.isEmpty()) {
-                prefix = prefix.substring(0, prefix.length() - 1);
-            }
-            if (prefix.isEmpty()) break;
-        }
-
-        // Remove trailing slash if exists
-        int lastSlash = prefix.lastIndexOf('/');
-        if (lastSlash > 0) {
-            prefix = prefix.substring(0, lastSlash + 1);
-        }
-
-        return prefix;
-    }
-
-    private String processVideoUrls(String urls) {
-        String[] urlArray = urls.split(",");
-        StringBuilder processed = new StringBuilder();
-
-        for (int i = 0; i < urlArray.length; i++) {
-            String url = urlArray[i].trim();
-            url = url.replace("https://", "").replace("http://", "");
-            processed.append(url);
-            if (i < urlArray.length - 1) {
-                processed.append(",");
-            }
-        }
-        return processed.toString();
-    }
-
-    private String processImageUrls(String urls) {
-        String[] urlArray = urls.split(",");
-        StringBuilder processed = new StringBuilder();
-
-        for (int i = 0; i < urlArray.length; i++) {
-            String url = urlArray[i].trim();
-            url = url.replace("https://", "").replace("http://", "");
-            processed.append(url);
-            if (i < urlArray.length - 1) {
-                processed.append(",");
-            }
-        }
-        return processed.toString();
     }
 
     private boolean validateBluetoothAndService() {
@@ -1579,11 +1488,13 @@ public class MainActivity extends BaseActivity {
         }
 
         if (!imagePart.isEmpty()) {
-            inputImageURL.setText(imagePart);
+            // Replace commas with newlines for better editing and compatibility with the new split logic
+            inputImageURL.setText(imagePart.replace(",", "\n"));
         }
 
         if (!videoPart.isEmpty()) {
-            inputVideoURL.setText(videoPart);
+            // Replace commas with newlines
+            inputVideoURL.setText(videoPart.replace(",", "\n"));
         }
 
         // Switch to appropriate input mode based on what's available
