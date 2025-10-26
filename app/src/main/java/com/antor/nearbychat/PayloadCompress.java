@@ -6,6 +6,7 @@ import java.util.regex.Pattern;
 
 public class PayloadCompress {
 
+    // Markers matching Python script
     private static final String MARKER_UNICODE = "[u>";
     private static final String MARKER_IMAGE = "[m>";
     private static final String MARKER_VIDEO = "[v>";
@@ -27,8 +28,8 @@ public class PayloadCompress {
     // ==========================
     // Link Models
     // ==========================
-    private static final String LINK_MODEL_1 = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/*";
-    private static final String LINK_MODEL_2 = "<>|.:-_$&+,;=%~?";
+    private static final String LINK_MODEL_1 = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ012345<>|./*";
+    private static final String LINK_MODEL_2 = "6789:-_$&+,;=%~?";
 
     private static final Map<Character, String> map6 = new HashMap<>();
     private static final Map<String, Character> rev_map6 = new HashMap<>();
@@ -102,17 +103,15 @@ public class PayloadCompress {
             }
         }
 
-        // Convert binary string to actual bytes
-        return bitsToBase64(bits.toString());
+        return bitsToAsciiMsg(bits.toString());
     }
 
-    public static String decompressMessage(String base64Data) {
-        if (base64Data == null || base64Data.isEmpty()) {
+    public static String decompressMessage(String asciiData) {
+        if (asciiData == null || asciiData.isEmpty()) {
             return "";
         }
 
-        // Convert base64 back to binary string
-        String bits = base64ToBits(base64Data);
+        String bits = asciiToBitsMsg(asciiData);
 
         StringBuilder result = new StringBuilder();
         int i = 0;
@@ -158,7 +157,7 @@ public class PayloadCompress {
     }
 
     // ==========================
-    // Helper: Longest Common Prefix (FIXED)
+    // Helper: Longest Common Prefix
     // ==========================
     private static String longestCommonPrefix(List<String> strs) {
         if (strs == null || strs.isEmpty()) {
@@ -175,12 +174,10 @@ public class PayloadCompress {
             }
         }
 
-        // Keep only up to last slash
         int lastSlash = prefix.lastIndexOf('/');
-        if (lastSlash != -1) { // <-- FIX WAS HERE (> 0 changed to != -1)
+        if (lastSlash != -1) {
             prefix = prefix.substring(0, lastSlash + 1);
         } else {
-            // No slash found, so no common *directory* prefix
             return "";
         }
 
@@ -195,10 +192,7 @@ public class PayloadCompress {
             return "";
         }
 
-        // UPDATED LINE: Split by any whitespace (space, newline, etc.) OR comma
-        // This handles all user-provided input formats robustly.
-        // String[] lines = inputStr.trim().split("\\s+"); // <-- OLD LINE
-        String[] lines = inputStr.trim().split("[\\s,]+"); // <-- NEW LINE
+        String[] lines = inputStr.trim().split("[\\s,]+");
 
         Map<String, List<PathProto>> domainDict = new LinkedHashMap<>();
         List<String> order = new ArrayList<>();
@@ -252,7 +246,6 @@ public class PayloadCompress {
                 protos.add(item.proto);
             }
 
-            // Check if all paths are empty
             boolean allEmpty = true;
             for (String p : paths) {
                 if (!p.isEmpty()) {
@@ -274,7 +267,6 @@ public class PayloadCompress {
                 continue;
             }
 
-            // Find common prefix
             String lcp = longestCommonPrefix(paths);
             if (!lcp.isEmpty()) {
                 List<String> suffixes = new ArrayList<>();
@@ -305,8 +297,7 @@ public class PayloadCompress {
             if (map6.containsKey(c)) {
                 bits.append(map6.get(c));
             } else if (map4.containsKey(c)) {
-                // Add marker bit (1) followed by 4-bit code
-                bits.append("1"); // marker
+                bits.append("1");
                 bits.append(map4.get(c));
             } else {
                 throw new IllegalArgumentException("Character '" + c + "' not supported");
@@ -327,25 +318,17 @@ public class PayloadCompress {
 
         while (i < bitsLen) {
             if (i < bitsLen && bits.charAt(i) == '1') {
-                // Check if this is actually a marker for 4-bit code
-                // We need to differentiate between:
-                // - A 6-bit code starting with '1'
-                // - A marker '1' followed by 4-bit code
-
-                // Try 4-bit code first (marker + 4 bits = 5 bits total)
                 if (i + 5 <= bitsLen) {
                     String code4 = bits.substring(i + 1, i + 5);
                     Character ch4 = rev_map4.get(code4);
 
                     if (ch4 != null) {
-                        // Valid 4-bit code found
                         out.append(ch4);
                         i += 5;
                         continue;
                     }
                 }
 
-                // Not a valid 4-bit code, try 6-bit
                 if (i + 6 <= bitsLen) {
                     String code6 = bits.substring(i, i + 6);
                     Character ch6 = rev_map6.get(code6);
@@ -356,11 +339,9 @@ public class PayloadCompress {
                     }
                 }
 
-                // Neither worked, skip this bit
                 i++;
 
             } else {
-                // Starts with '0', must be 6-bit code
                 if (i + 6 <= bitsLen) {
                     String code6 = bits.substring(i, i + 6);
                     Character ch6 = rev_map6.get(code6);
@@ -370,7 +351,6 @@ public class PayloadCompress {
                         continue;
                     }
                 }
-                // Invalid code, skip
                 i++;
             }
         }
@@ -378,7 +358,8 @@ public class PayloadCompress {
         return out.toString();
     }
 
-    // Updated buildPayload method
+    // Add this method to PayloadCompress.java class:
+
     public static String buildPayload(String message, String imageUrls, String videoUrls) {
         StringBuilder payload = new StringBuilder();
 
@@ -386,11 +367,23 @@ public class PayloadCompress {
         if (message != null && !message.isEmpty()) {
             String compressed = compressMessage(message);
             if (compressed != null) {
-                // Successfully compressed - NO marker
+                // Successfully compressed - NO marker, already ISO-8859-1 encoded
                 payload.append(compressed);
             } else {
                 // Contains unicode/emoji - add [u> marker
-                payload.append(MARKER_UNICODE).append(message);
+                // ================== CRITICAL FIX ==================
+                // We need to convert the UTF-8 string to raw bytes,
+                // then pack those bytes into an ISO-8859-1 string
+                // so they can survive the encryption/transmission process
+                try {
+                    byte[] utf8Bytes = message.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                    String packedUtf8 = new String(utf8Bytes, java.nio.charset.StandardCharsets.ISO_8859_1);
+                    payload.append(MARKER_UNICODE).append(packedUtf8);
+                } catch (Exception e) {
+                    // Fallback: just append as-is (will likely fail)
+                    payload.append(MARKER_UNICODE).append(message);
+                }
+                // ================== FIX END ==================
             }
         }
 
@@ -427,13 +420,32 @@ public class PayloadCompress {
                 // Unicode/emoji message
                 idx += MARKER_UNICODE.length();
                 int nextMarker = findNextMarkerIndex(payload, idx);
+
+                String isoString; // This string contains raw UTF-8 bytes packed as ISO-8859-1
                 if (nextMarker != -1) {
-                    result.message = payload.substring(idx, nextMarker);
+                    isoString = payload.substring(idx, nextMarker);
                     idx = nextMarker;
                 } else {
-                    result.message = payload.substring(idx);
-                    return result;
+                    isoString = payload.substring(idx);
+                    // We are at the end, but still need to process the found string
                 }
+
+                // ================== FIX START ==================
+                // The `isoString` is currently an ISO-8859-1 string holding raw UTF-8 bytes.
+                // We must convert it back to bytes, then re-interpret those bytes as UTF-8.
+                try {
+                    byte[] utf8Bytes = isoString.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1);
+                    result.message = new String(utf8Bytes, java.nio.charset.StandardCharsets.UTF_8);
+                } catch (Exception e) {
+                    // Fallback in case of error
+                    result.message = "[UTF-8 Decode Error]";
+                }
+                // ================== FIX END ==================
+
+                if (nextMarker == -1) {
+                    return result; // We're done if this was the last part
+                }
+
             } else if (payload.startsWith(MARKER_IMAGE, idx) || payload.startsWith(MARKER_VIDEO, idx)) {
                 // No message, skip
             } else {
@@ -529,7 +541,7 @@ public class PayloadCompress {
 
         if (bits.length() > 0) {
             int totalBits = (bytes.length - 2) * 8 + lastValidBitsCount;
-            if (totalBits > bits.length()) { // Sanity check
+            if (totalBits > bits.length()) {
                 totalBits = bits.length();
             }
             bits.setLength(totalBits);
@@ -599,7 +611,6 @@ public class PayloadCompress {
             }
         }
 
-        // UPDATED LINE: Join with comma instead of newline for adapter compatibility
         return String.join(",", outputLinks);
     }
 
@@ -617,67 +628,63 @@ public class PayloadCompress {
     }
 
     // ==========================
-    // Binary String to ASCII Bytes Conversion
+    // Message: Binary String to ASCII Bytes Conversion
     // ==========================
-    private static String bitsToBase64(String bits) {
+    private static String bitsToAsciiMsg(String bits) {
         if (bits.isEmpty()) {
-            return "";
+            return new String(new byte[]{0}, java.nio.charset.StandardCharsets.ISO_8859_1);
         }
 
-        // Calculate how many bits are valid in the last byte
         int validBitsInLastByte = bits.length() % 8;
         if (validBitsInLastByte == 0) {
             validBitsInLastByte = 8;
         }
 
-        // Pad bits to make length multiple of 8
         int padding = (8 - (bits.length() % 8)) % 8;
         StringBuilder paddedBits = new StringBuilder(bits);
         for (int i = 0; i < padding; i++) {
             paddedBits.append('0');
         }
 
-        // Convert bits to bytes
-        byte[] bytes = new byte[paddedBits.length() / 8 + 1]; // +1 for lastValidBitsCount
+        byte[] bytes = new byte[paddedBits.length() / 8 + 1];
 
         for (int i = 0; i < bytes.length - 1; i++) {
             String byteStr = paddedBits.substring(i * 8, (i + 1) * 8);
             bytes[i] = (byte) Integer.parseInt(byteStr, 2);
         }
 
-        // Add lastValidBitsCount as the last byte
         bytes[bytes.length - 1] = (byte) validBitsInLastByte;
 
-        // Convert to ISO-8859-1 string (direct binary to string)
         return new String(bytes, java.nio.charset.StandardCharsets.ISO_8859_1);
     }
 
-    private static String base64ToBits(String binaryString) {
+    private static String asciiToBitsMsg(String binaryString) {
         if (binaryString == null || binaryString.isEmpty()) {
             return "";
         }
 
-        // Convert string back to bytes
         byte[] bytes = binaryString.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1);
 
         if (bytes.length < 2) {
             return "";
         }
 
-        // Last byte contains the valid bits count
         int lastValidBitsCount = bytes[bytes.length - 1] & 0xFF;
 
-        // Convert all bytes except last to bits
+        if (lastValidBitsCount == 0) {
+            return "";
+        }
+
         StringBuilder bits = new StringBuilder();
         for (int i = 0; i < bytes.length - 1; i++) {
-            String byteStr = String.format("%8s", Integer.toBinaryString(bytes[i] & 0xFF)).replace(' ', '0');
+            String byteStr = String.format("%8s", Integer.toBinaryString(bytes[i] & 0xFF))
+                    .replace(' ', '0');
             bits.append(byteStr);
         }
 
-        // Remove padding from last byte
         if (bits.length() > 0) {
             int totalBits = (bytes.length - 2) * 8 + lastValidBitsCount;
-            if (totalBits > bits.length()) { // Sanity check
+            if (totalBits > bits.length()) {
                 totalBits = bits.length();
             }
             bits.setLength(totalBits);

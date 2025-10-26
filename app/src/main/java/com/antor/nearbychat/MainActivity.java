@@ -1149,74 +1149,15 @@ public class MainActivity extends BaseActivity {
         }
 
         String textMsg = inputMessage.getText().toString().trim();
-        String imageUrlsRaw = inputImageURL.getText().toString().trim(); // Get raw text
-        String videoUrlsRaw = inputVideoURL.getText().toString().trim(); // Get raw text
+        String imageUrlsRaw = inputImageURL.getText().toString().trim();
+        String videoUrlsRaw = inputVideoURL.getText().toString().trim();
 
         if (textMsg.isEmpty() && imageUrlsRaw.isEmpty() && videoUrlsRaw.isEmpty()) {
             Toast.makeText(this, "Message cannot be empty!", Toast.LENGTH_SHORT).show();
             return;
         }
 
-        // --- START: FIX ---
-        // Normalize URLs for local display, mimicking simplifyLinks parsing and desimplifyLinks joining.
-        // This ensures the sender's adapter gets the same comma-separated format as the receiver.
-
-        String normalizedImageUrls = "";
-        if (!imageUrlsRaw.isEmpty()) {
-            String[] parsedImageUrls = imageUrlsRaw.trim().split("[\\s,]+");
-            List<String> cleanImageUrls = new ArrayList<>();
-            for (String url : parsedImageUrls) {
-                if (url != null && !url.trim().isEmpty()) {
-                    cleanImageUrls.add(url.trim());
-                }
-            }
-            // Use a simple loop for compatibility instead of String.join
-            StringBuilder sb = new StringBuilder();
-            for (int i = 0; i < cleanImageUrls.size(); i++) {
-                sb.append(cleanImageUrls.get(i));
-                if (i < cleanImageUrls.size() - 1) {
-                    sb.append(",");
-                }
-            }
-            normalizedImageUrls = sb.toString();
-        }
-
-        String normalizedVideoUrls = "";
-        if (!videoUrlsRaw.isEmpty()) {
-            String[] parsedVideoUrls = videoUrlsRaw.trim().split("[\\s,]+");
-            List<String> cleanVideoUrls = new ArrayList<>();
-            for (String url : parsedVideoUrls) {
-                if (url != null && !url.trim().isEmpty()) {
-                    cleanVideoUrls.add(url.trim());
-                }
-            }
-            // Use a simple loop for compatibility
-            StringBuilder sb = new StringBuilder();
-            for (int i = 0; i < cleanVideoUrls.size(); i++) {
-                sb.append(cleanVideoUrls.get(i));
-                if (i < cleanVideoUrls.size() - 1) {
-                    sb.append(",");
-                }
-            }
-            normalizedVideoUrls = sb.toString();
-        }
-
-        // --- Reconstruct the original message for local display using NORMALIZED urls ---
-        StringBuilder originalMessageForDisplay = new StringBuilder();
-        if (!textMsg.isEmpty()) {
-            originalMessageForDisplay.append(textMsg);
-        }
-        if (!normalizedImageUrls.isEmpty()) {
-            if (originalMessageForDisplay.length() > 0) originalMessageForDisplay.append("\n");
-            originalMessageForDisplay.append("m:/").append(normalizedImageUrls); // Use normalized
-        }
-        if (!normalizedVideoUrls.isEmpty()) {
-            if (originalMessageForDisplay.length() > 0) originalMessageForDisplay.append("\n");
-            originalMessageForDisplay.append("v:/").append(normalizedVideoUrls); // Use normalized
-        }
-        // --- END: FIX ---
-
-        // Build payload for sending using RAW urls (PayloadCompress will handle parsing)
+        // Build payload using PayloadCompress
         String compressedPayload = PayloadCompress.buildPayload(textMsg, imageUrlsRaw, videoUrlsRaw);
 
         if (compressedPayload.length() > MAX_MESSAGE_LENGTH) {
@@ -1229,12 +1170,13 @@ public class MainActivity extends BaseActivity {
         }
 
         if (isServiceBound && bleService != null) {
-            // Send the locally-formatted message AND the compressed payload
-            bleService.sendMessage(originalMessageForDisplay.toString(), compressedPayload, activeChatType, activeChatId);
+            // Send the compressed payload
+            bleService.sendMessage(compressedPayload, activeChatType, activeChatId);
 
             inputMessage.setText("");
             inputImageURL.setText("");
             inputVideoURL.setText("");
+
             recyclerView.post(() -> {
                 if (chatAdapter != null && chatAdapter.getItemCount() > 0) {
                     recyclerView.smoothScrollToPosition(chatAdapter.getItemCount() - 1);
@@ -1430,75 +1372,26 @@ public class MainActivity extends BaseActivity {
         inputImageURL.setText("");
         inputVideoURL.setText("");
 
-        // Variables to store extracted parts
-        String textPart = "";
-        String imagePart = "";
-        String videoPart = "";
-
-        // Check if message contains image or video markers
-        boolean hasImages = messageText.contains("m:/");
-        boolean hasVideos = messageText.contains("v:/");
-
-        if (hasImages || hasVideos) {
-            int imageMarkerIndex = messageText.indexOf("m:/");
-            int videoMarkerIndex = messageText.indexOf("v:/");
-
-            // Find first marker
-            int firstMarkerIndex = -1;
-            if (imageMarkerIndex != -1 && videoMarkerIndex != -1) {
-                firstMarkerIndex = Math.min(imageMarkerIndex, videoMarkerIndex);
-            } else if (imageMarkerIndex != -1) {
-                firstMarkerIndex = imageMarkerIndex;
-            } else if (videoMarkerIndex != -1) {
-                firstMarkerIndex = videoMarkerIndex;
-            }
-
-            // Extract text part (before any marker)
-            if (firstMarkerIndex > 0) {
-                textPart = messageText.substring(0, firstMarkerIndex).trim();
-            }
-
-            // Extract image URLs
-            if (hasImages) {
-                int start = imageMarkerIndex + 3;
-                int end = messageText.length();
-                if (videoMarkerIndex != -1 && videoMarkerIndex > imageMarkerIndex) {
-                    end = videoMarkerIndex;
-                }
-                imagePart = messageText.substring(start, end).trim();
-                // Decode optimized URLs
-                imagePart = decodeOptimizedUrlsForEdit(imagePart);
-            }
-
-            // Extract video URLs
-            if (hasVideos) {
-                int start = videoMarkerIndex + 3;
-                videoPart = messageText.substring(start).trim();
-                // Decode optimized URLs
-                videoPart = decodeOptimizedUrlsForEdit(videoPart);
-            }
-        } else {
-            // No markers, just text
-            textPart = messageText;
-        }
+        // Parse the payload using PayloadCompress
+        PayloadCompress.ParsedPayload parsed = PayloadCompress.parsePayload(messageText);
 
         // Set the extracted parts to respective EditTexts
-        if (!textPart.isEmpty()) {
-            inputMessage.setText(textPart);
+        if (!parsed.message.isEmpty()) {
+            inputMessage.setText(parsed.message);
         }
 
-        if (!imagePart.isEmpty()) {
-            // Replace commas with newlines for better editing and compatibility with the new split logic
-            inputImageURL.setText(imagePart.replace(",", "\n"));
+        if (!parsed.imageUrls.isEmpty()) {
+            // Replace commas with newlines for better editing
+            inputImageURL.setText(parsed.imageUrls.replace(",", "\n"));
         }
 
-        if (!videoPart.isEmpty()) {
+        if (!parsed.videoUrls.isEmpty()) {
             // Replace commas with newlines
-            inputVideoURL.setText(videoPart.replace(",", "\n"));
+            inputVideoURL.setText(parsed.videoUrls.replace(",", "\n"));
         }
 
         // Switch to appropriate input mode based on what's available
-        if (!textPart.isEmpty()) {
+        if (!parsed.message.isEmpty()) {
             // Show text input
             inputMode = 0;
             inputMessage.setVisibility(View.VISIBLE);
@@ -1506,10 +1399,9 @@ public class MainActivity extends BaseActivity {
             inputVideoURL.setVisibility(View.GONE);
             switchInputImage.setImageResource(R.drawable.text);
 
-            // Focus on text input and move cursor to end
             inputMessage.requestFocus();
             inputMessage.setSelection(inputMessage.getText().length());
-        } else if (!imagePart.isEmpty()) {
+        } else if (!parsed.imageUrls.isEmpty()) {
             // Show image input
             inputMode = 1;
             inputMessage.setVisibility(View.GONE);
@@ -1519,7 +1411,7 @@ public class MainActivity extends BaseActivity {
 
             inputImageURL.requestFocus();
             inputImageURL.setSelection(inputImageURL.getText().length());
-        } else if (!videoPart.isEmpty()) {
+        } else if (!parsed.videoUrls.isEmpty()) {
             // Show video input
             inputMode = 2;
             inputMessage.setVisibility(View.GONE);
@@ -1534,52 +1426,7 @@ public class MainActivity extends BaseActivity {
         Toast.makeText(this, "Message loaded for editing", Toast.LENGTH_SHORT).show();
     }
 
-    private String decodeOptimizedUrlsForEdit(String optimizedUrls) {
-        if (!optimizedUrls.contains(">")) {
-            // Not optimized format, return as is
-            return optimizedUrls;
-        }
 
-        StringBuilder decoded = new StringBuilder();
-        String[] domainGroups = optimizedUrls.split(";");
-
-        for (int i = 0; i < domainGroups.length; i++) {
-            String group = domainGroups[i].trim();
-
-            int arrowIndex = group.indexOf('>');
-            if (arrowIndex == -1) continue;
-
-            String domainAndPrefix = group.substring(0, arrowIndex);
-            String files = group.substring(arrowIndex + 1);
-
-            // Extract domain and prefix
-            String domain;
-            String prefix = "";
-
-            int lastSlash = domainAndPrefix.lastIndexOf('/');
-            if (lastSlash > 0) {
-                domain = domainAndPrefix.substring(0, domainAndPrefix.indexOf('/'));
-                prefix = domainAndPrefix.substring(domainAndPrefix.indexOf('/') + 1);
-            } else {
-                domain = domainAndPrefix;
-            }
-
-            // Build full URLs
-            String[] fileArray = files.split(",");
-            for (int j = 0; j < fileArray.length; j++) {
-                if (decoded.length() > 0) {
-                    decoded.append(",");
-                }
-                decoded.append(domain);
-                if (!prefix.isEmpty()) {
-                    decoded.append("/").append(prefix);
-                }
-                decoded.append("/").append(fileArray[j].trim());
-            }
-        }
-
-        return decoded.toString();
-    }
 
     private void unsaveMessage(MessageModel msg) {
         new Thread(() -> {
@@ -1716,89 +1563,29 @@ public class MainActivity extends BaseActivity {
     private void copyMessageToClipboard(MessageModel msg) {
         ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
         if (clipboard != null) {
-            String originalMessage = msg.getMessage();
-            String messageToProcess = originalMessage;
-            StringBuffer resultBuffer = new StringBuffer();
+            String messageText = msg.getMessage();
 
-            // Decode optimized image URLs
-            Pattern imagePattern = Pattern.compile("m:/([^\\n]+)");
-            Matcher imageMatcher = imagePattern.matcher(messageToProcess);
-            while (imageMatcher.find()) {
-                String optimized = imageMatcher.group(1);
-                String decoded = decodeOptimizedUrlsForCopy(optimized);
-                // Using Matcher.quoteReplacement to handle any special characters in the replacement string
-                String replacement = Matcher.quoteReplacement("Images:\n" + decoded.replace(",", "\n"));
-                imageMatcher.appendReplacement(resultBuffer, replacement);
+            // Parse the message using PayloadCompress
+            PayloadCompress.ParsedPayload parsed = PayloadCompress.parsePayload(messageText);
+
+            StringBuilder result = new StringBuilder();
+            if (!parsed.message.isEmpty()) {
+                result.append(parsed.message);
             }
-            imageMatcher.appendTail(resultBuffer);
-            messageToProcess = resultBuffer.toString();
-            resultBuffer.setLength(0); // Reset buffer for next operation
-
-            // Decode optimized video URLs
-            Pattern videoPattern = Pattern.compile("v:/([^\\n]+)");
-            Matcher videoMatcher = videoPattern.matcher(messageToProcess);
-            while (videoMatcher.find()) {
-                String optimized = videoMatcher.group(1);
-                String decoded = decodeOptimizedUrlsForCopy(optimized);
-                String replacement = Matcher.quoteReplacement("Videos:\n" + decoded.replace(",", "\n"));
-                videoMatcher.appendReplacement(resultBuffer, replacement);
+            if (!parsed.imageUrls.isEmpty()) {
+                if (result.length() > 0) result.append("\n\nImages:\n");
+                result.append(parsed.imageUrls.replace(",", "\n"));
             }
-            videoMatcher.appendTail(resultBuffer);
-            String finalMessage = resultBuffer.toString();
+            if (!parsed.videoUrls.isEmpty()) {
+                if (result.length() > 0) result.append("\n\nVideos:\n");
+                result.append(parsed.videoUrls.replace(",", "\n"));
+            }
 
-            clipboard.setPrimaryClip(ClipData.newPlainText("Copied Message", finalMessage));
+            clipboard.setPrimaryClip(ClipData.newPlainText("Copied Message", result.toString()));
             Toast.makeText(this, "Copied", Toast.LENGTH_SHORT).show();
         }
     }
 
-    private String decodeOptimizedUrlsForCopy(String optimizedUrls) {
-        if (!optimizedUrls.contains(">")) {
-            String[] urls = optimizedUrls.split(",");
-            StringBuilder result = new StringBuilder();
-            for (String url : urls) {
-                if (result.length() > 0) result.append(",");
-                result.append("https://").append(url.trim());
-            }
-            return result.toString();
-        }
-
-        StringBuilder decoded = new StringBuilder();
-        String[] domainGroups = optimizedUrls.split(";");
-
-        for (int i = 0; i < domainGroups.length; i++) {
-            String group = domainGroups[i].trim();
-
-            int arrowIndex = group.indexOf('>');
-            if (arrowIndex == -1) continue;
-
-            String domainAndPrefix = group.substring(0, arrowIndex);
-            String files = group.substring(arrowIndex + 1);
-
-            String domain;
-            String prefix = "";
-
-            int lastSlash = domainAndPrefix.lastIndexOf('/');
-            if (lastSlash > 0) {
-                domain = domainAndPrefix.substring(0, domainAndPrefix.indexOf('/'));
-                prefix = domainAndPrefix.substring(domainAndPrefix.indexOf('/') + 1);
-            } else {
-                domain = domainAndPrefix;
-            }
-
-            String[] fileArray = files.split(",");
-            for (int j = 0; j < fileArray.length; j++) {
-                if (decoded.length() > 0) {
-                    decoded.append(",");
-                }
-                decoded.append("https://").append(domain);
-                if (!prefix.isEmpty()) {
-                    decoded.append("/").append(prefix);
-                }
-                decoded.append("/").append(fileArray[j].trim());
-            }
-        }
-        return decoded.toString();
-    }
 
     private void restartApp() {
         stopService(new Intent(this, BleMessagingService.class));

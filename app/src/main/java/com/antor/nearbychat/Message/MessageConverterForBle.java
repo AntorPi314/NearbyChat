@@ -3,7 +3,6 @@ package com.antor.nearbychat.Message;
 import android.content.Context;
 import com.antor.nearbychat.CryptoUtils;
 import com.antor.nearbychat.MessageModel;
-import com.antor.nearbychat.PayloadCompress;
 
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
@@ -22,7 +21,6 @@ public class MessageConverterForBle {
     private static final int CHAT_ID_LENGTH = 5;
 
     private static final int BASE_HEADER_SIZE = CHAT_TYPE_LENGTH + USER_ID_LENGTH + MESSAGE_ID_LENGTH + CHUNK_METADATA_LENGTH;
-
     private static final int FIRST_CHUNK_GF_HEADER_SIZE = BASE_HEADER_SIZE + CHAT_ID_LENGTH;
 
     private final Context context;
@@ -32,16 +30,17 @@ public class MessageConverterForBle {
     private final long senderIdBits;
     private long existingMessageIdBits = -1;
 
-    private final String originalMessage; // Add this
     private final String payloadToSend;
 
     private MessageModel messageToSave;
     private List<byte[]> blePacketsToSend;
 
-    public MessageConverterForBle(Context context, String originalMessage, String payloadToSend, String chatType, String chatId, String senderDisplayId, long senderIdBits, int maxPayloadSize) {
+    // Constructor for sending new messages
+    public MessageConverterForBle(Context context, String payloadToSend, String chatType,
+                                  String chatId, String senderDisplayId, long senderIdBits,
+                                  int maxPayloadSize) {
         this.context = context;
-        this.originalMessage = originalMessage; // Store original message
-        this.payloadToSend = payloadToSend;     // Store payload to be sent
+        this.payloadToSend = payloadToSend;
         this.chatType = chatType;
         this.chatId = chatId;
         this.senderDisplayId = senderDisplayId;
@@ -49,58 +48,10 @@ public class MessageConverterForBle {
         this.MAX_PAYLOAD_SIZE = maxPayloadSize;
     }
 
+    // Constructor for retransmitting
     public MessageConverterForBle(Context context, MessageModel modelToRetransmit, int maxPayloadSize) {
         this.context = context;
-
-        String originalMsg = modelToRetransmit.getMessage();
-        this.originalMessage = originalMsg; // Store original message
-
-        String textPart = "";
-        String imagePart = "";
-        String videoPart = "";
-
-        int imageMarkerIndex = originalMsg.indexOf("m:/");
-        int videoMarkerIndex = originalMsg.indexOf("v:/");
-        boolean hasImages = imageMarkerIndex != -1;
-        boolean hasVideos = videoMarkerIndex != -1;
-
-        if (!hasImages && !hasVideos) {
-            textPart = originalMsg;
-        } else {
-            int firstMarkerIndex = -1;
-            if (hasImages && hasVideos) {
-                firstMarkerIndex = Math.min(imageMarkerIndex, videoMarkerIndex);
-            } else if (hasImages) {
-                firstMarkerIndex = imageMarkerIndex;
-            } else {
-                firstMarkerIndex = videoMarkerIndex;
-            }
-
-            if (firstMarkerIndex > 0) {
-                textPart = originalMsg.substring(0, firstMarkerIndex).trim();
-            }
-
-            if (hasImages) {
-                int start = imageMarkerIndex + 3;
-                int end = originalMsg.length();
-                if (hasVideos && videoMarkerIndex > imageMarkerIndex) {
-                    end = videoMarkerIndex;
-                }
-                imagePart = originalMsg.substring(start, end).trim();
-            }
-
-            if (hasVideos) {
-                int start = videoMarkerIndex + 3;
-                int end = originalMsg.length();
-                if (hasImages && imageMarkerIndex > videoMarkerIndex) {
-                    end = imageMarkerIndex;
-                }
-                videoPart = originalMsg.substring(start, end).trim();
-            }
-        }
-
-        this.payloadToSend = PayloadCompress.buildPayload(textPart, imagePart, videoPart);
-
+        this.payloadToSend = modelToRetransmit.getMessage();
         this.chatType = modelToRetransmit.getChatType();
         this.chatId = modelToRetransmit.getChatId();
         this.senderDisplayId = modelToRetransmit.getSenderId();
@@ -120,16 +71,39 @@ public class MessageConverterForBle {
         String messageAsciiId = MessageHelper.timestampToAsciiId(messageIdBits);
         String senderAsciiId = MessageHelper.timestampToAsciiId(senderIdBits);
 
+        // Encrypt the payload if needed
         String messagePayload;
         if ("N".equals(chatType)) {
-            messagePayload = payloadToSend; // Use payloadToSend for processing
+            messagePayload = payloadToSend;
         } else {
             String password = MessageHelper.getPasswordForChat(context, chatType, chatId, senderDisplayId);
-            messagePayload = CryptoUtils.encrypt(payloadToSend, password); // Encrypt the payload
+            messagePayload = CryptoUtils.encrypt(payloadToSend, password);
         }
 
-        byte[] messageBytes = messagePayload.getBytes(StandardCharsets.UTF_8);
+        // byte[] messageBytes = messagePayload.getBytes(StandardCharsets.UTF_8); // <-- THIS WAS THE BUG
 
+        // ================== FIX START ==================
+        // Determine the correct charset to get the raw bytes
+        byte[] messageBytes;
+        if ("N".equals(chatType)) {
+            // Not encrypted. `messagePayload` is the original payload from PayloadCompress
+            if (messagePayload.startsWith("[u>")) {
+                // Uncompressed payload, use UTF-8
+                messageBytes = messagePayload.getBytes(StandardCharsets.UTF_8);
+            } else {
+                // Compressed payload (binary data in ISO-8859-1 string), use ISO-8859-1
+                messageBytes = messagePayload.getBytes(StandardCharsets.ISO_8859_1);
+            }
+        } else {
+            // Encrypted. `messagePayload` is binary data from CryptoUtils, which is
+            // already packed into an ISO-8859-1 string.
+            // We MUST use ISO-8859-1 to get the raw encrypted bytes.
+            messageBytes = messagePayload.getBytes(StandardCharsets.ISO_8859_1);
+        }
+        // ================== FIX END ==================
+
+
+        // Calculate chunk sizes
         int firstChunkDataSize;
         int nextChunkDataSize;
 
@@ -140,13 +114,15 @@ public class MessageConverterForBle {
             firstChunkDataSize = MAX_PAYLOAD_SIZE - FIRST_CHUNK_GF_HEADER_SIZE;
             nextChunkDataSize = MAX_PAYLOAD_SIZE - BASE_HEADER_SIZE;
         }
+
         List<byte[]> dataChunks = createVariableSizeChunks(messageBytes, firstChunkDataSize, nextChunkDataSize);
         int totalChunks = dataChunks.size();
 
+        // Create MessageModel to save (only for new messages)
         if (existingMessageIdBits == -1) {
             this.messageToSave = new MessageModel(
                     senderDisplayId,
-                    originalMessage, // UPDATED: Use the original message for saving
+                    payloadToSend, // Save the compressed payload directly
                     true,
                     createFormattedTimestamp(totalChunks, messageIdBits),
                     senderIdBits,
@@ -157,6 +133,7 @@ public class MessageConverterForBle {
             this.messageToSave.setChatId(chatId);
         }
 
+        // Create BLE packets
         this.blePacketsToSend = new ArrayList<>();
         String paddedChatId = String.format("%-5s", chatId).substring(0, 5);
 

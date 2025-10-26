@@ -202,7 +202,7 @@ public class BleMessagingService extends Service {
             String chatId = intent.getStringExtra("chat_id");
             if (message != null && chatType != null && chatId != null) {
                 String payload = PayloadCompress.buildPayload(message, null, null);
-                sendMessage(message, payload, chatType, chatId);
+                sendMessage(payload, chatType, chatId);
             }
         }
         return START_STICKY;
@@ -507,10 +507,11 @@ public class BleMessagingService extends Service {
         });
     }
 
-    public void sendMessage(String originalMessage, String payload, String chatType, String chatId) {
+    public void sendMessage(String payload, String chatType, String chatId) {
         processingExecutor.submit(() -> {
             try {
-                MessageConverterForBle converter = new MessageConverterForBle(this, originalMessage, payload, chatType, chatId, userId, userIdBits, MAX_PAYLOAD_SIZE);
+                MessageConverterForBle converter = new MessageConverterForBle(
+                        this, payload, chatType, chatId, userId, userIdBits, MAX_PAYLOAD_SIZE);
                 converter.process();
                 MessageModel msgToSave = converter.getMessageToSave();
                 List<byte[]> packets = converter.getBlePacketsToSend();
@@ -685,26 +686,44 @@ public class BleMessagingService extends Service {
                 autoAddFriendIfNeeded(msg.getSenderId());
             }
         }
+
         try {
             if (msg.isComplete()) {
+                // Complete message - remove any partial version first
                 if (messageDao.partialMessageExists(msg.getSenderId(), msg.getMessageId()) > 0) {
                     messageDao.deletePartialMessage(msg.getSenderId(), msg.getMessageId());
+                    Log.d(TAG, "Deleted partial message before saving complete: " + msg.getMessageId());
                 }
+
+                // Only insert if doesn't exist already
                 if (messageDao.messageExists(msg.getSenderId(), msg.getMessage(), msg.getTimestamp()) == 0) {
                     messageDao.insertMessage(com.antor.nearbychat.Database.MessageEntity.fromMessageModel(msg));
                     AppDatabase.cleanupOldMessages(this, MAX_MESSAGE_SAVED);
+                    Log.d(TAG, "✓ Saved complete message: " + msg.getMessageId());
                 }
             } else {
+                // Partial or failed message
                 if (messageDao.partialMessageExists(msg.getSenderId(), msg.getMessageId()) > 0) {
+                    // Update existing partial message with new count
                     messageDao.updatePartialMessage(msg.getSenderId(), msg.getMessageId(), msg.getMessage());
+                    Log.d(TAG, "Updated partial message: " + msg.getMessageId() + " -> " + msg.getMessage());
                 } else {
+                    // Insert new partial message
                     messageDao.insertMessage(com.antor.nearbychat.Database.MessageEntity.fromMessageModel(msg));
+                    Log.d(TAG, "Inserted partial message: " + msg.getMessageId() + " -> " + msg.getMessage());
                 }
             }
         } catch (Exception e) {
             Log.e(TAG, "Error saving message", e);
         }
-        Log.d(TAG, "Saving message: chatType=" + msg.getChatType() + " chatId=" + msg.getChatId() + " from=" + msg.getSenderId() + " isComplete=" + msg.isComplete() + " isFailed=" + msg.isFailed());
+
+        Log.d(TAG, "💾 Saving message: chatType=" + msg.getChatType() +
+                " | chatId=" + msg.getChatId() +
+                " | from=" + msg.getSenderId() +
+                " | messageId=" + msg.getMessageId() +
+                " | isComplete=" + msg.isComplete() +
+                " | isFailed=" + msg.isFailed() +
+                " | content=" + msg.getMessage().substring(0, Math.min(50, msg.getMessage().length())));
     }
 
     private void autoAddFriendIfNeeded(String friendDisplayId) {

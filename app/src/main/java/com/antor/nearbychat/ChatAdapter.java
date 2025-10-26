@@ -65,121 +65,101 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
         MainActivity main = (MainActivity) context;
 
         String displayName = main.getDisplayName(msg.getSenderId());
-
-        if (displayName == null || displayName.isEmpty() || displayName.equals(msg.getSenderId())) {
-            holder.senderId.setText(msg.getSenderId());
-        } else {
-            holder.senderId.setText(displayName);
-        }
-
+        holder.senderId.setText(displayName.isEmpty() ? msg.getSenderId() : displayName);
         holder.timestamp.setText(msg.getTimestamp());
 
-        String displayMessage = msg.getMessage();
-        boolean hasImages = displayMessage.contains("m:/");
-        boolean hasVideos = displayMessage.contains("v:/");
+        // Get raw message
+        String rawMessage = msg.getMessage();
 
-        String textPart = "";
-        String imagePart = "";
-        String videoPart = "";
-
-        if (hasImages || hasVideos) {
-            int imageMarkerIndex = displayMessage.indexOf("m:/");
-            int videoMarkerIndex = displayMessage.indexOf("v:/");
-
-            int firstMarkerIndex = -1;
-            if (imageMarkerIndex != -1 && videoMarkerIndex != -1) {
-                firstMarkerIndex = Math.min(imageMarkerIndex, videoMarkerIndex);
-            } else if (imageMarkerIndex != -1) {
-                firstMarkerIndex = imageMarkerIndex;
-            } else if (videoMarkerIndex != -1) {
-                firstMarkerIndex = videoMarkerIndex;
+        // Check if this is a partial/incomplete or failed message
+        if (!msg.isComplete() || msg.isFailed()) {
+            // For partial/failed messages, show the message as-is without parsing
+            if (!rawMessage.isEmpty()) {
+                holder.message.setVisibility(View.VISIBLE);
+                holder.message.setText(rawMessage);
+            } else {
+                holder.message.setVisibility(View.GONE);
             }
 
-            if (firstMarkerIndex > 0) {
-                textPart = displayMessage.substring(0, firstMarkerIndex).trim();
+            // Hide media containers for partial/failed messages
+            if (holder.imageContainer != null) {
+                holder.imageContainer.setVisibility(View.GONE);
+            }
+            if (holder.videoContainer != null) {
+                holder.videoContainer.setVisibility(View.GONE);
             }
 
-            if (hasImages) {
-                int start = imageMarkerIndex + 3;
-                int end = displayMessage.length();
-                if (videoMarkerIndex != -1 && videoMarkerIndex > imageMarkerIndex) {
-                    end = videoMarkerIndex;
+            // Set color for failed messages
+            holder.itemView.setBackgroundColor(Color.TRANSPARENT);
+            if (msg.isSelf()) {
+                holder.message.setTextColor(msg.isFailed() ? Color.parseColor("#CC0000") : Color.WHITE);
+                holder.itemView.setBackgroundColor(msg.isFailed() ? Color.parseColor("#FFCCCC") : Color.TRANSPARENT);
+            } else {
+                holder.message.setTextColor(msg.isFailed() ? Color.parseColor("#CC0000") : Color.BLACK);
+                if (msg.isFailed()) {
+                    holder.itemView.setBackgroundColor(Color.parseColor("#FFEEEE"));
                 }
-                imagePart = displayMessage.substring(start, end).trim();
-                // REMOVE THE LINE BELOW
-                // imagePart = decodeOptimizedUrls(imagePart);
-            }
-
-            if (hasVideos) {
-                int start = videoMarkerIndex + 3;
-                videoPart = displayMessage.substring(start).trim();
-                // REMOVE THE LINE BELOW
-                // videoPart = decodeOptimizedUrls(videoPart);
             }
         } else {
-            textPart = displayMessage;
-        }
+            // Complete message - parse using PayloadCompress
+            PayloadCompress.ParsedPayload parsed = PayloadCompress.parsePayload(rawMessage);
 
-        if (!textPart.isEmpty()) {
-            holder.message.setVisibility(View.VISIBLE);
-            holder.message.setText(textPart);
-        } else {
-            holder.message.setVisibility(View.GONE);
-        }
+            // Display text part
+            if (!parsed.message.isEmpty()) {
+                holder.message.setVisibility(View.VISIBLE);
+                holder.message.setText(parsed.message);
+            } else {
+                holder.message.setVisibility(View.GONE);
+            }
 
-        holder.itemView.setBackgroundColor(Color.TRANSPARENT);
-        if (msg.isSelf()) {
-            holder.message.setTextColor(msg.isFailed() ? Color.parseColor("#CC0000") : Color.WHITE);
-            holder.itemView.setBackgroundColor(msg.isFailed() ? Color.parseColor("#FFCCCC") : Color.TRANSPARENT);
-        } else {
-            holder.message.setTextColor(Color.BLACK);
-        }
+            // Set colors based on message status
+            holder.itemView.setBackgroundColor(Color.TRANSPARENT);
+            if (msg.isSelf()) {
+                holder.message.setTextColor(Color.WHITE);
+            } else {
+                holder.message.setTextColor(Color.BLACK);
+            }
 
-        if (holder.imageContainer != null) {
-            if (hasImages && !imagePart.isEmpty()) {
-                String[] urls = imagePart.split(",");
-                ArrayList<String> imageUrls = new ArrayList<>();
-                for (String url : urls) {
-                    if (!url.trim().isEmpty()) {
-                        imageUrls.add(url.trim());
+            // Handle images
+            if (holder.imageContainer != null) {
+                if (!parsed.imageUrls.isEmpty()) {
+                    String[] urls = parsed.imageUrls.split(",");
+                    ArrayList<String> imageUrls = new ArrayList<>();
+                    for (String url : urls) {
+                        String trimmed = url.trim();
+                        if (!trimmed.isEmpty()) {
+                            imageUrls.add(trimmed);
+                        }
                     }
-                }
-                String newImageKey = imagePart;
-                if (!newImageKey.equals(holder.imageContainer.getTag())) {
-                    holder.imageContainer.setTag(newImageKey);
+                    holder.imageContainer.setTag(parsed.imageUrls);
                     holder.imageContainer.setVisibility(View.VISIBLE);
                     holder.imageContainer.removeAllViews();
                     setupImageViews(holder.imageContainer, imageUrls, msg.isSelf());
                 } else {
-                    holder.imageContainer.setVisibility(View.VISIBLE);
+                    holder.imageContainer.setTag(null);
+                    holder.imageContainer.setVisibility(View.GONE);
                 }
-            } else {
-                holder.imageContainer.setTag(null);
-                holder.imageContainer.setVisibility(View.GONE);
             }
-        }
 
-        if (holder.videoContainer != null) {
-            if (hasVideos && !videoPart.isEmpty()) {
-                String[] urls = videoPart.split(",");
-                ArrayList<String> videoUrls = new ArrayList<>();
-                for (String url : urls) {
-                    if (!url.trim().isEmpty()) {
-                        videoUrls.add(url.trim());
+            // Handle videos
+            if (holder.videoContainer != null) {
+                if (!parsed.videoUrls.isEmpty()) {
+                    String[] urls = parsed.videoUrls.split(",");
+                    ArrayList<String> videoUrls = new ArrayList<>();
+                    for (String url : urls) {
+                        String trimmed = url.trim();
+                        if (!trimmed.isEmpty()) {
+                            videoUrls.add(trimmed);
+                        }
                     }
-                }
-                String newVideoKey = videoPart;
-                if (!newVideoKey.equals(holder.videoContainer.getTag())) {
-                    holder.videoContainer.setTag(newVideoKey);
+                    holder.videoContainer.setTag(parsed.videoUrls);
                     holder.videoContainer.setVisibility(View.VISIBLE);
                     holder.videoContainer.removeAllViews();
                     setupVideoViews(holder.videoContainer, videoUrls);
                 } else {
-                    holder.videoContainer.setVisibility(View.VISIBLE);
+                    holder.videoContainer.setTag(null);
+                    holder.videoContainer.setVisibility(View.GONE);
                 }
-            } else {
-                holder.videoContainer.setTag(null);
-                holder.videoContainer.setVisibility(View.GONE);
             }
         }
 
@@ -195,52 +175,7 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
         holder.itemView.setOnClickListener(v -> clickListener.onClick(msg));
     }
 
-    private String decodeOptimizedUrls(String optimizedUrls) {
-        if (!optimizedUrls.contains(">")) {
-            // Not optimized format, return as is
-            return optimizedUrls;
-        }
 
-        StringBuilder decoded = new StringBuilder();
-        String[] domainGroups = optimizedUrls.split(";");
-
-        for (int i = 0; i < domainGroups.length; i++) {
-            String group = domainGroups[i].trim();
-
-            int arrowIndex = group.indexOf('>');
-            if (arrowIndex == -1) continue;
-
-            String domainAndPrefix = group.substring(0, arrowIndex);
-            String files = group.substring(arrowIndex + 1);
-
-            // Extract domain and prefix
-            String domain;
-            String prefix = "";
-
-            int lastSlash = domainAndPrefix.lastIndexOf('/');
-            if (lastSlash > 0) {
-                domain = domainAndPrefix.substring(0, domainAndPrefix.indexOf('/'));
-                prefix = domainAndPrefix.substring(domainAndPrefix.indexOf('/') + 1);
-            } else {
-                domain = domainAndPrefix;
-            }
-
-            // Build full URLs
-            String[] fileArray = files.split(",");
-            for (int j = 0; j < fileArray.length; j++) {
-                if (decoded.length() > 0) {
-                    decoded.append(",");
-                }
-                decoded.append(domain);
-                if (!prefix.isEmpty()) {
-                    decoded.append("/").append(prefix);
-                }
-                decoded.append("/").append(fileArray[j].trim());
-            }
-        }
-
-        return decoded.toString();
-    }
 
     private void setupVideoViews(LinearLayout videoContainer, ArrayList<String> videoUrls) {
         int columns = 3;
