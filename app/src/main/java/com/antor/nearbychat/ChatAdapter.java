@@ -72,8 +72,9 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
         String rawMessage = msg.getMessage();
 
         // Check if this is a partial/incomplete or failed message
-        if (!msg.isComplete() || msg.isFailed()) {
-            // For partial/failed messages, show the message as-is without parsing
+        // CRITICAL FIX: Don't treat messages starting with [u> as raw - they need parsing!
+        if ((!msg.isComplete() || msg.isFailed()) && !rawMessage.startsWith("[u>") && !rawMessage.startsWith("[m>") && !rawMessage.startsWith("[v>")) {
+            // For partial/failed messages (not payloads), show the message as-is without parsing
             if (!rawMessage.isEmpty()) {
                 holder.message.setVisibility(View.VISIBLE);
                 holder.message.setText(rawMessage);
@@ -101,7 +102,7 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
                 }
             }
         } else {
-            // Complete message - parse using PayloadCompress
+            // Complete message OR message with payload markers - parse using PayloadCompress
             PayloadCompress.ParsedPayload parsed = PayloadCompress.parsePayload(rawMessage);
 
             // Display text part

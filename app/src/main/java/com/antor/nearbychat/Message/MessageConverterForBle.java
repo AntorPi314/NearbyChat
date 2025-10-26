@@ -60,6 +60,8 @@ public class MessageConverterForBle {
         this.MAX_PAYLOAD_SIZE = maxPayloadSize;
     }
 
+    // Replace the process() method in MessageConverterForBle.java with this:
+
     public void process() {
         long messageIdBits;
         if (existingMessageIdBits != -1) {
@@ -80,28 +82,15 @@ public class MessageConverterForBle {
             messagePayload = CryptoUtils.encrypt(payloadToSend, password);
         }
 
-        // byte[] messageBytes = messagePayload.getBytes(StandardCharsets.UTF_8); // <-- THIS WAS THE BUG
-
-        // ================== FIX START ==================
-        // Determine the correct charset to get the raw bytes
-        byte[] messageBytes;
-        if ("N".equals(chatType)) {
-            // Not encrypted. `messagePayload` is the original payload from PayloadCompress
-            if (messagePayload.startsWith("[u>")) {
-                // Uncompressed payload, use UTF-8
-                messageBytes = messagePayload.getBytes(StandardCharsets.UTF_8);
-            } else {
-                // Compressed payload (binary data in ISO-8859-1 string), use ISO-8859-1
-                messageBytes = messagePayload.getBytes(StandardCharsets.ISO_8859_1);
-            }
-        } else {
-            // Encrypted. `messagePayload` is binary data from CryptoUtils, which is
-            // already packed into an ISO-8859-1 string.
-            // We MUST use ISO-8859-1 to get the raw encrypted bytes.
-            messageBytes = messagePayload.getBytes(StandardCharsets.ISO_8859_1);
-        }
+        // ================== COMPLETE FIX ==================
+        // The messagePayload is ALWAYS an ISO-8859-1 encoded string:
+        // - For compressed messages: binary data as ISO-8859-1
+        // - For Unicode messages: "[u>" marker + UTF-8 bytes packed in ISO-8859-1
+        // - For encrypted messages: binary encrypted data as ISO-8859-1
+        //
+        // We MUST use ISO-8859-1 to get the raw bytes
+        byte[] messageBytes = messagePayload.getBytes(StandardCharsets.ISO_8859_1);
         // ================== FIX END ==================
-
 
         // Calculate chunk sizes
         int firstChunkDataSize;
