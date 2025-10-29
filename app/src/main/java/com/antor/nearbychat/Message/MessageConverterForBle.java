@@ -4,6 +4,7 @@ import android.content.Context;
 import com.antor.nearbychat.CryptoUtils;
 import com.antor.nearbychat.MessageModel;
 
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -34,8 +35,8 @@ public class MessageConverterForBle {
 
     private MessageModel messageToSave;
     private List<byte[]> blePacketsToSend;
+    private static final Charset ISO_8859_1 = StandardCharsets.ISO_8859_1;
 
-    // Constructor for sending new messages
     public MessageConverterForBle(Context context, String payloadToSend, String chatType,
                                   String chatId, String senderDisplayId, long senderIdBits,
                                   int maxPayloadSize) {
@@ -48,7 +49,6 @@ public class MessageConverterForBle {
         this.MAX_PAYLOAD_SIZE = maxPayloadSize;
     }
 
-    // Constructor for retransmitting
     public MessageConverterForBle(Context context, MessageModel modelToRetransmit, int maxPayloadSize) {
         this.context = context;
         this.payloadToSend = modelToRetransmit.getMessage();
@@ -60,8 +60,6 @@ public class MessageConverterForBle {
         this.MAX_PAYLOAD_SIZE = maxPayloadSize;
     }
 
-    // Replace the process() method in MessageConverterForBle.java with this:
-
     public void process() {
         long messageIdBits;
         if (existingMessageIdBits != -1) {
@@ -69,11 +67,9 @@ public class MessageConverterForBle {
         } else {
             messageIdBits = System.currentTimeMillis() & ((1L << 40) - 1);
         }
-
         String messageAsciiId = MessageHelper.timestampToAsciiId(messageIdBits);
         String senderAsciiId = MessageHelper.timestampToAsciiId(senderIdBits);
 
-        // Encrypt the payload if needed
         String messagePayload;
         if ("N".equals(chatType)) {
             messagePayload = payloadToSend;
@@ -81,18 +77,8 @@ public class MessageConverterForBle {
             String password = MessageHelper.getPasswordForChat(context, chatType, chatId, senderDisplayId);
             messagePayload = CryptoUtils.encrypt(payloadToSend, password);
         }
+        byte[] messageBytes = messagePayload.getBytes(ISO_8859_1);
 
-        // ================== COMPLETE FIX ==================
-        // The messagePayload is ALWAYS an ISO-8859-1 encoded string:
-        // - For compressed messages: binary data as ISO-8859-1
-        // - For Unicode messages: "[u>" marker + UTF-8 bytes packed in ISO-8859-1
-        // - For encrypted messages: binary encrypted data as ISO-8859-1
-        //
-        // We MUST use ISO-8859-1 to get the raw bytes
-        byte[] messageBytes = messagePayload.getBytes(StandardCharsets.ISO_8859_1);
-        // ================== FIX END ==================
-
-        // Calculate chunk sizes
         int firstChunkDataSize;
         int nextChunkDataSize;
 
@@ -107,11 +93,10 @@ public class MessageConverterForBle {
         List<byte[]> dataChunks = createVariableSizeChunks(messageBytes, firstChunkDataSize, nextChunkDataSize);
         int totalChunks = dataChunks.size();
 
-        // Create MessageModel to save (only for new messages)
         if (existingMessageIdBits == -1) {
             this.messageToSave = new MessageModel(
                     senderDisplayId,
-                    payloadToSend, // Save the compressed payload directly
+                    payloadToSend,
                     true,
                     createFormattedTimestamp(totalChunks, messageIdBits),
                     senderIdBits,
@@ -121,8 +106,6 @@ public class MessageConverterForBle {
             this.messageToSave.setChatType(chatType);
             this.messageToSave.setChatId(chatId);
         }
-
-        // Create BLE packets
         this.blePacketsToSend = new ArrayList<>();
         String paddedChatId = String.format("%-5s", chatId).substring(0, 5);
 
@@ -156,9 +139,9 @@ public class MessageConverterForBle {
         int offset = 0;
 
         packet[offset++] = (byte) chatType.charAt(0);
-        System.arraycopy(senderAsciiId.getBytes(StandardCharsets.ISO_8859_1), 0, packet, offset, USER_ID_LENGTH);
+        System.arraycopy(senderAsciiId.getBytes(ISO_8859_1), 0, packet, offset, USER_ID_LENGTH);
         offset += USER_ID_LENGTH;
-        System.arraycopy(messageAsciiId.getBytes(StandardCharsets.ISO_8859_1), 0, packet, offset, MESSAGE_ID_LENGTH);
+        System.arraycopy(messageAsciiId.getBytes(ISO_8859_1), 0, packet, offset, MESSAGE_ID_LENGTH);
         offset += MESSAGE_ID_LENGTH;
         packet[offset++] = (byte) totalChunks;
         packet[offset++] = (byte) chunkIndex;
@@ -173,13 +156,13 @@ public class MessageConverterForBle {
         int offset = 0;
 
         packet[offset++] = (byte) chatType.charAt(0);
-        System.arraycopy(senderAsciiId.getBytes(StandardCharsets.ISO_8859_1), 0, packet, offset, USER_ID_LENGTH);
+        System.arraycopy(senderAsciiId.getBytes(ISO_8859_1), 0, packet, offset, USER_ID_LENGTH);
         offset += USER_ID_LENGTH;
-        System.arraycopy(messageAsciiId.getBytes(StandardCharsets.ISO_8859_1), 0, packet, offset, MESSAGE_ID_LENGTH);
+        System.arraycopy(messageAsciiId.getBytes(ISO_8859_1), 0, packet, offset, MESSAGE_ID_LENGTH);
         offset += MESSAGE_ID_LENGTH;
         packet[offset++] = (byte) totalChunks;
         packet[offset++] = (byte) chunkIndex;
-        System.arraycopy(paddedChatId.getBytes(StandardCharsets.ISO_8859_1), 0, packet, offset, CHAT_ID_LENGTH);
+        System.arraycopy(paddedChatId.getBytes(ISO_8859_1), 0, packet, offset, CHAT_ID_LENGTH);
         offset += CHAT_ID_LENGTH;
         System.arraycopy(chunkData, 0, packet, offset, chunkData.length);
 
@@ -192,9 +175,9 @@ public class MessageConverterForBle {
         int offset = 0;
 
         packet[offset++] = (byte) chatType.charAt(0);
-        System.arraycopy(senderAsciiId.getBytes(StandardCharsets.ISO_8859_1), 0, packet, offset, USER_ID_LENGTH);
+        System.arraycopy(senderAsciiId.getBytes(ISO_8859_1), 0, packet, offset, USER_ID_LENGTH);
         offset += USER_ID_LENGTH;
-        System.arraycopy(messageAsciiId.getBytes(StandardCharsets.ISO_8859_1), 0, packet, offset, MESSAGE_ID_LENGTH);
+        System.arraycopy(messageAsciiId.getBytes(ISO_8859_1), 0, packet, offset, MESSAGE_ID_LENGTH);
         offset += MESSAGE_ID_LENGTH;
         packet[offset++] = (byte) totalChunks;
         packet[offset++] = (byte) chunkIndex;
@@ -221,7 +204,6 @@ public class MessageConverterForBle {
             } else {
                 chunkSize = Math.min(nextChunkSize, data.length - offset);
             }
-
             byte[] chunk = new byte[chunkSize];
             System.arraycopy(data, offset, chunk, 0, chunkSize);
             chunks.add(chunk);

@@ -12,132 +12,132 @@
         android:gravity="center"
         android:padding="24dp">
 
-        <!-- Gaza Image -->
-        <ImageView
-            android:id="@+id/imageGaza"
+        <LinearLayout
             android:layout_width="wrap_content"
-            android:layout_height="200dp"
-            android:src="@drawable/gaza"
-            android:scaleType="centerCrop"
-            android:layout_marginTop="40dp"
-            android:layout_marginBottom="40dp"
-            android:clickable="true"
-            android:focusable="true"
-            android:background="?android:attr/selectableItemBackground"/>
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_weight="1"
+            android:gravity="center_horizontal|center_vertical">
 
-        <!-- SOS Container with Glass Effect -->
-        <!-- SOS Container with Water Fill INSIDE Text -->
-        <FrameLayout
-            android:layout_width="180dp"
-            android:layout_height="80dp"
-            android:layout_marginBottom="12dp">
+            <ImageView
+                android:layout_width="120dp"
+                android:layout_height="120dp"
+                android:src="@drawable/ic_nearby_chat" />
 
-            <!-- Empty SOS Text (Outline) -->
+
             <TextView
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:text="SOS"
-                android:textSize="56sp"
+                android:id="@+id/textSOSBlue"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="SOSBlue"
+                android:textSize="20sp"
                 android:textStyle="bold"
-                android:gravity="center"
-                android:textColor="#CCCCCC"
-                android:fontFamily="sans-serif-black"/>
+                android:layout_marginBottom="0dp"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:paddingTop="0dp"
+                android:paddingBottom="0dp"/>
 
-            <!-- Water Fill Layer (will be clipped by text mask) -->
-            <FrameLayout
-                android:layout_width="match_parent"
-                android:layout_height="match_parent">
+        </LinearLayout>
 
-                <View
-                    android:id="@+id/sosWaterFill"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:layout_gravity="bottom"
-                    android:background="@drawable/gradient_water"/>
 
-                <!-- Text Mask for Water -->
-                <TextView
-                    android:id="@+id/sosTextMask"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:text="SOS"
-                    android:textSize="56sp"
-                    android:textStyle="bold"
-                    android:gravity="center"
-                    android:textColor="#2196F3"
-                    android:fontFamily="sans-serif-black"/>
-            </FrameLayout>
+       <LinearLayout
+           android:layout_width="match_parent"
+           android:layout_height="wrap_content"
+           android:orientation="vertical"
+           android:gravity="center_horizontal">
 
-        </FrameLayout>
+           <TextView
+               android:layout_width="wrap_content"
+               android:layout_height="wrap_content"
+               android:text="Welcome"
+               android:textSize="28sp"
+               android:textColor="#0D7FDF"
+               android:textStyle="bold"
+               android:layout_marginBottom="24dp"/>
 
-        <!-- SOSBlue Title with Gradient TEXT COLOR -->
-        <TextView
-            android:id="@+id/textSOSBlue"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="SOSBlue"
-            android:textSize="36sp"
-            android:textStyle="bold"
-            android:layout_marginBottom="8dp"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
-            android:paddingTop="4dp"
-            android:paddingBottom="4dp"/>
+           <TextView
+               android:id="@+id/textAgreement"
+               android:layout_width="match_parent"
+               android:layout_height="wrap_content"
+               android:text="By using SOSBlue, you agree to our"
+               android:textSize="14sp"
+               android:textColor="#666666"
+               android:gravity="center"
+               android:layout_marginBottom="4dp"
+               android:lineSpacingExtra="4dp"/>
 
-        <!-- Welcome Text -->
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Welcome"
-            android:textSize="28sp"
-            android:textColor="#333333"
-            android:textStyle="bold"
-            android:layout_marginBottom="24dp"/>
+           <LinearLayout
+               android:layout_width="wrap_content"
+               android:layout_height="wrap_content"
+               android:layout_marginBottom="24dp"
+               android:orientation="horizontal">
 
-        <!-- Agreement Text -->
-        <TextView
-            android:id="@+id/textAgreement"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="By using SOSBlue, you agree to our Terms of Use and Privacy Policy"
-            android:textSize="14sp"
-            android:textColor="#666666"
-            android:gravity="center"
-            android:layout_marginBottom="24dp"
-            android:lineSpacingExtra="4dp"/>
+               <TextView
+                   android:id="@+id/textTerms"
+                   android:layout_width="match_parent"
+                   android:layout_height="wrap_content"
+                   android:text="Terms of Use"
+                   android:textSize="14sp"
+                   android:textColor="#5454F8"
+                   android:gravity="center"
+                   android:lineSpacingExtra="4dp"/>
 
-        <!-- Agree Button -->
-        <TextView
-            android:id="@+id/btnAgree"
-            android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:text="Agree"
-            android:textSize="18sp"
-            android:textColor="@color/white"
-            android:textStyle="bold"
-            android:gravity="center"
-            android:background="@drawable/button_blue_round"
-            android:layout_marginBottom="16dp"
-            android:clickable="true"
-            android:focusable="true"
-            android:foreground="?android:attr/selectableItemBackground"/>
+               <TextView
+                   android:layout_width="match_parent"
+                   android:layout_height="wrap_content"
+                   android:text="  and  "
+                   android:textSize="14sp"
+                   android:textColor="#666666"
+                   android:gravity="center"
+                   android:lineSpacingExtra="4dp"/>
 
-        <!-- Disagree Button -->
-        <TextView
-            android:id="@+id/btnDisagree"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Disagree"
-            android:textSize="16sp"
-            android:textColor="#999999"
-            android:clickable="true"
-            android:focusable="true"
-            android:padding="12dp"
-            android:background="?android:attr/selectableItemBackground"/>
+               <TextView
+                   android:id="@+id/textPrivacyPolicy"
+                   android:layout_width="match_parent"
+                   android:layout_height="wrap_content"
+                   android:text="Privacy Policy"
+                   android:textSize="14sp"
+                   android:textColor="#5454F8"
+                   android:gravity="center"
+                   android:lineSpacingExtra="4dp"/>
 
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="20dp"/>
+           </LinearLayout>
+
+
+
+           <TextView
+               android:id="@+id/btnAgree"
+               android:layout_width="match_parent"
+               android:layout_height="56dp"
+               android:text="Agree"
+               android:textSize="18sp"
+               android:textColor="@color/white"
+               android:textStyle="bold"
+               android:gravity="center"
+               android:background="@drawable/button_blue_round"
+               android:layout_marginBottom="0dp"
+               android:clickable="true"
+               android:focusable="true"
+               android:foreground="?android:attr/selectableItemBackground"/>
+
+           <TextView
+               android:id="@+id/btnDisagree"
+               android:layout_width="wrap_content"
+               android:layout_height="wrap_content"
+               android:text="Disagree"
+               android:textSize="16sp"
+               android:textColor="#999999"
+               android:clickable="true"
+               android:focusable="true"
+               android:padding="12dp"
+               android:background="?android:attr/selectableItemBackground"/>
+
+
+       </LinearLayout>
+
+
+
 
     </LinearLayout>
 

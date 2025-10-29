@@ -44,6 +44,7 @@ import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 
 import java.lang.reflect.Type;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -57,7 +58,7 @@ public class BleMessagingService extends Service {
     private ScheduledExecutorService bleExecutor;
     private ExecutorService processingExecutor;
     private final ConcurrentLinkedQueue<byte[]> sendingQueue = new ConcurrentLinkedQueue<>();
-    private final Set<String> receivedMessages = new HashSet<>();
+    private final android.util.LruCache<String, Boolean> receivedMessages = new android.util.LruCache<>(2000);
     private volatile boolean isCycleRunning = false;
 
     private AppDatabase database;
@@ -115,6 +116,7 @@ public class BleMessagingService extends Service {
     private String currentSendingMessageId;
     private volatile int failedChunksCount = 0;
     private volatile int totalChunksToSend = 0;
+    private static final Charset ISO_8859_1 = StandardCharsets.ISO_8859_1;
 
     private ScanCallback scanCallback = new ScanCallback() {
         @Override
@@ -366,7 +368,7 @@ public class BleMessagingService extends Service {
                 startScanningInternal();
                 updateNotification("Scanning...", true);
             }
-            bleExecutor.schedule(this::bleCycleTask, 100, TimeUnit.MILLISECONDS);
+            bleExecutor.schedule(this::bleCycleTask, 500, TimeUnit.MILLISECONDS);
         } catch (Exception e) {
             Log.e(TAG, "Error in cycle", e);
             bleExecutor.schedule(this::bleCycleTask, 1000, TimeUnit.MILLISECONDS);
@@ -491,13 +493,8 @@ public class BleMessagingService extends Service {
         byte[] data = record.getServiceData(new ParcelUuid(SERVICE_UUID));
         if (data == null) return;
         String messageId = Arrays.toString(data);
-        synchronized (receivedMessages) {
-            if (receivedMessages.contains(messageId)) return;
-            receivedMessages.add(messageId);
-            if (receivedMessages.size() > 2000) {
-                receivedMessages.clear();
-            }
-        }
+        if (receivedMessages.get(messageId) != null) return;
+        receivedMessages.put(messageId, true);
 
         processingExecutor.submit(() -> {
             MessageModel msg = messageProcessor.processIncomingData(data, userId);
@@ -556,6 +553,7 @@ public class BleMessagingService extends Service {
             if (!exists) {
                 friends.add(new FriendModel(friendDisplayId, "", ""));
                 prefs.edit().putString("friendsList", gson.toJson(friends)).apply();
+                DataCache.invalidate();
                 Log.d(TAG, "Auto-added friend when sending: " + friendDisplayId);
             }
         } catch (Exception e) {
@@ -657,7 +655,7 @@ public class BleMessagingService extends Service {
                 long msgBits = MessageHelper.displayIdToTimestamp(messageId);
                 String msgAscii = MessageHelper.timestampToAsciiId(msgBits);
 
-                byte[] header = (REQUEST_MARKER + targetAscii + msgAscii).getBytes(StandardCharsets.ISO_8859_1);
+                byte[] header = (REQUEST_MARKER + targetAscii + msgAscii).getBytes(ISO_8859_1);
                 int count = Math.min(missingChunks.size(), MAX_MISSING_CHUNKS);
                 byte[] payload = new byte[header.length + count];
                 System.arraycopy(header, 0, payload, 0, header.length);
@@ -689,26 +687,20 @@ public class BleMessagingService extends Service {
 
         try {
             if (msg.isComplete()) {
-                // Complete message - remove any partial version first
                 if (messageDao.partialMessageExists(msg.getSenderId(), msg.getMessageId()) > 0) {
                     messageDao.deletePartialMessage(msg.getSenderId(), msg.getMessageId());
                     Log.d(TAG, "Deleted partial message before saving complete: " + msg.getMessageId());
                 }
-
-                // Only insert if doesn't exist already
                 if (messageDao.messageExists(msg.getSenderId(), msg.getMessage(), msg.getTimestamp()) == 0) {
                     messageDao.insertMessage(com.antor.nearbychat.Database.MessageEntity.fromMessageModel(msg));
                     AppDatabase.cleanupOldMessages(this, MAX_MESSAGE_SAVED);
                     Log.d(TAG, "✓ Saved complete message: " + msg.getMessageId());
                 }
             } else {
-                // Partial or failed message
                 if (messageDao.partialMessageExists(msg.getSenderId(), msg.getMessageId()) > 0) {
-                    // Update existing partial message with new count
                     messageDao.updatePartialMessage(msg.getSenderId(), msg.getMessageId(), msg.getMessage());
                     Log.d(TAG, "Updated partial message: " + msg.getMessageId() + " -> " + msg.getMessage());
                 } else {
-                    // Insert new partial message
                     messageDao.insertMessage(com.antor.nearbychat.Database.MessageEntity.fromMessageModel(msg));
                     Log.d(TAG, "Inserted partial message: " + msg.getMessageId() + " -> " + msg.getMessage());
                 }
@@ -740,6 +732,7 @@ public class BleMessagingService extends Service {
         if (!exists) {
             friends.add(new FriendModel(friendDisplayId, friendDisplayId, ""));
             prefs.edit().putString("friendsList", gson.toJson(friends)).apply();
+            DataCache.invalidate();
             Log.d(TAG, "Auto-added new friend: " + friendDisplayId);
         }
     }

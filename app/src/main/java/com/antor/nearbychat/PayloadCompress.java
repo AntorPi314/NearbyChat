@@ -1,12 +1,15 @@
 package com.antor.nearbychat;
 
+import android.util.Log;
+
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class PayloadCompress {
 
-    // Markers matching Python script
     private static final String MARKER_UNICODE = "[u>";
     private static final String MARKER_IMAGE = "[m>";
     private static final String MARKER_VIDEO = "[v>";
@@ -36,32 +39,28 @@ public class PayloadCompress {
     private static final Map<Character, String> map4 = new HashMap<>();
     private static final Map<String, Character> rev_map4 = new HashMap<>();
 
-    private static final Pattern LINK_PATTERN = Pattern.compile("([^<>]+)<([^>]*)>");
+    private static final Pattern LINK_PATTERN = Pattern.compile("([^<>]*)<([^>]*)>");
+    private static final Charset ISO_8859_1 = StandardCharsets.ISO_8859_1;
 
     static {
-        // Initialize message model maps
         for (int i = 0; i < MSG_MODEL_1.length(); i++) {
             char c = MSG_MODEL_1.charAt(i);
             String bits = String.format("%5s", Integer.toBinaryString(i)).replace(' ', '0');
             msg_map1.put(c, bits);
             msg_rev1.put(bits, c);
         }
-
         for (int i = 0; i < MSG_MODEL_2.length(); i++) {
             char c = MSG_MODEL_2.charAt(i);
             String bits = String.format("%5s", Integer.toBinaryString(i)).replace(' ', '0');
             msg_map2.put(c, bits);
             msg_rev2.put(bits, c);
         }
-
         for (int i = 0; i < MSG_MODEL_3.length(); i++) {
             char c = MSG_MODEL_3.charAt(i);
             String bits = String.format("%5s", Integer.toBinaryString(i)).replace(' ', '0');
             msg_map3.put(c, bits);
             msg_rev3.put(bits, c);
         }
-
-        // Initialize link model maps
         for (int i = 0; i < LINK_MODEL_1.length(); i++) {
             char c = LINK_MODEL_1.charAt(i);
             String bits = String.format("%6s", Integer.toBinaryString(i)).replace(' ', '0');
@@ -99,7 +98,7 @@ public class PayloadCompress {
                 bits.append(escapeStar);
                 bits.append(msg_map3.get(c));
             } else {
-                return null; // Unsupported character
+                return null;
             }
         }
 
@@ -110,7 +109,6 @@ public class PayloadCompress {
         if (asciiData == null || asciiData.isEmpty()) {
             return "";
         }
-
         String bits = asciiToBitsMsg(asciiData);
 
         StringBuilder result = new StringBuilder();
@@ -163,7 +161,6 @@ public class PayloadCompress {
         if (strs == null || strs.isEmpty()) {
             return "";
         }
-
         String prefix = strs.get(0);
         for (int i = 1; i < strs.size(); i++) {
             while (!strs.get(i).startsWith(prefix)) {
@@ -173,14 +170,12 @@ public class PayloadCompress {
                 }
             }
         }
-
         int lastSlash = prefix.lastIndexOf('/');
         if (lastSlash != -1) {
             prefix = prefix.substring(0, lastSlash + 1);
         } else {
             return "";
         }
-
         return prefix;
     }
 
@@ -192,7 +187,10 @@ public class PayloadCompress {
             return "";
         }
 
-        String[] lines = inputStr.trim().split("[\\s,]+");
+        String[] lines = inputStr.trim().split("[\\n\\r,]+");
+
+        Log.d("PayloadCompress", "📥 simplifyLinks input: " + inputStr);
+        Log.d("PayloadCompress", "  Split into " + lines.length + " URLs");
 
         Map<String, List<PathProto>> domainDict = new LinkedHashMap<>();
         List<String> order = new ArrayList<>();
@@ -200,6 +198,8 @@ public class PayloadCompress {
         for (String link : lines) {
             link = link.trim();
             if (link.isEmpty()) continue;
+
+            Log.d("PayloadCompress", "  Processing URL: " + link);
 
             String proto;
             String rest;
@@ -214,7 +214,6 @@ public class PayloadCompress {
                 proto = "https://";
                 rest = link;
             }
-
             int slashIdx = rest.indexOf('/');
             String domain;
             String path;
@@ -245,7 +244,6 @@ public class PayloadCompress {
                 paths.add(item.path);
                 protos.add(item.proto);
             }
-
             boolean allEmpty = true;
             for (String p : paths) {
                 if (!p.isEmpty()) {
@@ -253,7 +251,6 @@ public class PayloadCompress {
                     break;
                 }
             }
-
             if (allEmpty) {
                 boolean hasHttp = false;
                 for (String pr : protos) {
@@ -283,7 +280,10 @@ public class PayloadCompress {
             }
         }
 
-        return res.toString();
+        String result = res.toString();
+        Log.d("PayloadCompress", "📤 simplifyLinks output: " + result);
+
+        return result;
     }
 
     // ==========================
@@ -295,15 +295,15 @@ public class PayloadCompress {
         StringBuilder bits = new StringBuilder();
         for (char c : s.toCharArray()) {
             if (map6.containsKey(c)) {
+                bits.append("0"); // Flag for 6-bit model (map6)
                 bits.append(map6.get(c));
             } else if (map4.containsKey(c)) {
-                bits.append("1");
+                bits.append("1"); // Flag for 4-bit model (map4)
                 bits.append(map4.get(c));
             } else {
                 throw new IllegalArgumentException("Character '" + c + "' not supported");
             }
         }
-
         return linkBitsToAscii(bits.toString());
     }
 
@@ -317,90 +317,77 @@ public class PayloadCompress {
         int bitsLen = bits.length();
 
         while (i < bitsLen) {
-            if (i < bitsLen && bits.charAt(i) == '1') {
+            char flag = bits.charAt(i);
+
+            if (flag == '0') {
+                // 6-bit model (1 flag bit + 6 data bits = 7 bits total)
+                if (i + 7 <= bitsLen) {
+                    String code6 = bits.substring(i + 1, i + 7);
+                    Character ch6 = rev_map6.get(code6);
+                    if (ch6 != null) {
+                        out.append(ch6);
+                    } else {
+                        Log.w("PayloadCompress", "Invalid 6-bit code: " + code6);
+                    }
+                    i += 7;
+                } else {
+                    // Not enough bits left for this block
+                    break;
+                }
+            } else if (flag == '1') {
+                // 4-bit model (1 flag bit + 4 data bits = 5 bits total)
                 if (i + 5 <= bitsLen) {
                     String code4 = bits.substring(i + 1, i + 5);
                     Character ch4 = rev_map4.get(code4);
-
                     if (ch4 != null) {
                         out.append(ch4);
-                        i += 5;
-                        continue;
+                    } else {
+                        Log.w("PayloadCompress", "Invalid 4-bit code: " + code4);
                     }
+                    i += 5;
+                } else {
+                    // Not enough bits left for this block
+                    break;
                 }
-
-                if (i + 6 <= bitsLen) {
-                    String code6 = bits.substring(i, i + 6);
-                    Character ch6 = rev_map6.get(code6);
-                    if (ch6 != null) {
-                        out.append(ch6);
-                        i += 6;
-                        continue;
-                    }
-                }
-
-                i++;
-
             } else {
-                if (i + 6 <= bitsLen) {
-                    String code6 = bits.substring(i, i + 6);
-                    Character ch6 = rev_map6.get(code6);
-                    if (ch6 != null) {
-                        out.append(ch6);
-                        i += 6;
-                        continue;
-                    }
-                }
-                i++;
+                // Should not happen if compressLink is correct
+                Log.w("PayloadCompress", "Invalid bit flag in decompressLink: " + flag);
+                i++; // Skip and try next bit
             }
         }
 
         return out.toString();
     }
 
-    // Add this method to PayloadCompress.java class:
-
     public static String buildPayload(String message, String imageUrls, String videoUrls) {
         StringBuilder payload = new StringBuilder();
 
-        // Handle message
         if (message != null && !message.isEmpty()) {
             String compressed = compressMessage(message);
             if (compressed != null) {
-                // Successfully compressed - NO marker, already ISO-8859-1 encoded
                 payload.append(compressed);
             } else {
-                // Contains unicode/emoji - add [u> marker
-                // ================== CRITICAL FIX ==================
-                // We need to convert the UTF-8 string to raw bytes,
-                // then pack those bytes into an ISO-8859-1 string
-                // so they can survive the encryption/transmission process
                 try {
                     byte[] utf8Bytes = message.getBytes(java.nio.charset.StandardCharsets.UTF_8);
-                    String packedUtf8 = new String(utf8Bytes, java.nio.charset.StandardCharsets.ISO_8859_1);
+                    String packedUtf8 = new String(utf8Bytes, ISO_8859_1);
                     payload.append(MARKER_UNICODE).append(packedUtf8);
                 } catch (Exception e) {
-                    // Fallback: just append as-is (will likely fail)
                     payload.append(MARKER_UNICODE).append(message);
                 }
-                // ================== FIX END ==================
             }
         }
 
-        // Handle images
         if (imageUrls != null && !imageUrls.isEmpty()) {
             String simplified = simplifyLinks(imageUrls);
             String compressed = compressLink(simplified);
             payload.append(MARKER_IMAGE).append(compressed);
         }
 
-        // Handle videos
         if (videoUrls != null && !videoUrls.isEmpty()) {
             String simplified = simplifyLinks(videoUrls);
             String compressed = compressLink(simplified);
             payload.append(MARKER_VIDEO).append(compressed);
         }
-
         return payload.toString();
     }
 
@@ -410,46 +397,37 @@ public class PayloadCompress {
         if (payload == null || payload.isEmpty()) {
             return result;
         }
+        // ✅ ADD THIS DEBUG LOG
+        Log.d("PayloadCompress", "🔍 Parsing payload: " + payload.substring(0, Math.min(100, payload.length())));
 
         int idx = 0;
         int len = payload.length();
 
-        // Check for message (either compressed or unicode)
         if (idx < len) {
             if (payload.startsWith(MARKER_UNICODE, idx)) {
-                // Unicode/emoji message
                 idx += MARKER_UNICODE.length();
                 int nextMarker = findNextMarkerIndex(payload, idx);
 
-                String isoString; // This string contains raw UTF-8 bytes packed as ISO-8859-1
+                String isoString;
                 if (nextMarker != -1) {
                     isoString = payload.substring(idx, nextMarker);
                     idx = nextMarker;
                 } else {
                     isoString = payload.substring(idx);
-                    // We are at the end, but still need to process the found string
                 }
-
-                // ================== FIX START ==================
-                // The `isoString` is currently an ISO-8859-1 string holding raw UTF-8 bytes.
-                // We must convert it back to bytes, then re-interpret those bytes as UTF-8.
                 try {
-                    byte[] utf8Bytes = isoString.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1);
+                    byte[] utf8Bytes = isoString.getBytes(ISO_8859_1);
                     result.message = new String(utf8Bytes, java.nio.charset.StandardCharsets.UTF_8);
                 } catch (Exception e) {
-                    // Fallback in case of error
                     result.message = "[UTF-8 Decode Error]";
                 }
-                // ================== FIX END ==================
-
                 if (nextMarker == -1) {
-                    return result; // We're done if this was the last part
+                    return result;
                 }
 
             } else if (payload.startsWith(MARKER_IMAGE, idx) || payload.startsWith(MARKER_VIDEO, idx)) {
                 // No message, skip
             } else {
-                // Compressed message (no marker)
                 int nextMarker = findNextMarkerIndex(payload, idx);
                 if (nextMarker != -1) {
                     String compressedMsg = payload.substring(idx, nextMarker);
@@ -462,32 +440,43 @@ public class PayloadCompress {
                 }
             }
         }
-
-        // Check for images
         if (idx < len && payload.startsWith(MARKER_IMAGE, idx)) {
             idx += MARKER_IMAGE.length();
+
+            Log.d("PayloadCompress", "📸 Found image marker at index: " + idx); // ADD THIS
+
             int nextMarker = findNextMarkerIndex(payload, idx);
             if (nextMarker != -1) {
                 String compressedLinks = payload.substring(idx, nextMarker);
+                Log.d("PayloadCompress", "📦 Compressed links: " + compressedLinks); // ADD THIS
+
                 String simplified = decompressLink(compressedLinks);
+                Log.d("PayloadCompress", "🔓 Decompressed (simplified): " + simplified); // ADD THIS
+
                 result.imageUrls = desimplifyLinks(simplified);
+                Log.d("PayloadCompress", "✅ Final URLs: " + result.imageUrls); // ADD THIS
+
                 idx = nextMarker;
             } else {
+                // Same logs here too
                 String compressedLinks = payload.substring(idx);
+                Log.d("PayloadCompress", "📦 Compressed links (final): " + compressedLinks);
+
                 String simplified = decompressLink(compressedLinks);
+                Log.d("PayloadCompress", "🔓 Decompressed (simplified): " + simplified);
+
                 result.imageUrls = desimplifyLinks(simplified);
+                Log.d("PayloadCompress", "✅ Final URLs: " + result.imageUrls);
+
                 return result;
             }
         }
-
-        // Check for videos
         if (idx < len && payload.startsWith(MARKER_VIDEO, idx)) {
             idx += MARKER_VIDEO.length();
             String compressedLinks = payload.substring(idx);
             String simplified = decompressLink(compressedLinks);
             result.videoUrls = desimplifyLinks(simplified);
         }
-
         return result;
     }
 
@@ -511,23 +500,21 @@ public class PayloadCompress {
         for (int i = 0; i < padding; i++) {
             paddedBits.append('0');
         }
-
         byte[] bytes = new byte[paddedBits.length() / 8 + 1];
 
         for (int i = 0; i < bytes.length - 1; i++) {
             String byteStr = paddedBits.substring(i * 8, (i + 1) * 8);
             bytes[i] = (byte) Integer.parseInt(byteStr, 2);
         }
-
         bytes[bytes.length - 1] = (byte) validBitsInLastByte;
 
-        return new String(bytes, java.nio.charset.StandardCharsets.ISO_8859_1);
+        return new String(bytes, ISO_8859_1);
     }
 
     private static String asciiToLinkBits(String binaryString) {
         if (binaryString == null || binaryString.isEmpty()) return "";
 
-        byte[] bytes = binaryString.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1);
+        byte[] bytes = binaryString.getBytes(ISO_8859_1);
         if (bytes.length < 2) return "";
 
         int lastValidBitsCount = bytes[bytes.length - 1] & 0xFF;
@@ -538,7 +525,6 @@ public class PayloadCompress {
                     .replace(' ', '0');
             bits.append(byteStr);
         }
-
         if (bits.length() > 0) {
             int totalBits = (bytes.length - 2) * 8 + lastValidBitsCount;
             if (totalBits > bits.length()) {
@@ -546,7 +532,6 @@ public class PayloadCompress {
             }
             bits.setLength(totalBits);
         }
-
         return bits.toString();
     }
 
@@ -560,20 +545,24 @@ public class PayloadCompress {
         if (simplified == null || simplified.trim().isEmpty()) {
             return "";
         }
+        Log.d("PayloadCompress", "🔄 desimplifyLinks input: " + simplified);
 
         Matcher matcher = LINK_PATTERN.matcher(simplified);
         List<String> outputLinks = new ArrayList<>();
 
+        int matchCount = 0;
         while (matcher.find()) {
+            matchCount++;
             String domain = matcher.group(1);
             String inner = matcher.group(2);
+
+            Log.d("PayloadCompress", "  Match " + matchCount + ": domain=" + domain + ", inner=" + inner);
 
             String proto = "https://";
             if (domain.startsWith("h:")) {
                 domain = domain.substring(2);
                 proto = "http://";
             }
-
             int slashIdx = domain.indexOf('/');
             String domainPart;
             String pre;
@@ -585,7 +574,6 @@ public class PayloadCompress {
                 domainPart = domain;
                 pre = "";
             }
-
             if (inner == null || inner.isEmpty()) {
                 if (!pre.isEmpty()) {
                     outputLinks.add(proto + domainPart + "/" + pre);
@@ -605,13 +593,15 @@ public class PayloadCompress {
                 } else {
                     link = proto + domainPart + "/" + p;
                 }
-
                 link = link.replace("//", "/").replace(":/", "://");
                 outputLinks.add(link);
             }
         }
+        Log.d("PayloadCompress", "  Total matches: " + matchCount);
+        String result = String.join(",", outputLinks);
+        Log.d("PayloadCompress", "🔄 desimplifyLinks output: " + result);
 
-        return String.join(",", outputLinks);
+        return result;
     }
 
     // ==========================
@@ -632,43 +622,36 @@ public class PayloadCompress {
     // ==========================
     private static String bitsToAsciiMsg(String bits) {
         if (bits.isEmpty()) {
-            return new String(new byte[]{0}, java.nio.charset.StandardCharsets.ISO_8859_1);
+            return new String(new byte[]{0}, ISO_8859_1);
         }
-
         int validBitsInLastByte = bits.length() % 8;
         if (validBitsInLastByte == 0) {
             validBitsInLastByte = 8;
         }
-
         int padding = (8 - (bits.length() % 8)) % 8;
         StringBuilder paddedBits = new StringBuilder(bits);
         for (int i = 0; i < padding; i++) {
             paddedBits.append('0');
         }
-
         byte[] bytes = new byte[paddedBits.length() / 8 + 1];
 
         for (int i = 0; i < bytes.length - 1; i++) {
             String byteStr = paddedBits.substring(i * 8, (i + 1) * 8);
             bytes[i] = (byte) Integer.parseInt(byteStr, 2);
         }
-
         bytes[bytes.length - 1] = (byte) validBitsInLastByte;
-
-        return new String(bytes, java.nio.charset.StandardCharsets.ISO_8859_1);
+        return new String(bytes, ISO_8859_1);
     }
 
     private static String asciiToBitsMsg(String binaryString) {
         if (binaryString == null || binaryString.isEmpty()) {
             return "";
         }
-
-        byte[] bytes = binaryString.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1);
+        byte[] bytes = binaryString.getBytes(ISO_8859_1);
 
         if (bytes.length < 2) {
             return "";
         }
-
         int lastValidBitsCount = bytes[bytes.length - 1] & 0xFF;
 
         if (lastValidBitsCount == 0) {
@@ -681,7 +664,6 @@ public class PayloadCompress {
                     .replace(' ', '0');
             bits.append(byteStr);
         }
-
         if (bits.length() > 0) {
             int totalBits = (bytes.length - 2) * 8 + lastValidBitsCount;
             if (totalBits > bits.length()) {
@@ -689,7 +671,6 @@ public class PayloadCompress {
             }
             bits.setLength(totalBits);
         }
-
         return bits.toString();
     }
 }

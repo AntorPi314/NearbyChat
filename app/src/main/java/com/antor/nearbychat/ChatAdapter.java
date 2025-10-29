@@ -36,7 +36,8 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
     private final MessageClickListener clickListener;
     private final MessageClickListener longClickListener;
     private final Map<String, Bitmap> imageCache = new HashMap<>();
-    private final ExecutorService executor = Executors.newFixedThreadPool(4);
+    private static ExecutorService sharedExecutor;
+    private final ExecutorService executor;
 
     public interface MessageClickListener {
         void onClick(MessageModel msg);
@@ -49,6 +50,11 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
         this.context = context;
         this.clickListener = clickListener;
         this.longClickListener = longClickListener;
+
+        if (sharedExecutor == null || sharedExecutor.isShutdown()) {
+            sharedExecutor = Executors.newFixedThreadPool(4);
+        }
+        this.executor = sharedExecutor;
     }
 
     @NonNull
@@ -68,29 +74,21 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
         holder.senderId.setText(displayName.isEmpty() ? msg.getSenderId() : displayName);
         holder.timestamp.setText(msg.getTimestamp());
 
-        // Get raw message
         String rawMessage = msg.getMessage();
 
-        // Check if this is a partial/incomplete or failed message
-        // CRITICAL FIX: Don't treat messages starting with [u> as raw - they need parsing!
         if ((!msg.isComplete() || msg.isFailed()) && !rawMessage.startsWith("[u>") && !rawMessage.startsWith("[m>") && !rawMessage.startsWith("[v>")) {
-            // For partial/failed messages (not payloads), show the message as-is without parsing
             if (!rawMessage.isEmpty()) {
                 holder.message.setVisibility(View.VISIBLE);
                 holder.message.setText(rawMessage);
             } else {
                 holder.message.setVisibility(View.GONE);
             }
-
-            // Hide media containers for partial/failed messages
             if (holder.imageContainer != null) {
                 holder.imageContainer.setVisibility(View.GONE);
             }
             if (holder.videoContainer != null) {
                 holder.videoContainer.setVisibility(View.GONE);
             }
-
-            // Set color for failed messages
             holder.itemView.setBackgroundColor(Color.TRANSPARENT);
             if (msg.isSelf()) {
                 holder.message.setTextColor(msg.isFailed() ? Color.parseColor("#CC0000") : Color.WHITE);
@@ -102,73 +100,87 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
                 }
             }
         } else {
-            // Complete message OR message with payload markers - parse using PayloadCompress
             PayloadCompress.ParsedPayload parsed = PayloadCompress.parsePayload(rawMessage);
 
-            // Display text part
             if (!parsed.message.isEmpty()) {
                 holder.message.setVisibility(View.VISIBLE);
                 holder.message.setText(parsed.message);
             } else {
                 holder.message.setVisibility(View.GONE);
             }
-
-            // Set colors based on message status
             holder.itemView.setBackgroundColor(Color.TRANSPARENT);
             if (msg.isSelf()) {
                 holder.message.setTextColor(Color.WHITE);
             } else {
                 holder.message.setTextColor(Color.BLACK);
             }
-
-            // Handle images
             if (holder.imageContainer != null) {
                 if (!parsed.imageUrls.isEmpty()) {
+                    Log.d("ChatAdapter", "📸 Image URLs found: " + parsed.imageUrls); // Debug line
+
                     String[] urls = parsed.imageUrls.split(",");
                     ArrayList<String> imageUrls = new ArrayList<>();
                     for (String url : urls) {
                         String trimmed = url.trim();
                         if (!trimmed.isEmpty()) {
                             imageUrls.add(trimmed);
+                            Log.d("ChatAdapter", "  ✓ Added: " + trimmed); // Debug line
                         }
                     }
-                    holder.imageContainer.setTag(parsed.imageUrls);
-                    holder.imageContainer.setVisibility(View.VISIBLE);
-                    holder.imageContainer.removeAllViews();
-                    setupImageViews(holder.imageContainer, imageUrls, msg.isSelf());
+
+                    if (!imageUrls.isEmpty()) {
+                        holder.imageContainer.setTag(parsed.imageUrls);
+                        holder.imageContainer.setVisibility(View.VISIBLE);
+                        holder.imageContainer.removeAllViews();
+                        setupImageViews(holder.imageContainer, imageUrls, msg.isSelf());
+                        Log.d("ChatAdapter", "✓ Showing " + imageUrls.size() + " images"); // Debug line
+                    } else {
+                        holder.imageContainer.setTag(null);
+                        holder.imageContainer.setVisibility(View.GONE);
+                        Log.d("ChatAdapter", "✗ No valid image URLs after splitting"); // Debug line
+                    }
                 } else {
                     holder.imageContainer.setTag(null);
                     holder.imageContainer.setVisibility(View.GONE);
+                    Log.d("ChatAdapter", "✗ No image URLs in parsed payload"); // Debug line
                 }
             }
-
-            // Handle videos
             if (holder.videoContainer != null) {
                 if (!parsed.videoUrls.isEmpty()) {
+                    Log.d("ChatAdapter", "🎬 Video URLs found: " + parsed.videoUrls); // Debug line
+
                     String[] urls = parsed.videoUrls.split(",");
                     ArrayList<String> videoUrls = new ArrayList<>();
                     for (String url : urls) {
                         String trimmed = url.trim();
                         if (!trimmed.isEmpty()) {
                             videoUrls.add(trimmed);
+                            Log.d("ChatAdapter", "  ✓ Added: " + trimmed); // Debug line
                         }
                     }
-                    holder.videoContainer.setTag(parsed.videoUrls);
-                    holder.videoContainer.setVisibility(View.VISIBLE);
-                    holder.videoContainer.removeAllViews();
-                    setupVideoViews(holder.videoContainer, videoUrls);
+
+                    if (!videoUrls.isEmpty()) {
+                        holder.videoContainer.setTag(parsed.videoUrls);
+                        holder.videoContainer.setVisibility(View.VISIBLE);
+                        holder.videoContainer.removeAllViews();
+                        setupVideoViews(holder.videoContainer, videoUrls);
+                        Log.d("ChatAdapter", "✓ Showing " + videoUrls.size() + " videos"); // Debug line
+                    } else {
+                        holder.videoContainer.setTag(null);
+                        holder.videoContainer.setVisibility(View.GONE);
+                        Log.d("ChatAdapter", "✗ No valid video URLs after splitting"); // Debug line
+                    }
                 } else {
                     holder.videoContainer.setTag(null);
                     holder.videoContainer.setVisibility(View.GONE);
+                    Log.d("ChatAdapter", "✗ No video URLs in parsed payload"); // Debug line
                 }
             }
         }
-
         if (holder.profilePic != null) {
             main.loadProfilePictureForAdapter(msg.getSenderId(), holder.profilePic);
             holder.profilePic.setOnClickListener(v -> main.openFriendChat(msg.getSenderId()));
         }
-
         holder.itemView.setOnLongClickListener(v -> {
             longClickListener.onClick(msg);
             return true;
@@ -190,7 +202,6 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
                     LinearLayout.LayoutParams.WRAP_CONTENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
             ));
-
             for (int col = 0; col < columns; col++) {
                 int index = row * columns + col;
                 if (index >= totalVideos) break;
@@ -224,7 +235,6 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
                         }
                     });
                 }
-
                 ImageView playIcon = new ImageView(context);
                 FrameLayout.LayoutParams playParams = new FrameLayout.LayoutParams(
                         dpToPx(30),
@@ -239,10 +249,8 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
                 videoFrame.addView(playIcon);
 
                 videoFrame.setOnClickListener(v -> openVideoPlayer(videoUrl));
-
                 rowLayout.addView(videoFrame);
             }
-
             videoContainer.addView(rowLayout);
         }
     }
@@ -253,7 +261,6 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
             if (!fullUrl.startsWith("http://") && !fullUrl.startsWith("https://")) {
                 fullUrl = "https://" + fullUrl;
             }
-
             Intent intent = new Intent(Intent.ACTION_VIEW);
             intent.setDataAndType(Uri.parse(fullUrl), "video/*");
             intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -300,7 +307,6 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
                         }
                     });
                 }
-
                 View scrimView = new View(context);
                 FrameLayout.LayoutParams scrimParams = new FrameLayout.LayoutParams(
                         FrameLayout.LayoutParams.MATCH_PARENT,
@@ -406,6 +412,11 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
     @Override
     public int getItemCount() {
         return messageList.size();
+    }
+
+    @Override
+    public void onDetachedFromRecyclerView(@NonNull RecyclerView recyclerView) {
+        super.onDetachedFromRecyclerView(recyclerView);
     }
 
     @Override

@@ -55,6 +55,7 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.antor.nearbychat.Database.AppDatabase;
+import com.antor.nearbychat.Database.MessageEntity;
 import com.antor.nearbychat.Database.SavedMessageDao;
 import com.antor.nearbychat.Database.SavedMessageEntity;
 import com.google.gson.Gson;
@@ -144,6 +145,7 @@ public class MainActivity extends BaseActivity {
     private androidx.lifecycle.LiveData<List<com.antor.nearbychat.Database.MessageEntity>> savedMessagesLiveData = null;
 
     private boolean isKeyboardVisible = false;
+    private String currentSearchQuery = "";
 
     private final ServiceConnection serviceConnection = new ServiceConnection() {
         @Override
@@ -268,16 +270,15 @@ public class MainActivity extends BaseActivity {
         closeSearchOptionIcon = findViewById(R.id.closeSearchOptionIcon);
 
         searchOption.setVisibility(View.GONE);
-        LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) searchOption.getLayoutParams();
-        params.width = 0;
-        params.weight = 0;
-        searchOption.setLayoutParams(params);
-
         titleContainer.setVisibility(View.VISIBLE);
         searchIcon.setVisibility(View.VISIBLE);
 
         searchIcon.setOnClickListener(v -> showSearchMode());
         closeSearchOptionIcon.setOnClickListener(v -> hideSearchMode());
+
+        // Real-time search with debouncing
+        final Handler searchHandler = new Handler(Looper.getMainLooper());
+        final Runnable[] searchRunnable = new Runnable[1];
 
         inputSearch.addTextChangedListener(new TextWatcher() {
             @Override
@@ -288,16 +289,20 @@ public class MainActivity extends BaseActivity {
 
             @Override
             public void afterTextChanged(Editable s) {
-                performSearch(s.toString().trim());
+                if (searchRunnable[0] != null) {
+                    searchHandler.removeCallbacks(searchRunnable[0]);
+                }
+
+                searchRunnable[0] = () -> {
+                    String query = s.toString().trim();
+                    currentSearchQuery = query;
+                    performSearch(query);
+                };
+
+                searchHandler.postDelayed(searchRunnable[0], 300);
             }
         });
-        inputSearch.setOnEditorActionListener((v, actionId, event) -> {
-            if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEND) {
-                performSearch(inputSearch.getText().toString().trim());
-                return true;
-            }
-            return false;
-        });
+        debugDatabaseContent();
     }
 
     private void toggleInputMode() {
@@ -320,39 +325,152 @@ public class MainActivity extends BaseActivity {
     }
 
     private void performSearch(String query) {
+        Log.d(TAG, "🔍 performSearch called with query: '" + query + "'");
+        Log.d(TAG, "🔍 Current chat: type=" + activeChatType + ", id=" + activeChatId);
+
+        if (isShowingSavedMessages) {
+            Toast.makeText(this, "Cannot search in Saved Messages", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
         if (query.isEmpty()) {
+            Log.d(TAG, "🔍 Query empty, restoring normal view");
             if (searchLiveData != null) {
                 searchLiveData.removeObservers(this);
                 searchLiveData = null;
             }
-            setupDatabase();
+            restoreNormalChatView();
             return;
         }
+
+        // ✅ CHANGED: Get ALL messages from current chat, then filter locally
         if (searchLiveData != null) {
             searchLiveData.removeObservers(this);
         }
-        searchLiveData = messageDao.searchMessages(query);
+
+        Log.d(TAG, "🔍 Starting search in chat: " + activeChatType + "/" + activeChatId);
+
+        // Get all messages from current chat
+        searchLiveData = messageDao.getMessagesForChat(activeChatType, activeChatId);
+
         searchLiveData.observe(this, messages -> {
-            if (messages != null) {
-                messageList.clear();
+            if (messages == null) return;
 
-                for (com.antor.nearbychat.Database.MessageEntity entity : messages) {
-                    if (entity.chatType != null && entity.chatType.equals(activeChatType) &&
-                            entity.chatId != null && entity.chatId.equals(activeChatId)) {
-                        messageList.add(entity.toMessageModel());
+            Log.d(TAG, "🔍 Total messages received: " + messages.size());
+
+            messageList.clear();
+
+            String lowerQuery = query.toLowerCase();
+            int foundCount = 0;
+
+            // ✅ Filter messages by decompressing and searching
+            for (com.antor.nearbychat.Database.MessageEntity entity : messages) {
+                try {
+                    // Decompress the message
+                    PayloadCompress.ParsedPayload parsed =
+                            PayloadCompress.parsePayload(entity.message);
+
+                    // Search in decompressed text, image URLs, and video URLs
+                    boolean matches = false;
+
+                    if (!parsed.message.isEmpty() &&
+                            parsed.message.toLowerCase().contains(lowerQuery)) {
+                        matches = true;
                     }
-                }
-                chatAdapter.notifyDataSetChanged();
 
-                if (messageList.isEmpty()) {
-                    textStatus.setText("No messages found for \"" + query + "\"");
-                    textStatus.setVisibility(View.VISIBLE);
-                    recyclerView.setVisibility(View.GONE);
-                } else {
-                    textStatus.setVisibility(View.GONE);
-                    recyclerView.setVisibility(View.VISIBLE);
+                    if (!parsed.imageUrls.isEmpty() &&
+                            parsed.imageUrls.toLowerCase().contains(lowerQuery)) {
+                        matches = true;
+                    }
+
+                    if (!parsed.videoUrls.isEmpty() &&
+                            parsed.videoUrls.toLowerCase().contains(lowerQuery)) {
+                        matches = true;
+                    }
+
+                    if (matches) {
+                        messageList.add(entity.toMessageModel());
+                        foundCount++;
+                        Log.d(TAG, "🔍 Match found: " + parsed.message.substring(0, Math.min(50, parsed.message.length())));
+                    }
+
+                } catch (Exception e) {
+                    Log.e(TAG, "Error decompressing message", e);
                 }
             }
+
+            chatAdapter.notifyDataSetChanged();
+
+            if (messageList.isEmpty()) {
+                textStatus.setText("No results for \"" + query + "\"");
+                textStatus.setVisibility(View.VISIBLE);
+                recyclerView.setVisibility(View.GONE);
+                Log.d(TAG, "🔍 No results found");
+            } else {
+                textStatus.setVisibility(View.GONE);
+                recyclerView.setVisibility(View.VISIBLE);
+                recyclerView.scrollToPosition(0);
+                Log.d(TAG, "🔍 Showing " + foundCount + " results out of " + messages.size() + " total messages");
+            }
+        });
+    }
+
+    // Add this method for debugging
+    private void debugDatabaseContent() {
+        new Thread(() -> {
+            try {
+                List<com.antor.nearbychat.Database.MessageEntity> allMsgs = messageDao.getAllMessages();
+                Log.d(TAG, "🔍 Total messages in DB: " + allMsgs.size());
+
+                for (com.antor.nearbychat.Database.MessageEntity msg : allMsgs) {
+                    Log.d(TAG, "🔍 DB Message: chatType=" + msg.chatType +
+                            ", chatId=" + msg.chatId +
+                            ", message=" + msg.message.substring(0, Math.min(100, msg.message.length())));
+                }
+
+                // Now test manual search
+                String testQuery = "test"; // Change this to a word you know exists
+                runOnUiThread(() -> {
+                    messageDao.searchMessagesInChat(activeChatType, activeChatId, testQuery)
+                            .observe(this, results -> {
+                                Log.d(TAG, "🔍 Manual search results: " + (results != null ? results.size() : "null"));
+                                if (results != null) {
+                                    for (com.antor.nearbychat.Database.MessageEntity r : results) {
+                                        Log.d(TAG, "🔍 Result: " + r.message);
+                                    }
+                                }
+                            });
+                });
+            } catch (Exception e) {
+                Log.e(TAG, "🔍 Debug error", e);
+            }
+        }).start();
+    }
+
+    private void restoreNormalChatView() {
+        if (currentMessagesLiveData != null) {
+            currentMessagesLiveData.removeObservers(this);
+        }
+
+        currentMessagesLiveData = messageDao.getMessagesForChat(activeChatType, activeChatId);
+
+        currentMessagesLiveData.observe(this, messages -> {
+            if (messages == null) return;
+
+            boolean wasAtBottom = isAtBottom();
+
+            messageList.clear();
+            for (com.antor.nearbychat.Database.MessageEntity entity : messages) {
+                messageList.add(entity.toMessageModel());
+            }
+
+            chatAdapter.notifyDataSetChanged();
+
+            if (wasAtBottom && !messageList.isEmpty()) {
+                recyclerView.scrollToPosition(messageList.size() - 1);
+            }
+
+            updateChatUI();
         });
     }
 
@@ -399,11 +517,13 @@ public class MainActivity extends BaseActivity {
 
         searchOption.setVisibility(View.VISIBLE);
         LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) searchOption.getLayoutParams();
-        params.width = 0;
+        params.width = LinearLayout.LayoutParams.MATCH_PARENT;
         params.weight = 1;
         searchOption.setLayoutParams(params);
 
+        inputSearch.setText("");
         inputSearch.requestFocus();
+
         android.view.inputmethod.InputMethodManager imm =
                 (android.view.inputmethod.InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
         if (imm != null) {
@@ -413,6 +533,7 @@ public class MainActivity extends BaseActivity {
 
     private void hideSearchMode() {
         isSearchMode = false;
+        currentSearchQuery = "";
 
         searchOption.setVisibility(View.GONE);
         LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) searchOption.getLayoutParams();
@@ -430,11 +551,13 @@ public class MainActivity extends BaseActivity {
         if (imm != null) {
             imm.hideSoftInputFromWindow(inputSearch.getWindowToken(), 0);
         }
+
         if (searchLiveData != null) {
             searchLiveData.removeObservers(this);
             searchLiveData = null;
         }
-        setupDatabase();
+
+        restoreNormalChatView();
     }
 
     private void setupAppIconClick() {
@@ -455,11 +578,7 @@ public class MainActivity extends BaseActivity {
     }
 
     private void showEditGroupDialog() {
-        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        String groupsJson = prefs.getString(KEY_GROUPS_LIST, null);
-        Type type = new TypeToken<ArrayList<GroupModel>>() {}.getType();
-        List<GroupModel> groupsList = gson.fromJson(groupsJson, type);
-        if (groupsList == null) groupsList = new ArrayList<>();
+        List<GroupModel> groupsList = DataCache.getGroups(this);
 
         GroupModel groupToEdit = null;
         int groupPosition = -1;
@@ -470,10 +589,16 @@ public class MainActivity extends BaseActivity {
                 break;
             }
         }
+
         if (groupToEdit == null) {
             Toast.makeText(this, "Could not find group to edit.", Toast.LENGTH_SHORT).show();
             return;
         }
+
+        // ✅ make them final (or effectively final copies)
+        final GroupModel g = groupToEdit;
+        final int pos = groupPosition;
+        final List<GroupModel> listRef = groupsList;
 
         Dialog dialog = new Dialog(this);
         dialog.setContentView(R.layout.dialog_add_edit_groups);
@@ -489,17 +614,13 @@ public class MainActivity extends BaseActivity {
 
         title.setText("Edit Group");
         btnSave.setText("Save");
-        editName.setText(groupToEdit.getName());
-        editKey.setText(groupToEdit.getEncryptionKey());
+        editName.setText(g.getName());
+        editKey.setText(g.getEncryptionKey());
         btnDelete.setVisibility(View.VISIBLE);
-
-        final List<GroupModel> finalGroupsList = groupsList;
-        final int finalGroupPosition = groupPosition;
-        final GroupModel finalGroupToEdit = groupToEdit;
 
         TextView groupIdText = dialog.findViewById(R.id.groupID);
         if (groupIdText != null) {
-            long bits = MessageHelper.asciiIdToTimestamp(finalGroupToEdit.getId());
+            long bits = MessageHelper.asciiIdToTimestamp(g.getId());
             String displayId = getUserIdString(bits);
             groupIdText.setText(displayId);
         }
@@ -507,33 +628,34 @@ public class MainActivity extends BaseActivity {
         ImageView dialogProfilePic = dialog.findViewById(R.id.profilePicRound);
         if (dialogProfilePic != null) {
             dialogProfilePic.setOnClickListener(v -> {
-                currentUserId = finalGroupToEdit.getId();
+                currentUserId = g.getId();
                 currentProfilePic = dialogProfilePic;
-                showImagePickerDialog(finalGroupToEdit.getId(), dialogProfilePic);
+                showImagePickerDialog(g.getId(), dialogProfilePic);
             });
         }
+
         if (qrCodeShow != null) {
             qrCodeShow.setVisibility(View.VISIBLE);
             qrCodeShow.setOnClickListener(v -> {
-                long bits = MessageHelper.asciiIdToTimestamp(finalGroupToEdit.getId());
+                long bits = MessageHelper.asciiIdToTimestamp(g.getId());
                 String displayId = getUserIdString(bits);
-                String plainText = displayId + "|" +
-                        finalGroupToEdit.getName() + "|" +
-                        finalGroupToEdit.getEncryptionKey();
+                String plainText = displayId + "|" + g.getName() + "|" + g.getEncryptionKey();
                 String encryptedData = QREncryption.encrypt(plainText);
                 String qrData = "GROUP:" + encryptedData;
 
                 Intent intent = new Intent(this, QRCodeActivity.class);
                 intent.putExtra("qr_data", qrData);
                 intent.putExtra("qr_type", "group");
-                intent.putExtra("display_name", finalGroupToEdit.getName());
+                intent.putExtra("display_name", g.getName());
                 startActivity(intent);
             });
         }
+
         btnCancel.setOnClickListener(v -> dialog.dismiss());
+
         btnDelete.setOnClickListener(v -> {
-            finalGroupsList.remove(finalGroupPosition);
-            prefs.edit().putString(KEY_GROUPS_LIST, gson.toJson(finalGroupsList)).apply();
+            listRef.remove(pos);
+            DataCache.saveGroups(this, listRef);
             Toast.makeText(this, "Group deleted. Returning to Nearby Chat.", Toast.LENGTH_SHORT).show();
             activeChatType = "N";
             activeChatId = "";
@@ -541,6 +663,7 @@ public class MainActivity extends BaseActivity {
             updateChatUIForSelection();
             dialog.dismiss();
         });
+
         btnSave.setOnClickListener(v -> {
             String name = editName.getText().toString().trim();
             String key = editKey.getText().toString().trim();
@@ -548,22 +671,21 @@ public class MainActivity extends BaseActivity {
                 Toast.makeText(this, "Group name cannot be empty", Toast.LENGTH_SHORT).show();
                 return;
             }
-            finalGroupToEdit.setName(name);
-            finalGroupToEdit.setEncryptionKey(key);
-            finalGroupsList.set(finalGroupPosition, finalGroupToEdit);
-            prefs.edit().putString(KEY_GROUPS_LIST, gson.toJson(finalGroupsList)).apply();
+            g.setName(name);
+            g.setEncryptionKey(key);
+            listRef.set(pos, g);
+            DataCache.saveGroups(this, listRef);
             updateChatUIForSelection();
             dialog.dismiss();
         });
+
         dialog.show();
     }
 
+
+
     private void showEditFriendDialog() {
-        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        String friendsJson = prefs.getString(KEY_FRIENDS_LIST, null);
-        Type type = new TypeToken<ArrayList<FriendModel>>() {}.getType();
-        List<FriendModel> friendsList = gson.fromJson(friendsJson, type);
-        if (friendsList == null) friendsList = new ArrayList<>();
+        List<FriendModel> friendsList = DataCache.getFriends(this);
 
         long bits = MessageHelper.asciiIdToTimestamp(activeChatId);
         String displayIdToFind = getUserIdString(bits);
@@ -581,6 +703,13 @@ public class MainActivity extends BaseActivity {
             friendToEdit = new FriendModel(displayIdToFind, "", "");
             friendPosition = -1;
         }
+
+        // ✅ make them final (lambda-safe)
+        final FriendModel f = friendToEdit;
+        final int pos = friendPosition;
+        final List<FriendModel> listRef = friendsList;
+        final String displayId = displayIdToFind;
+
         Dialog dialog = new Dialog(this);
         dialog.setContentView(R.layout.dialog_add_edit_friend);
         dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
@@ -596,51 +725,43 @@ public class MainActivity extends BaseActivity {
 
         title.setText("Edit Friend");
         btnSave.setText("Save");
-        editName.setText(friendToEdit.getName());
-        editId.setText(friendToEdit.getDisplayId());
-        editKey.setText(friendToEdit.getEncryptionKey());
+        editName.setText(f.getName());
+        editId.setText(f.getDisplayId());
+        editKey.setText(f.getEncryptionKey());
         editId.setEnabled(false);
-
-        if (friendPosition != -1) {
-            btnDelete.setVisibility(View.VISIBLE);
-        } else {
-            btnDelete.setVisibility(View.GONE);
-        }
-        final List<FriendModel> finalFriendsList = friendsList;
-        final int finalFriendPosition = friendPosition;
-        final FriendModel finalFriendToEdit = friendToEdit;
+        btnDelete.setVisibility(pos != -1 ? View.VISIBLE : View.GONE);
 
         ImageView dialogProfilePic = dialog.findViewById(R.id.profilePicRound);
-        ProfilePicLoader.loadProfilePicture(this, displayIdToFind, dialogProfilePic);
+        ProfilePicLoader.loadProfilePicture(this, displayId, dialogProfilePic);
         if (dialogProfilePic != null) {
             dialogProfilePic.setOnClickListener(v -> {
-                currentUserId = displayIdToFind;
+                currentUserId = displayId;
                 currentProfilePic = dialogProfilePic;
-                showImagePickerDialog(displayIdToFind, dialogProfilePic);
+                showImagePickerDialog(displayId, dialogProfilePic);
             });
         }
+
         if (qrCodeShow != null) {
             qrCodeShow.setVisibility(View.VISIBLE);
             qrCodeShow.setOnClickListener(v -> {
-                String plainText = finalFriendToEdit.getDisplayId() + "|" +
-                        finalFriendToEdit.getName() + "|" +
-                        finalFriendToEdit.getEncryptionKey();
+                String plainText = f.getDisplayId() + "|" + f.getName() + "|" + f.getEncryptionKey();
                 String encryptedData = QREncryption.encrypt(plainText);
                 String qrData = "FRIEND:" + encryptedData;
 
                 Intent intent = new Intent(this, QRCodeActivity.class);
                 intent.putExtra("qr_data", qrData);
                 intent.putExtra("qr_type", "friend");
-                intent.putExtra("display_name", finalFriendToEdit.getName());
+                intent.putExtra("display_name", f.getName());
                 startActivity(intent);
             });
         }
+
         btnCancel.setOnClickListener(v -> dialog.dismiss());
 
         btnDelete.setOnClickListener(v -> {
-            if (finalFriendPosition != -1) {
-                finalFriendsList.remove(finalFriendPosition);
-                prefs.edit().putString(KEY_FRIENDS_LIST, gson.toJson(finalFriendsList)).apply();
+            if (pos != -1) {
+                listRef.remove(pos);
+                DataCache.saveFriends(this, listRef);
                 Toast.makeText(this, "Friend deleted. Returning to Nearby Chat.", Toast.LENGTH_SHORT).show();
                 activeChatType = "N";
                 activeChatId = "";
@@ -649,80 +770,74 @@ public class MainActivity extends BaseActivity {
             }
             dialog.dismiss();
         });
+
         btnSave.setOnClickListener(v -> {
             String name = editName.getText().toString().trim();
             String key = editKey.getText().toString().trim();
 
-            finalFriendToEdit.setName(name);
-            finalFriendToEdit.setEncryptionKey(key);
+            f.setName(name);
+            f.setEncryptionKey(key);
 
-            boolean existsInList = false;
-            for (int i = 0; i < finalFriendsList.size(); i++) {
-                if (finalFriendsList.get(i).getDisplayId().equals(finalFriendToEdit.getDisplayId())) {
-                    finalFriendsList.set(i, finalFriendToEdit);
-                    existsInList = true;
+            boolean exists = false;
+            for (int i = 0; i < listRef.size(); i++) {
+                if (listRef.get(i).getDisplayId().equals(f.getDisplayId())) {
+                    listRef.set(i, f);
+                    exists = true;
                     break;
                 }
             }
-            if (!existsInList) {
-                finalFriendsList.add(finalFriendToEdit);
-            }
-            prefs.edit().putString(KEY_FRIENDS_LIST, gson.toJson(finalFriendsList)).apply();
+            if (!exists) listRef.add(f);
+
+            DataCache.saveFriends(this, listRef);
             updateChatUIForSelection();
             Toast.makeText(this, "Friend saved", Toast.LENGTH_SHORT).show();
             dialog.dismiss();
         });
-
         dialog.show();
     }
+
+
 
     private void updateChatUIForSelection() {
         if ("N".equals(activeChatType)) {
             appTitle.setText("Nearby Chat");
             appIcon.setImageResource(R.drawable.nearby);
+
         } else if ("G".equals(activeChatType)) {
-            SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-            String groupsJson = prefs.getString(KEY_GROUPS_LIST, null);
-            if (groupsJson != null) {
-                Type type = new TypeToken<List<GroupModel>>() {
-                }.getType();
-                List<GroupModel> groups = gson.fromJson(groupsJson, type);
-                String groupName = "Group";
-                for (GroupModel g : groups) {
-                    if (g.getId().equals(activeChatId)) {
-                        groupName = g.getName();
-                        break;
-                    }
+            List<GroupModel> groups = DataCache.getGroups(this);
+            String groupName = "Group";
+
+            for (GroupModel g : groups) {
+                if (g.getId().equals(activeChatId)) {
+                    groupName = g.getName();
+                    break;
                 }
-                appTitle.setText(groupName);
             }
+
+            appTitle.setText(groupName);
             long bits = MessageHelper.asciiIdToTimestamp(activeChatId);
             String displayId = getUserIdString(bits);
             ProfilePicLoader.loadGroupProfilePicture(this, displayId, appIcon);
+
         } else if ("F".equals(activeChatType)) {
             long bits = MessageHelper.asciiIdToTimestamp(activeChatId);
             String displayId = getUserIdString(bits);
+            List<FriendModel> friends = DataCache.getFriends(this);
 
-            SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-            String friendsJson = prefs.getString(KEY_FRIENDS_LIST, null);
-            String friendName = displayId; // Default to displayId
-
-            if (friendsJson != null) {
-                Type type = new TypeToken<List<FriendModel>>() {}.getType();
-                List<FriendModel> friends = gson.fromJson(friendsJson, type);
-                for (FriendModel f : friends) {
-                    if (f.getDisplayId().equals(displayId)) {
-                        String name = f.getName();
-                        if (name != null && !name.isEmpty()) {
-                            friendName = name;
-                        }
-                        break;
+            String friendName = displayId; // default fallback
+            for (FriendModel f : friends) {
+                if (f.getDisplayId().equals(displayId)) {
+                    if (f.getName() != null && !f.getName().isEmpty()) {
+                        friendName = f.getName();
                     }
+                    break;
                 }
             }
+
             appTitle.setText(friendName);
             ProfilePicLoader.loadProfilePicture(this, displayId, appIcon);
         }
+
         messageList.clear();
         chatAdapter.notifyDataSetChanged();
 
@@ -731,6 +846,7 @@ public class MainActivity extends BaseActivity {
             markCurrentChatAsRead();
         }, 100);
     }
+
 
     private void loadActiveChat() {
         activeChatType = prefs.getString(KEY_CHAT_TYPE, "N");
@@ -1157,6 +1273,16 @@ public class MainActivity extends BaseActivity {
             return;
         }
 
+        // ****** নতুন ভ্যালিডেশন ******
+        if (!validateAllLinks(imageUrlsRaw, videoUrlsRaw)) {
+            // শর্ত ১: ত্রুটিপূর্ণ লিঙ্কের জন্য Toast দেখান
+            Toast.makeText(this, "Invalid link format. Please check URLs.", Toast.LENGTH_LONG).show();
+
+            // শর্ত ২: EditText খালি না করে মেথড থেকে বের হয়ে যান
+            return;
+        }
+        // ****** ভ্যালিডেশন শেষ ******
+
         // Build payload using PayloadCompress
         String compressedPayload = PayloadCompress.buildPayload(textMsg, imageUrlsRaw, videoUrlsRaw);
 
@@ -1170,7 +1296,6 @@ public class MainActivity extends BaseActivity {
         }
 
         if (isServiceBound && bleService != null) {
-            // Send the compressed payload
             bleService.sendMessage(compressedPayload, activeChatType, activeChatId);
 
             inputMessage.setText("");
@@ -1424,6 +1549,62 @@ public class MainActivity extends BaseActivity {
         }
 
         Toast.makeText(this, "Message loaded for editing", Toast.LENGTH_SHORT).show();
+    }
+
+    /**
+     * Checks if a single link string has a basic valid format.
+     * We are lenient here: just checking for no spaces and at least one '.' or '/'.
+     */
+    private boolean isValidLinkFormat(String link) {
+        if (link == null || link.isEmpty()) {
+            return false;
+        }
+        // Rule 1: No spaces allowed in a URL
+        if (link.contains(" ")) {
+            return false;
+        }
+        // Rule 2: Must contain at least one dot OR one slash
+        if (!link.contains(".") && !link.contains("/")) {
+            return false;
+        }
+        // Rule 3: Must be at least 3 chars long (e.g., 'a.b' or '/a')
+        if (link.length() < 3) {
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Validates all links from both Image and Video input fields.
+     */
+    private boolean validateAllLinks(String imageUrlsRaw, String videoUrlsRaw) {
+        java.util.List<String> allLinks = new java.util.ArrayList<>();
+
+        // Use the same splitting logic as PayloadCompress
+        if (imageUrlsRaw != null && !imageUrlsRaw.isEmpty()) {
+            String[] imageLinks = imageUrlsRaw.trim().split("[\\n\\r,]+");
+            Collections.addAll(allLinks, imageLinks);
+        }
+
+        if (videoUrlsRaw != null && !videoUrlsRaw.isEmpty()) {
+            String[] videoLinks = videoUrlsRaw.trim().split("[\\n\\r,]+");
+            Collections.addAll(allLinks, videoLinks);
+        }
+
+        if (allLinks.isEmpty()) {
+            return true; // No links to validate, so it's valid.
+        }
+
+        for (String link : allLinks) {
+            String trimmedLink = link.trim();
+            // We only validate non-empty strings.
+            if (!trimmedLink.isEmpty() && !isValidLinkFormat(trimmedLink)) {
+                Log.w(TAG, "Invalid link detected: '" + trimmedLink + "'");
+                return false; // Found an invalid link
+            }
+        }
+
+        return true; // All links passed validation
     }
 
 

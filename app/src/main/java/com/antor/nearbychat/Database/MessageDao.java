@@ -44,6 +44,14 @@ public interface MessageDao {
     @Query("SELECT * FROM messages WHERE message LIKE '%' || :searchQuery || '%' ORDER BY timestampMillis DESC")
     LiveData<List<MessageEntity>> searchMessages(String searchQuery);
 
+    // ✅ FIXED: Search in current chat - searches in message content
+    @Query("SELECT * FROM messages WHERE " +
+            "chatType = :chatType AND " +
+            "chatId = :chatId AND " +
+            "message LIKE '%' || :searchQuery || '%' " +
+            "ORDER BY timestampMillis ASC")
+    LiveData<List<MessageEntity>> searchMessagesInChat(String chatType, String chatId, String searchQuery);
+
     @Query("SELECT * FROM messages WHERE senderId = :senderId ORDER BY timestampMillis ASC")
     LiveData<List<MessageEntity>> getMessagesBySender(String senderId);
 
