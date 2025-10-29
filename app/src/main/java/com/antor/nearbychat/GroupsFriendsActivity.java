@@ -37,10 +37,6 @@ import java.util.concurrent.Executors;
 
 public class GroupsFriendsActivity extends Activity {
 
-    private static final String PREFS_NAME = "NearbyChatPrefs";
-    private static final String KEY_GROUPS_LIST = "groupsList";
-    private static final String KEY_FRIENDS_LIST = "friendsList";
-
     private EditText searchBar;
     private List<ChatItem> allChats = new ArrayList<>();
     private ChatListAdapter chatAdapter;
@@ -139,58 +135,56 @@ public class GroupsFriendsActivity extends Activity {
             List<ChatItem> loadedChats = new ArrayList<>();
             com.antor.nearbychat.Database.MessageDao dao = AppDatabase.getInstance(this).messageDao();
 
+            // Nearby Chat item
             com.antor.nearbychat.Database.MessageEntity nearbyLastMsg = dao.getLastMessageForChat("N", "");
             int nearbyUnreadCount = dao.getUnreadMessageCountForChat("N", "");
             loadedChats.add(new ChatItem(
                     "", "Nearby Chat", "N",
-                    nearbyLastMsg != null ? nearbyLastMsg.message : "No recent messages",
+                    nearbyLastMsg != null ? formatLastMessage(nearbyLastMsg) : "No recent messages", // ✅ এখানে change
                     getLastMessageTime(nearbyLastMsg), "",
                     nearbyLastMsg != null ? nearbyLastMsg.timestampMillis : 0,
                     nearbyUnreadCount > 0
             ));
-            SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-            String groupsJson = prefs.getString(KEY_GROUPS_LIST, null);
-            if (groupsJson != null) {
-                Type type = new TypeToken<ArrayList<GroupModel>>() {
-                }.getType();
-                List<GroupModel> groups = gson.fromJson(groupsJson, type);
-                for (GroupModel g : groups) {
-                    com.antor.nearbychat.Database.MessageEntity lastMsg = dao.getLastMessageForChat("G", g.getId());
-                    int unreadCount = dao.getUnreadMessageCountForChat("G", g.getId());
-                    loadedChats.add(new ChatItem(
-                            g.getId(), g.getName(), "G",
-                            lastMsg != null ? lastMsg.message : "No messages yet",
-                            getLastMessageTime(lastMsg), "",
-                            lastMsg != null ? lastMsg.timestampMillis : 0,
-                            unreadCount > 0
-                    ));
-                }
+
+            // Load groups from cache
+            List<GroupModel> groups = DataCache.getGroups(this);
+            for (GroupModel g : groups) {
+                com.antor.nearbychat.Database.MessageEntity lastMsg = dao.getLastMessageForChat("G", g.getId());
+                int unreadCount = dao.getUnreadMessageCountForChat("G", g.getId());
+                loadedChats.add(new ChatItem(
+                        g.getId(), g.getName(), "G",
+                        lastMsg != null ? formatLastMessage(lastMsg) : "No messages yet", // ✅ এখানে change
+                        getLastMessageTime(lastMsg), "",
+                        lastMsg != null ? lastMsg.timestampMillis : 0,
+                        unreadCount > 0
+                ));
             }
-            String friendsJson = prefs.getString(KEY_FRIENDS_LIST, null);
-            if (friendsJson != null) {
-                Type type = new TypeToken<ArrayList<FriendModel>>() {
-                }.getType();
-                List<FriendModel> friends = gson.fromJson(friendsJson, type);
-                for (FriendModel f : friends) {
-                    String asciiId = MessageHelper.timestampToAsciiId(MessageHelper.displayIdToTimestamp(f.getDisplayId()));
-                    com.antor.nearbychat.Database.MessageEntity lastMsg = dao.getLastMessageForChat("F", asciiId);
-                    int unreadCount = dao.getUnreadMessageCountForChat("F", asciiId);
-                    loadedChats.add(new ChatItem(
-                            asciiId, f.getName(), "F",
-                            lastMsg != null ? lastMsg.message : "No messages yet",
-                            getLastMessageTime(lastMsg), f.getDisplayId(),
-                            lastMsg != null ? lastMsg.timestampMillis : 0,
-                            unreadCount > 0
-                    ));
-                }
+
+            // Load friends from cache
+            List<FriendModel> friends = DataCache.getFriends(this);
+            for (FriendModel f : friends) {
+                String asciiId = MessageHelper.timestampToAsciiId(
+                        MessageHelper.displayIdToTimestamp(f.getDisplayId())
+                );
+                com.antor.nearbychat.Database.MessageEntity lastMsg = dao.getLastMessageForChat("F", asciiId);
+                int unreadCount = dao.getUnreadMessageCountForChat("F", asciiId);
+                loadedChats.add(new ChatItem(
+                        asciiId, f.getName(), "F",
+                        lastMsg != null ? formatLastMessage(lastMsg) : "No messages yet", // ✅ এখানে change
+                        getLastMessageTime(lastMsg), f.getDisplayId(),
+                        lastMsg != null ? lastMsg.timestampMillis : 0,
+                        unreadCount > 0
+                ));
             }
+
+            // Sort chats (except Nearby Chat)
             if (loadedChats.size() > 1) {
                 ChatItem nearbyItem = loadedChats.get(0);
-                List<ChatItem> restOfChats = new ArrayList<>(loadedChats.subList(1, loadedChats.size()));
-                Collections.sort(restOfChats, (a, b) -> Long.compare(b.lastMessageTimestamp, a.lastMessageTimestamp));
+                List<ChatItem> rest = new ArrayList<>(loadedChats.subList(1, loadedChats.size()));
+                Collections.sort(rest, (a, b) -> Long.compare(b.lastMessageTimestamp, a.lastMessageTimestamp));
                 loadedChats.clear();
                 loadedChats.add(nearbyItem);
-                loadedChats.addAll(restOfChats);
+                loadedChats.addAll(rest);
             }
 
             runOnUiThread(() -> {
@@ -200,6 +194,50 @@ public class GroupsFriendsActivity extends Activity {
                 recyclerView.setAdapter(chatAdapter);
             });
         });
+    }
+
+
+    private String formatLastMessage(com.antor.nearbychat.Database.MessageEntity lastMsg) {
+        if (lastMsg == null) {
+            return "No messages yet";
+        }
+
+        try {
+            // Parse the payload using PayloadCompress
+            PayloadCompress.ParsedPayload parsed = PayloadCompress.parsePayload(lastMsg.message);
+
+            boolean hasText = !parsed.message.isEmpty();
+            boolean hasMedia = !parsed.imageUrls.isEmpty() || !parsed.videoUrls.isEmpty();
+
+            String prefix = lastMsg.isSelf ? "You: " : "";
+
+            if (hasText && hasMedia) {
+                // Text + Media both exist
+                String truncatedText = parsed.message.length() > 30
+                        ? parsed.message.substring(0, 30) + "..."
+                        : parsed.message;
+                return prefix + truncatedText;
+            } else if (hasText) {
+                // Only text
+                String truncatedText = parsed.message.length() > 30
+                        ? parsed.message.substring(0, 30) + "..."
+                        : parsed.message;
+                return prefix + truncatedText;
+            } else if (hasMedia) {
+                // Only media
+                return lastMsg.isSelf ? "You sent a media" : "Sent a media";
+            } else {
+                // Empty message (shouldn't happen normally)
+                return "No content";
+            }
+        } catch (Exception e) {
+            // If parsing fails, return raw message (fallback)
+            String rawMsg = lastMsg.message;
+            if (rawMsg.length() > 30) {
+                rawMsg = rawMsg.substring(0, 30) + "...";
+            }
+            return (lastMsg.isSelf ? "You: " : "") + rawMsg;
+        }
     }
 
     private void showAddDialog() {
@@ -288,22 +326,25 @@ public class GroupsFriendsActivity extends Activity {
     }
 
     private void deleteChat(ChatItem chat) {
-        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        if (chat.type.equals("G")) {
-            String groupsJson = prefs.getString(KEY_GROUPS_LIST, null);
-            if (groupsJson == null) return;
-            List<GroupModel> groups = gson.fromJson(groupsJson, new TypeToken<ArrayList<GroupModel>>() {
-            }.getType());
-            groups.removeIf(g -> g.getId().equals(chat.id));
-            prefs.edit().putString(KEY_GROUPS_LIST, gson.toJson(groups)).apply();
-        } else if (chat.type.equals("F")) {
-            String friendsJson = prefs.getString(KEY_FRIENDS_LIST, null);
-            if (friendsJson == null) return;
-            List<FriendModel> friends = gson.fromJson(friendsJson, new TypeToken<ArrayList<FriendModel>>() {
-            }.getType());
-            friends.removeIf(f -> MessageHelper.timestampToAsciiId(MessageHelper.displayIdToTimestamp(f.getDisplayId())).equals(chat.id));
-            prefs.edit().putString(KEY_FRIENDS_LIST, gson.toJson(friends)).apply();
+        if (chat.type.equals("N")) {
+            Toast.makeText(this, "Cannot delete Nearby Chat", Toast.LENGTH_SHORT).show();
+            return;
         }
+
+        if (chat.type.equals("G")) {
+            List<GroupModel> groups = DataCache.getGroups(this);
+            groups.removeIf(g -> g.getId().equals(chat.id));
+            DataCache.saveGroups(this, groups);
+        } else if (chat.type.equals("F")) {
+            List<FriendModel> friends = DataCache.getFriends(this);
+            friends.removeIf(f ->
+                    MessageHelper.timestampToAsciiId(
+                            MessageHelper.displayIdToTimestamp(f.getDisplayId())
+                    ).equals(chat.id)
+            );
+            DataCache.saveFriends(this, friends);
+        }
+
         executor.execute(() -> {
             AppDatabase.getInstance(this).messageDao().deleteMessagesForChat(chat.type, chat.id);
             runOnUiThread(() -> {
@@ -312,6 +353,7 @@ public class GroupsFriendsActivity extends Activity {
             });
         });
     }
+
 
     private void filterChats(String query) {
         if (chatAdapter == null) return;
@@ -525,22 +567,15 @@ public class GroupsFriendsActivity extends Activity {
     }
 
     private void loadData() {
-        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        String groupsJson = prefs.getString(KEY_GROUPS_LIST, null);
-        if (groupsJson != null)
-            groupsList = gson.fromJson(groupsJson, new TypeToken<ArrayList<GroupModel>>() {
-            }.getType());
-        String friendsJson = prefs.getString(KEY_FRIENDS_LIST, null);
-        if (friendsJson != null)
-            friendsList = gson.fromJson(friendsJson, new TypeToken<ArrayList<FriendModel>>() {
-            }.getType());
+        groupsList = DataCache.getGroups(this);
+        friendsList = DataCache.getFriends(this);
     }
 
     private void saveGroups() {
-        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().putString(KEY_GROUPS_LIST, gson.toJson(groupsList)).apply();
+        DataCache.saveGroups(this, groupsList);
     }
 
     private void saveFriends() {
-        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().putString(KEY_FRIENDS_LIST, gson.toJson(friendsList)).apply();
+        DataCache.saveFriends(this, friendsList);
     }
 }

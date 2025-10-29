@@ -133,6 +133,7 @@ public class QRScannerActivity extends Activity {
         if (!exists) {
             friends.add(new FriendModel(displayId, name, encryptionKey));
             prefs.edit().putString(KEY_FRIENDS_LIST, gson.toJson(friends)).apply();
+            DataCache.invalidate();
             Toast.makeText(this, "Friend added: " + name, Toast.LENGTH_SHORT).show();
         } else {
             Toast.makeText(this, "Friend already exists", Toast.LENGTH_SHORT).show();
@@ -163,6 +164,7 @@ public class QRScannerActivity extends Activity {
         if (!exists) {
             groups.add(new GroupModel(groupId, name, encryptionKey));
             prefs.edit().putString(KEY_GROUPS_LIST, gson.toJson(groups)).apply();
+            DataCache.invalidate();
             Toast.makeText(this, "Group added: " + name, Toast.LENGTH_SHORT).show();
         } else {
             Toast.makeText(this, "Group already exists", Toast.LENGTH_SHORT).show();
