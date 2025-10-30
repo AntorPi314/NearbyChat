@@ -364,25 +364,40 @@ public class PayloadCompress {
 
         if (message != null && !message.isEmpty()) {
             String compressed = compressMessage(message);
+
             if (compressed != null) {
-                payload.append(compressed);
+                int compressedBytes = compressed.getBytes(ISO_8859_1).length;
+                int originalBytes = message.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+
+                if (compressedBytes < originalBytes) {
+                    payload.append(compressed);
+                    Log.d("PayloadCompress", "Using compressed message: " + compressedBytes + " bytes (vs " + originalBytes + " bytes UTF-8)");
+                } else {
+                    try {
+                        byte[] utf8Bytes = message.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                        String packedUtf8 = new String(utf8Bytes, ISO_8859_1);
+                        payload.append(MARKER_UNICODE).append(packedUtf8);
+                        Log.d("PayloadCompress", "Compression inefficient (" + compressedBytes + " >= " + originalBytes + "). Using UTF-8 fallback.");
+                    } catch (Exception e) {
+                        payload.append(MARKER_UNICODE).append(message);
+                    }
+                }
             } else {
                 try {
                     byte[] utf8Bytes = message.getBytes(java.nio.charset.StandardCharsets.UTF_8);
                     String packedUtf8 = new String(utf8Bytes, ISO_8859_1);
                     payload.append(MARKER_UNICODE).append(packedUtf8);
+                    Log.d("PayloadCompress", "Compression failed (unsupported char). Using UTF-8 fallback.");
                 } catch (Exception e) {
                     payload.append(MARKER_UNICODE).append(message);
                 }
             }
         }
-
         if (imageUrls != null && !imageUrls.isEmpty()) {
             String simplified = simplifyLinks(imageUrls);
             String compressed = compressLink(simplified);
             payload.append(MARKER_IMAGE).append(compressed);
         }
-
         if (videoUrls != null && !videoUrls.isEmpty()) {
             String simplified = simplifyLinks(videoUrls);
             String compressed = compressLink(simplified);

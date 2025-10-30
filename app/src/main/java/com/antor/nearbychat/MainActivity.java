@@ -193,6 +193,7 @@ public class MainActivity extends BaseActivity {
         prefs = getSharedPreferences(PREFS_ACTIVE_CHAT, MODE_PRIVATE);
         loadActiveChat();
         mainHandler = new Handler(Looper.getMainLooper());
+        handleNotificationIntent(getIntent());
         setupUI();
         initializeData();
         setupDatabase();
@@ -260,6 +261,33 @@ public class MainActivity extends BaseActivity {
             }
         });
         updateChatUIForSelection();
+    }
+
+    private void handleNotificationIntent(Intent intent) {
+        if (intent != null && intent.hasExtra("chatType") && intent.hasExtra("chatId")) {
+            String notifChatType = intent.getStringExtra("chatType");
+            String notifChatId = intent.getStringExtra("chatId");
+
+            Log.d(TAG, "📩 Notification clicked: chatType=" + notifChatType + ", chatId=" + notifChatId);
+
+            if (notifChatType != null && notifChatId != null) {
+                activeChatType = notifChatType;
+                activeChatId = notifChatId;
+                saveActiveChat();
+
+                // UI update করার জন্য delay দিন
+                new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                    updateChatUIForSelection();
+                }, 500);
+            }
+        }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleNotificationIntent(intent);
     }
 
     private void setupSearchUI() {
@@ -605,6 +633,7 @@ public class MainActivity extends BaseActivity {
         dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
 
         TextView title = dialog.findViewById(R.id.dia_title);
+        ImageView switchNotification = dialog.findViewById(R.id.switchNotification);
         EditText editName = dialog.findViewById(R.id.editName);
         EditText editKey = dialog.findViewById(R.id.editEncryptionKey);
         Button btnDelete = dialog.findViewById(R.id.btnDelete);
@@ -651,6 +680,23 @@ public class MainActivity extends BaseActivity {
             });
         }
 
+        boolean isNotificationEnabled = getNotificationState("G", g.getId());
+        switchNotification.setImageResource(
+                isNotificationEnabled ? R.drawable.ic_enable_notification : R.drawable.ic_disable_notification
+        );
+
+        switchNotification.setOnClickListener(v -> {
+            boolean newState = !getNotificationState("G", g.getId());
+            saveNotificationState("G", g.getId(), newState);
+
+            switchNotification.setImageResource(
+                    newState ? R.drawable.ic_enable_notification : R.drawable.ic_disable_notification
+            );
+
+            Toast.makeText(this, newState ? "Notifications enabled" : "Notifications disabled",
+                    Toast.LENGTH_SHORT).show();
+        });
+
         btnCancel.setOnClickListener(v -> dialog.dismiss());
 
         btnDelete.setOnClickListener(v -> {
@@ -682,7 +728,17 @@ public class MainActivity extends BaseActivity {
         dialog.show();
     }
 
+    private boolean getNotificationState(String chatType, String chatId) {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        String key = chatType + ":" + chatId;
+        return prefs.getBoolean("notification_" + key, false); // Default: false (disabled)
+    }
 
+    private void saveNotificationState(String chatType, String chatId, boolean enabled) {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        String key = chatType + ":" + chatId;
+        prefs.edit().putBoolean("notification_" + key, enabled).apply();
+    }
 
     private void showEditFriendDialog() {
         List<FriendModel> friendsList = DataCache.getFriends(this);
@@ -704,7 +760,6 @@ public class MainActivity extends BaseActivity {
             friendPosition = -1;
         }
 
-        // ✅ make them final (lambda-safe)
         final FriendModel f = friendToEdit;
         final int pos = friendPosition;
         final List<FriendModel> listRef = friendsList;
@@ -715,6 +770,7 @@ public class MainActivity extends BaseActivity {
         dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
 
         TextView title = dialog.findViewById(R.id.dia_title);
+        ImageView switchNotification = dialog.findViewById(R.id.switchNotification); // ✅ ADD THIS
         EditText editName = dialog.findViewById(R.id.editName);
         EditText editId = dialog.findViewById(R.id.editFriendId);
         EditText editKey = dialog.findViewById(R.id.editEncryptionKey);
@@ -756,6 +812,28 @@ public class MainActivity extends BaseActivity {
             });
         }
 
+        // ✅ ADD NOTIFICATION TOGGLE FOR FRIEND
+        String friendChatId = MessageHelper.timestampToAsciiId(
+                MessageHelper.displayIdToTimestamp(displayId)
+        );
+
+        boolean isNotificationEnabled = getNotificationState("F", friendChatId);
+        switchNotification.setImageResource(
+                isNotificationEnabled ? R.drawable.ic_enable_notification : R.drawable.ic_disable_notification
+        );
+
+        switchNotification.setOnClickListener(v -> {
+            boolean newState = !getNotificationState("F", friendChatId);
+            saveNotificationState("F", friendChatId, newState);
+
+            switchNotification.setImageResource(
+                    newState ? R.drawable.ic_enable_notification : R.drawable.ic_disable_notification
+            );
+
+            Toast.makeText(this, newState ? "Notifications enabled" : "Notifications disabled",
+                    Toast.LENGTH_SHORT).show();
+        });
+
         btnCancel.setOnClickListener(v -> dialog.dismiss());
 
         btnDelete.setOnClickListener(v -> {
@@ -793,6 +871,7 @@ public class MainActivity extends BaseActivity {
             Toast.makeText(this, "Friend saved", Toast.LENGTH_SHORT).show();
             dialog.dismiss();
         });
+
         dialog.show();
     }
 

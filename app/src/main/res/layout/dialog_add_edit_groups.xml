@@ -21,9 +21,28 @@
 
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
+            android:layout_height="38dp"
+            android:layout_gravity="center_horizontal|center_vertical"
             android:orientation="horizontal"
-            android:gravity="right">
+            android:gravity="end">
+
+            <ImageView
+                android:id="@+id/switchNotification"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="left"
+                android:scaleType="centerInside"
+                android:paddingStart="0dp"
+                android:paddingEnd="8dp"
+                android:paddingTop="8dp"
+                android:paddingBottom="8dp"
+                android:src="@drawable/ic_disable_notification"/>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_weight="1"/>
 
             <ImageView
                 android:id="@+id/qrCodeShow"

@@ -19,6 +19,7 @@ import android.bluetooth.le.ScanResult;
 import android.bluetooth.le.ScanSettings;
 import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.net.Uri;
 import android.os.Handler;
 import android.content.Intent;
 import android.content.IntentFilter;
@@ -271,11 +272,35 @@ public class BleMessagingService extends Service {
     }
 
     private void createNotificationChannel() {
-        NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "Nearby Chat Service", NotificationManager.IMPORTANCE_LOW);
-        channel.setShowBadge(false);
-        channel.setSound(null, null);
+        NotificationChannel serviceChannel = new NotificationChannel(
+                CHANNEL_ID,
+                "Nearby Chat Service",
+                NotificationManager.IMPORTANCE_LOW
+        );
+        serviceChannel.setShowBadge(false);
+        serviceChannel.setSound(null, null);
+
+        Uri soundUri = Uri.parse("android.resource://" + getPackageName() + "/" + R.raw.notification_sound);
+        android.media.AudioAttributes audioAttributes = new android.media.AudioAttributes.Builder()
+                .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION)
+                .build();
+
+        NotificationChannel messageChannel = new NotificationChannel(
+                "message_notifications",
+                "New Messages",
+                NotificationManager.IMPORTANCE_HIGH
+        );
+        messageChannel.setShowBadge(true);
+        messageChannel.enableVibration(true);
+        messageChannel.setVibrationPattern(new long[]{0, 500, 200, 500});
+        messageChannel.setSound(soundUri, audioAttributes);
+
         NotificationManager manager = getSystemService(NotificationManager.class);
-        if (manager != null) manager.createNotificationChannel(channel);
+        if (manager != null) {
+            manager.createNotificationChannel(serviceChannel);
+            manager.createNotificationChannel(messageChannel);
+        }
     }
 
     private void acquireWakeLock() {
@@ -685,6 +710,10 @@ public class BleMessagingService extends Service {
             }
         }
 
+        if (!msg.isSelf() && msg.isComplete() && !msg.isFailed()) {
+            showNotificationIfNeeded(msg);
+        }
+
         try {
             if (msg.isComplete()) {
                 if (messageDao.partialMessageExists(msg.getSenderId(), msg.getMessageId()) > 0) {
@@ -735,6 +764,157 @@ public class BleMessagingService extends Service {
             DataCache.invalidate();
             Log.d(TAG, "Auto-added new friend: " + friendDisplayId);
         }
+    }
+
+    private void showNotificationIfNeeded(MessageModel msg) {
+        SharedPreferences prefs = getSharedPreferences("NearbyChatPrefs", MODE_PRIVATE);
+        String key = msg.getChatType() + ":" + msg.getChatId();
+        boolean isNotificationEnabled = prefs.getBoolean("notification_" + key, false);
+
+        if (!isNotificationEnabled) {
+            Log.d(TAG, "Notification disabled for chat: " + key);
+            return;
+        }
+        SharedPreferences activePrefs = getSharedPreferences("ActiveChatInfo", MODE_PRIVATE);
+        String activeChatType = activePrefs.getString("chatType", "N");
+        String activeChatId = activePrefs.getString("chatId", "");
+
+        if (msg.getChatType().equals(activeChatType) && msg.getChatId().equals(activeChatId)) {
+            Log.d(TAG, "User is in the chat, skipping notification");
+            return;
+        }
+        showMessageNotification(msg);
+    }
+
+    private void showMessageNotification(MessageModel msg) {
+        try {
+            PayloadCompress.ParsedPayload parsed = PayloadCompress.parsePayload(msg.getMessage());
+            String messagePreview = parsed.message.isEmpty() ? "New message" : parsed.message;
+            if (messagePreview.length() > 50) {
+                messagePreview = messagePreview.substring(0, 50) + "...";
+            }
+
+            // ✅ CHANGED: Load title based on chat type
+            String notificationTitle;
+            String notificationText;
+
+            if ("G".equals(msg.getChatType())) {
+                // Group message: Show group name as title, sender + message as text
+                notificationTitle = getGroupName(msg.getChatId());
+                String senderName = getSenderDisplayName(msg.getSenderId());
+                notificationText = senderName + ": " + messagePreview;
+            } else {
+                // Friend/Nearby message: Show sender name as title
+                notificationTitle = getSenderDisplayName(msg.getSenderId());
+                notificationText = messagePreview;
+            }
+
+            Intent notificationIntent = new Intent(this, MainActivity.class);
+            notificationIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            notificationIntent.putExtra("chatType", msg.getChatType());
+            notificationIntent.putExtra("chatId", msg.getChatId());
+
+            PendingIntent pendingIntent = PendingIntent.getActivity(
+                    this,
+                    (msg.getChatType() + msg.getChatId()).hashCode(),
+                    notificationIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+            );
+
+            NotificationCompat.Builder builder = new NotificationCompat.Builder(this, "message_notifications")
+                    .setContentTitle(notificationTitle)
+                    .setContentText(notificationText)
+                    .setSmallIcon(R.drawable.notify)
+                    .setContentIntent(pendingIntent)
+                    .setAutoCancel(true)
+                    .setPriority(NotificationCompat.PRIORITY_HIGH);
+
+            NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (notificationManager != null) {
+                int notificationId = (msg.getChatType() + msg.getChatId()).hashCode();
+                notificationManager.notify(notificationId, builder.build());
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error showing notification", e);
+        }
+    }
+
+    private String getGroupName(String groupId) {
+        try {
+            SharedPreferences prefs = getSharedPreferences("NearbyChatPrefs", MODE_PRIVATE);
+            String groupsJson = prefs.getString("groupsList", null);
+
+            if (groupsJson != null) {
+                Gson gson = new Gson();
+                Type type = new TypeToken<List<GroupModel>>(){}.getType();
+                List<GroupModel> groups = gson.fromJson(groupsJson, type);
+
+                if (groups != null) {
+                    for (GroupModel g : groups) {
+                        if (g.getId().equals(groupId)) {
+                            String name = g.getName();
+                            if (name != null && !name.isEmpty()) {
+                                return name;
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error loading group name", e);
+        }
+        try {
+            long bits = MessageHelper.asciiIdToTimestamp(groupId);
+            return MessageHelper.timestampToDisplayId(bits);
+        } catch (Exception e) {
+            return groupId;
+        }
+    }
+
+    private String getSenderDisplayName(String senderId) {
+        try {
+            // First check name map
+            SharedPreferences prefs = getSharedPreferences("NearbyChatPrefs", MODE_PRIVATE);
+            String nameMapJson = prefs.getString("nameMap", null);
+
+            if (nameMapJson != null) {
+                Gson gson = new Gson();
+                Type type = new TypeToken<Map<String, String>>(){}.getType();
+                Map<String, String> nameMap = gson.fromJson(nameMapJson, type);
+
+                if (nameMap != null && nameMap.containsKey(senderId)) {
+                    String name = nameMap.get(senderId);
+                    if (name != null && !name.isEmpty()) {
+                        return name;
+                    }
+                }
+            }
+
+            // Then check friends list
+            String friendsJson = prefs.getString("friendsList", null);
+            if (friendsJson != null) {
+                Gson gson = new Gson();
+                Type type = new TypeToken<List<FriendModel>>(){}.getType();
+                List<FriendModel> friends = gson.fromJson(friendsJson, type);
+
+                if (friends != null) {
+                    for (FriendModel f : friends) {
+                        if (f.getDisplayId().equals(senderId)) {
+                            String friendName = f.getName();
+                            if (friendName != null && !friendName.isEmpty()) {
+                                return friendName;
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error loading sender name", e);
+        }
+        return senderId;
     }
 
     public interface AdvertisingStateListener {
