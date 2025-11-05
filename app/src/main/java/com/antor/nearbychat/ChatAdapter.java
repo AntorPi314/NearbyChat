@@ -29,6 +29,8 @@ import java.util.concurrent.Executors;
 import android.widget.FrameLayout;
 import android.widget.Toast;
 
+import com.antor.nearbychat.Database.AppDatabase;
+
 public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder> {
 
     private final List<MessageModel> messageList;
@@ -76,6 +78,7 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
 
         String rawMessage = msg.getMessage();
 
+
         if ((!msg.isComplete() || msg.isFailed()) && !rawMessage.startsWith("[u>") && !rawMessage.startsWith("[m>") && !rawMessage.startsWith("[v>")) {
             if (!rawMessage.isEmpty()) {
                 holder.message.setVisibility(View.VISIBLE);
@@ -101,6 +104,140 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
             }
         } else {
             PayloadCompress.ParsedPayload parsed = PayloadCompress.parsePayload(rawMessage);
+
+            // ✅ Eikhane poriborton-ti kora hoyeche
+            if (JsonFetcher.isJsonUrl(parsed.message) && parsed.imageUrls.isEmpty() && parsed.videoUrls.isEmpty()) {
+
+                holder.message.setVisibility(View.VISIBLE);
+                holder.message.setText("Fetching...");
+                holder.message.setTextColor(Color.parseColor("#0066CC")); // Blue color
+
+                // ছবি ও ভিডিও কন্টেইনার রিসেট করুন
+                if (holder.imageContainer != null) {
+                    holder.imageContainer.setVisibility(View.GONE);
+                }
+                if (holder.videoContainer != null) {
+                    holder.videoContainer.setVisibility(View.GONE);
+                }
+
+                // ✅ Notun line-e 'context' pass kora hoyeche
+                JsonFetcher.fetchJson(context, parsed.message, new JsonFetcher.JsonCallback() {
+                    @Override
+                    public void onSuccess(JsonFetcher.ParsedJson fetchedData) {
+                        // ❌ DB update code nei (amra eta ager step-ei remove korechilam)
+
+                        // ✅ UI update korar code
+                        ((Activity) context).runOnUiThread(() -> {
+                            // হোল্ডারটি রিসাইকেল হয়ে গেছে কিনা তা পরীক্ষা করুন
+                            if (holder.getAdapterPosition() != position) return;
+
+                            // 1. টেক্সট ভিউ সেট করুন
+                            if (fetchedData.message != null && !fetchedData.message.isEmpty()) {
+                                holder.message.setVisibility(View.VISIBLE);
+                                holder.message.setText(fetchedData.message);
+                                // টেক্সটের রঙ স্বাভাবিক করুন
+                                if (msg.isSelf()) {
+                                    holder.message.setTextColor(Color.WHITE);
+                                } else {
+                                    holder.message.setTextColor(Color.BLACK);
+                                }
+                            } else {
+                                holder.message.setVisibility(View.GONE);
+                            }
+
+                            // 2. ইমেজ ভিউ সেট করুন
+                            if (holder.imageContainer != null) {
+                                if (fetchedData.images != null && !fetchedData.images.isEmpty()) {
+                                    String[] urls = fetchedData.images.split(",");
+                                    ArrayList<String> imageUrls = new ArrayList<>();
+                                    for (String url : urls) {
+                                        String trimmed = url.trim();
+                                        if (!trimmed.isEmpty()) imageUrls.add(trimmed);
+                                    }
+                                    if (!imageUrls.isEmpty()) {
+                                        holder.imageContainer.setTag(fetchedData.images);
+                                        holder.imageContainer.setVisibility(View.VISIBLE);
+                                        holder.imageContainer.removeAllViews();
+                                        setupImageViews(holder.imageContainer, imageUrls, msg.isSelf());
+                                    } else {
+                                        holder.imageContainer.setTag(null);
+                                        holder.imageContainer.setVisibility(View.GONE);
+                                    }
+                                } else {
+                                    holder.imageContainer.setTag(null);
+                                    holder.imageContainer.setVisibility(View.GONE);
+                                }
+                            }
+
+                            // 3. ভিডিও ভিউ সেট করুন
+                            if (holder.videoContainer != null) {
+                                if (fetchedData.videos != null && !fetchedData.videos.isEmpty()) {
+                                    String[] urls = fetchedData.videos.split(",");
+                                    ArrayList<String> videoUrls = new ArrayList<>();
+                                    for (String url : urls) {
+                                        String trimmed = url.trim();
+                                        if (!trimmed.isEmpty()) videoUrls.add(trimmed);
+                                    }
+                                    if (!videoUrls.isEmpty()) {
+                                        holder.videoContainer.setTag(fetchedData.videos);
+                                        holder.videoContainer.setVisibility(View.VISIBLE);
+                                        holder.videoContainer.removeAllViews();
+                                        setupVideoViews(holder.videoContainer, videoUrls);
+                                    } else {
+                                        holder.videoContainer.setTag(null);
+                                        holder.videoContainer.setVisibility(View.GONE);
+                                    }
+                                } else {
+                                    holder.videoContainer.setTag(null);
+                                    holder.videoContainer.setVisibility(View.GONE);
+                                }
+                            }
+                        });
+                    }
+
+                    @Override
+                    public void onError(String error) {
+                        // ❌ DB update code nei
+
+                        // ✅ UI-te error dekhanor code
+                        ((Activity) context).runOnUiThread(() -> {
+                            // হোল্ডারটি রিসাইকেল হয়ে গেছে কিনা তা পরীক্ষা করুন
+                            if (holder.getAdapterPosition() != position) return;
+
+                            holder.message.setVisibility(View.VISIBLE);
+                            holder.message.setText("JSON Fetch Failed: " + error);
+                            // টেক্সটের রঙ স্বাভাবিক করুন
+                            if (msg.isSelf()) {
+                                holder.message.setTextColor(Color.WHITE);
+                            } else {
+                                holder.message.setTextColor(Color.BLACK);
+                            }
+
+                            if (holder.imageContainer != null) {
+                                holder.imageContainer.setVisibility(View.GONE);
+                            }
+                            if (holder.videoContainer != null) {
+                                holder.videoContainer.setVisibility(View.GONE);
+                            }
+                        });
+                    }
+                });
+
+                holder.itemView.setBackgroundColor(Color.TRANSPARENT);
+
+                // ক্লিক লিসেনার এবং প্রোফাইল পিক সেট করুন
+                if (holder.profilePic != null) {
+                    main.loadProfilePictureForAdapter(msg.getSenderId(), holder.profilePic);
+                    holder.profilePic.setOnClickListener(v -> main.openFriendChat(msg.getSenderId()));
+                }
+                holder.itemView.setOnLongClickListener(v -> {
+                    longClickListener.onClick(msg);
+                    return true;
+                });
+                holder.itemView.setOnClickListener(v -> clickListener.onClick(msg));
+
+                return; // ✅ এখানে কোড শেষ করুন
+            }
 
             if (!parsed.message.isEmpty()) {
                 holder.message.setVisibility(View.VISIBLE);
@@ -173,7 +310,7 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
                 } else {
                     holder.videoContainer.setTag(null);
                     holder.videoContainer.setVisibility(View.GONE);
-                    Log.d("ChatAdapter", "✗ No video URLs in parsed payload"); // Debug line
+                    Log.d("ChatAdapter", "✗ No video URLs in parsed payload");
                 }
             }
         }

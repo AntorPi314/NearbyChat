@@ -9,6 +9,10 @@ import java.util.List;
 @Dao
 public interface MessageDao {
 
+    @Query("UPDATE messages SET message = :newMessage, isComplete = 1, isFailed = 0 WHERE " +
+            "senderId = :senderId AND messageId = :messageId AND timestamp = :timestamp")
+    void updateMessageContent(String senderId, String messageId, String timestamp, String newMessage);
+
     @Query("DELETE FROM messages WHERE chatType = :chatType AND chatId = :chatId")
     void deleteMessagesForChat(String chatType, String chatId);
 

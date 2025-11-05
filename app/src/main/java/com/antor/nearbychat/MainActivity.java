@@ -23,7 +23,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
-import java.util.LinkedHashMap;
+
 import java.util.Map;
 import android.os.PowerManager;
 import android.provider.MediaStore;
@@ -32,8 +32,9 @@ import android.app.Dialog;
 import android.graphics.drawable.ColorDrawable;
 import android.view.Gravity;
 import android.view.WindowManager;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import android.widget.ListView;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
 
@@ -55,7 +56,6 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.antor.nearbychat.Database.AppDatabase;
-import com.antor.nearbychat.Database.MessageEntity;
 import com.antor.nearbychat.Database.SavedMessageDao;
 import com.antor.nearbychat.Database.SavedMessageEntity;
 import com.google.gson.Gson;
@@ -1354,22 +1354,19 @@ public class MainActivity extends BaseActivity {
         String imageUrlsRaw = inputImageURL.getText().toString().trim();
         String videoUrlsRaw = inputVideoURL.getText().toString().trim();
 
+
+
         if (textMsg.isEmpty() && imageUrlsRaw.isEmpty() && videoUrlsRaw.isEmpty()) {
             Toast.makeText(this, "Message cannot be empty!", Toast.LENGTH_SHORT).show();
             return;
         }
 
-        // ****** নতুন ভ্যালিডেশন ******
+        // Validation + send logic (existing code continues...)
         if (!validateAllLinks(imageUrlsRaw, videoUrlsRaw)) {
-            // শর্ত ১: ত্রুটিপূর্ণ লিঙ্কের জন্য Toast দেখান
             Toast.makeText(this, "Invalid link format. Please check URLs.", Toast.LENGTH_LONG).show();
-
-            // শর্ত ২: EditText খালি না করে মেথড থেকে বের হয়ে যান
             return;
         }
-        // ****** ভ্যালিডেশন শেষ ******
 
-        // Build payload using PayloadCompress
         String compressedPayload = PayloadCompress.buildPayload(textMsg, imageUrlsRaw, videoUrlsRaw);
 
         if (compressedPayload.length() > MAX_MESSAGE_LENGTH) {
@@ -1544,35 +1541,236 @@ public class MainActivity extends BaseActivity {
             }
         }
 
-        new AlertDialog.Builder(this).setTitle("Message Options")
-                .setItems(options.toArray(new String[0]), (dialog, which) -> {
-                    String selectedOption = options.get(which);
-                    switch (selectedOption) {
-                        case "Copy":
-                            copyMessageToClipboard(msg);
-                            break;
-                        case "Edit":
-                            editMessage(msg);
-                            break;
-                        case "Save":
-                            saveMessage(msg);
-                            break;
-                        case "Unsave":
-                            unsaveMessage(msg);
-                            break;
-                        case "Remove":
-                            removeMessage(msg);
-                            break;
-                        case "Retransmit":
-                            if (validateBluetoothAndService()) {
-                                Toast.makeText(this, "Retransmitting...", Toast.LENGTH_SHORT).show();
-                                if (isServiceBound && bleService != null) {
-                                    bleService.retransmitMessage(msg);
-                                }
-                            }
-                            break;
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("Message Options");
+
+        // এটি (শর্ট) ক্লিকের হ্যান্ডলার
+        builder.setItems(options.toArray(new String[0]), (dialog, which) -> {
+            String selectedOption = options.get(which);
+            switch (selectedOption) {
+                case "Copy":
+                    copyMessageToClipboard(msg); // এটি স্বাভাবিক (শর্ট) ক্লিক
+                    break;
+                case "Edit":
+                    editMessage(msg); // এটি স্বাভাবিক (শর্ট) ক্লিক
+                    break;
+                case "Save":
+                    saveMessage(msg);
+                    break;
+                case "Unsave":
+                    unsaveMessage(msg);
+                    break;
+                case "Remove":
+                    removeMessage(msg);
+                    break;
+                case "Retransmit":
+                    if (validateBluetoothAndService()) {
+                        Toast.makeText(this, "Retransmitting...", Toast.LENGTH_SHORT).show();
+                        if (isServiceBound && bleService != null) {
+                            bleService.retransmitMessage(msg);
+                        }
                     }
-                }).show();
+                    break;
+            }
+        });
+
+        // ডায়ালগটি .show() না করে .create() করুন
+        AlertDialog dialog = builder.create();
+
+        // ডায়ালগ থেকে ListView টি নিন
+        ListView listView = dialog.getListView();
+        if (listView != null) {
+            // লং-প্রেস লিসেনার সেট করুন
+            listView.setOnItemLongClickListener((parent, view, position, id) -> {
+                String selectedOption = options.get(position);
+
+                // ✅ যদি "Copy" অপশনে লং-প্রেস করা হয়
+                if (selectedOption.equals("Copy")) {
+                    copyMessageAsJson(msg); // JSON কপি করার মেথড
+                    dialog.dismiss();       // ডায়ালগটি বন্ধ করুন
+                    return true;            // আমরা লং-প্রেসটি সফলভাবে হ্যান্ডল করেছি
+                }
+
+                // ✅ নতুন: যদি "Edit" অপশনে লং-প্রেস করা হয়
+                if (selectedOption.equals("Edit")) {
+                    // এটি g// URL কিনা তা পরীক্ষা করুন
+                    PayloadCompress.ParsedPayload parsed = PayloadCompress.parsePayload(msg.getMessage());
+                    if (JsonFetcher.isJsonUrl(parsed.message) && parsed.imageUrls.isEmpty() && parsed.videoUrls.isEmpty()) {
+                        // এটি একটি g// URL, তাই কন্টেন্ট লোড করুন
+                        loadJsonForEditing(parsed.message); // নতুন হেল্পার মেথড
+                        dialog.dismiss();
+                        return true; // আমরা লং-প্রেসটি সফলভাবে হ্যান্ডল করেছি
+                    }
+                    // যদি এটি g// URL না হয়, তবে কিছুই করবেন না (return false)
+                }
+
+                // অন্য কোনো আইটেমে লং-প্রেস করলে কিছু করবেন না
+                return false;
+            });
+        }
+
+        // এবার ডায়ালগটি দেখান
+        dialog.show();
+    }
+
+    private void loadJsonForEditing(String gUrl) {
+        // ১. লোডিং টোস্ট দেখান
+        Toast.makeText(this, "Fetching JSON for editing...", Toast.LENGTH_SHORT).show();
+
+        // ২. JsonFetcher ব্যবহার করে কন্টেন্ট আনুন (এটি cache থেকেও আনতে পারে)
+        JsonFetcher.fetchJson(this, gUrl, new JsonFetcher.JsonCallback() {
+            @Override
+            public void onSuccess(JsonFetcher.ParsedJson fetchedData) {
+                // UI থ্রেডে ইনপুট ফিল্ডগুলো আপডেট করুন
+                runOnUiThread(() -> {
+                    // ৩. ফিল্ডগুলো সেট করুন
+                    inputMessage.setText(fetchedData.message);
+                    // কমা-কে নতুন লাইন দিয়ে প্রতিস্থাপন করুন, যাতে এডিট করা সহজ হয়
+                    inputImageURL.setText(fetchedData.images.replace(",", "\n"));
+                    inputVideoURL.setText(fetchedData.videos.replace(",", "\n"));
+
+                    // ৪. সঠিক ইনপুট মোডটি দেখান (editMessage মেথডের লজিক অনুযায়ী)
+                    if (fetchedData.message != null && !fetchedData.message.isEmpty()) {
+                        // টেক্সট ইনপুট দেখান
+                        inputMode = 0;
+                        inputMessage.setVisibility(View.VISIBLE);
+                        inputImageURL.setVisibility(View.GONE);
+                        inputVideoURL.setVisibility(View.GONE);
+                        switchInputImage.setImageResource(R.drawable.text);
+                        inputMessage.requestFocus();
+                        inputMessage.setSelection(inputMessage.getText().length());
+                    } else if (fetchedData.images != null && !fetchedData.images.isEmpty()) {
+                        // ইমেজ ইনপুট দেখান
+                        inputMode = 1;
+                        inputMessage.setVisibility(View.GONE);
+                        inputImageURL.setVisibility(View.VISIBLE);
+                        inputVideoURL.setVisibility(View.GONE);
+                        switchInputImage.setImageResource(R.drawable.image);
+                        inputImageURL.requestFocus();
+                        inputImageURL.setSelection(inputImageURL.getText().length());
+                    } else if (fetchedData.videos != null && !fetchedData.videos.isEmpty()) {
+                        // ভিডিও ইনপুট দেখান
+                        inputMode = 2;
+                        inputMessage.setVisibility(View.GONE);
+                        inputImageURL.setVisibility(View.GONE);
+                        inputVideoURL.setVisibility(View.VISIBLE);
+                        switchInputImage.setImageResource(R.drawable.video);
+                        inputVideoURL.requestFocus();
+                        inputVideoURL.setSelection(inputVideoURL.getText().length());
+                    }
+                    Toast.makeText(MainActivity.this, "JSON content loaded for editing", Toast.LENGTH_SHORT).show();
+                });
+            }
+
+            @Override
+            public void onError(String error) {
+                // ব্যর্থ হলে, শুধু g// URL টিকেই এডিট বক্সে দিন (short-click এর মতো)
+                runOnUiThread(() -> {
+                    Toast.makeText(MainActivity.this, "Fetch failed. Loading URL only.", Toast.LENGTH_LONG).show();
+
+                    // short-click এর ফলব্যাক
+                    inputMessage.setText(gUrl);
+                    inputMode = 0;
+                    inputMessage.setVisibility(View.VISIBLE);
+                    inputImageURL.setVisibility(View.GONE);
+                    inputVideoURL.setVisibility(View.GONE);
+                    switchInputImage.setImageResource(R.drawable.text);
+                    inputMessage.requestFocus();
+                    inputMessage.setSelection(inputMessage.getText().length());
+                });
+            }
+        });
+    }
+
+    private void copyMessageAsJson(MessageModel msg) {
+        // ১. কাঁচা মেসেজ কন্টেন্ট পার্স করুন
+        PayloadCompress.ParsedPayload parsed = PayloadCompress.parsePayload(msg.getMessage());
+
+        // ২. চেক করুন এটি একটি g// URL কিনা
+        if (JsonFetcher.isJsonUrl(parsed.message) && parsed.imageUrls.isEmpty() && parsed.videoUrls.isEmpty()) {
+            // এটি একটি g// URL, তাই এটি fetch করতে হবে
+            Toast.makeText(this, "Fetching JSON...", Toast.LENGTH_SHORT).show();
+
+            // JsonFetcher ব্যবহার করে কন্টেন্ট আনুন (এটি cache থেকেও আনতে পারে)
+            JsonFetcher.fetchJson(this, parsed.message, new JsonFetcher.JsonCallback() {
+                @Override
+                public void onSuccess(JsonFetcher.ParsedJson fetchedData) {
+                    // সফল হলে, fetched data থেকে একটি নতুন payload তৈরি করুন
+                    PayloadCompress.ParsedPayload payloadToCopy = new PayloadCompress.ParsedPayload();
+                    payloadToCopy.message = fetchedData.message;
+                    payloadToCopy.imageUrls = fetchedData.images;
+                    payloadToCopy.videoUrls = fetchedData.videos;
+
+                    // UI থ্রেডে JSON তৈরি এবং কপি করুন
+                    runOnUiThread(() -> buildAndCopyJson(payloadToCopy));
+                }
+
+                @Override
+                public void onError(String error) {
+                    // ব্যর্থ হলে, আসল g// URL টিকেই JSON হিসেবে কপি করুন
+                    runOnUiThread(() -> {
+                        Toast.makeText(MainActivity.this, "Fetch failed. Copying g// URL as JSON.", Toast.LENGTH_LONG).show();
+                        buildAndCopyJson(parsed); // আসল 'parsed' payload কপি করুন
+                    });
+                }
+            });
+        } else {
+            // এটি একটি সাধারণ মেসেজ, সরাসরি এটি থেকে JSON তৈরি করুন
+            buildAndCopyJson(parsed);
+        }
+    }
+
+    private void buildAndCopyJson(PayloadCompress.ParsedPayload payload) {
+        try {
+            // ১. JSON অবজেক্ট তৈরি করুন
+            JSONObject json = new JSONObject();
+
+            // ২. "message" কী (key) যোগ করুন
+            json.put("message", payload.message);
+
+            // ৩. "images" অ্যারে (array) যোগ করুন
+            JSONArray imagesArray = new JSONArray();
+            if (payload.imageUrls != null && !payload.imageUrls.isEmpty()) {
+                String[] urls = payload.imageUrls.split(",");
+                for (String url : urls) {
+                    String trimmed = url.trim();
+                    if (!trimmed.isEmpty()) {
+                        imagesArray.put(trimmed);
+                    }
+                }
+            }
+            json.put("images", imagesArray);
+
+            // ৪. "videos" অ্যারে (array) যোগ করুন
+            JSONArray videosArray = new JSONArray();
+            if (payload.videoUrls != null && !payload.videoUrls.isEmpty()) {
+                String[] urls = payload.videoUrls.split(",");
+                for (String url : urls) {
+                    String trimmed = url.trim();
+                    if (!trimmed.isEmpty()) {
+                        videosArray.put(trimmed);
+                    }
+                }
+            }
+            json.put("videos", videosArray);
+
+            // ৫. JSON অবজেক্টটিকে একটি সুন্দর ফরম্যাটেড স্ট্রিং-এ রূপান্তর করুন
+            String jsonString = json.toString(2); // ২ স্পেস ইন্ডেন্টেশন
+
+            // ✅ ৬. Escaped slashes (\/) ফিক্স করুন
+            String cleanJsonString = jsonString.replace("\\/", "/");
+
+            // ৭. ক্লিপবোর্ডে কপি করুন
+            ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            if (clipboard != null) {
+                clipboard.setPrimaryClip(ClipData.newPlainText("Message JSON", cleanJsonString));
+                Toast.makeText(this, "JSON copied to clipboard", Toast.LENGTH_SHORT).show();
+            }
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error creating or copying JSON", e);
+            Toast.makeText(this, "Failed to copy JSON", Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void editMessage(MessageModel msg) {
@@ -1585,6 +1783,28 @@ public class MainActivity extends BaseActivity {
 
         // Parse the payload using PayloadCompress
         PayloadCompress.ParsedPayload parsed = PayloadCompress.parsePayload(messageText);
+
+        // ✅ NEW CHECK: If the DECOMPRESSED message is a g// URL,
+        // just put the URL in the text field and stop.
+        if (JsonFetcher.isJsonUrl(parsed.message) && parsed.imageUrls.isEmpty() && parsed.videoUrls.isEmpty()) {
+
+            inputMessage.setText(parsed.message); // e.g., "g//mocki.io/v1/..."
+
+            // Switch to text mode
+            inputMode = 0;
+            inputMessage.setVisibility(View.VISIBLE);
+            inputImageURL.setVisibility(View.GONE);
+            inputVideoURL.setVisibility(View.GONE);
+            switchInputImage.setImageResource(R.drawable.text);
+
+            inputMessage.requestFocus();
+            inputMessage.setSelection(inputMessage.getText().length());
+
+            Toast.makeText(this, "JSON URL loaded for editing", Toast.LENGTH_SHORT).show();
+            return; // ✅ Stop here
+        }
+
+        // --- If it's a NORMAL message, do the old logic ---
 
         // Set the extracted parts to respective EditTexts
         if (!parsed.message.isEmpty()) {

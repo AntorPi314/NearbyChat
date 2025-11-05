@@ -42,6 +42,10 @@
         <intent>
             <action android:name="android.bluetooth.adapter.action.REQUEST_ENABLE" />
         </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="video/*" />
+        </intent>
     </queries>
 
     <application
