@@ -189,6 +189,13 @@ public class MainActivity extends BaseActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
+        String chatKey = activeChatType + ":" + activeChatId;
+        getSharedPreferences("NotificationMessages", MODE_PRIVATE)
+                .edit()
+                .remove(chatKey)
+                .apply();
+
         sendButton = findViewById(R.id.sendButton);
         prefs = getSharedPreferences(PREFS_ACTIVE_CHAT, MODE_PRIVATE);
         loadActiveChat();
@@ -2016,11 +2023,34 @@ public class MainActivity extends BaseActivity {
     @Override
     protected void onResume() {
         super.onResume();
+
+        // যখনই MainActivity সামনে আসবে, active chat তথ্য সেভ করুন
         activeChatType = prefs.getString(KEY_CHAT_TYPE, "N");
         activeChatId = prefs.getString(KEY_CHAT_ID, "");
+
+        // *** নতুন কোড: সার্ভিসকে জানান যে এই চ্যাটটি এখন খোলা আছে ***
+        SharedPreferences activePrefs = getSharedPreferences(PREFS_ACTIVE_CHAT, MODE_PRIVATE);
+        activePrefs.edit()
+                .putString(KEY_CHAT_TYPE, activeChatType)
+                .putString(KEY_CHAT_ID, activeChatId)
+                .apply();
+
+        // আপনার বাকি onResume কোড...
         if (bluetoothAdapter != null && bluetoothAdapter.isEnabled() && hasAllRequiredPermissions()) {
             startBleService();
         }
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        SharedPreferences activePrefs = getSharedPreferences(PREFS_ACTIVE_CHAT, MODE_PRIVATE);
+        activePrefs.edit()
+                .remove(KEY_CHAT_TYPE)
+                .remove(KEY_CHAT_ID)
+                .apply();
+
+        Log.d(TAG, "App paused. Active chat info cleared.");
     }
 
     @Override

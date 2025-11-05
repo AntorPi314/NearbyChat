@@ -166,4 +166,12 @@ public class ProfilePicLoader {
     private static Bitmap createDefaultProfilePic() {
         return createTextBitmap("??", 0xFF95A5A6, 0xFFFFFFFF, false);
     }
+
+    public static Bitmap getProfilePicBitmapForNotification(String userId, boolean isGroup) {
+        if (isGroup) {
+            return generateGroupProfilePic(userId);
+        } else {
+            return generateProfilePic(userId);
+        }
+    }
 }

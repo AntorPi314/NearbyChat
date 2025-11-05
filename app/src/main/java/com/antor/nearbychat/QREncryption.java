@@ -6,8 +6,8 @@ import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 
 public class QREncryption {
-    private static final String SECRET_KEY = "N3@rbyCh@tS3cr3t"; // 16 bytes
-    private static final String INIT_VECTOR = "R@nd0m1n1tV3ct0r"; // 16 bytes
+    private static final String SECRET_KEY = "N3@rbyCh@tS3cr3t";
+    private static final String INIT_VECTOR = "R@nd0m1n1tV3ct0r";
 
     public static final String INTEGRITY_CHECK = "|N3@RBY_CH@T_V1|";
 

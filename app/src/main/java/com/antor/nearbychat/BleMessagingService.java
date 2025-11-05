@@ -19,6 +19,8 @@ import android.bluetooth.le.ScanResult;
 import android.bluetooth.le.ScanSettings;
 import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.net.Uri;
 import android.os.Handler;
 import android.content.Intent;
@@ -33,6 +35,8 @@ import android.os.Looper;
 import android.os.ParcelUuid;
 import android.os.PowerManager;
 import android.util.Log;
+import android.net.wifi.WifiManager;
+import android.util.Base64;
 
 import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
@@ -67,6 +71,9 @@ public class BleMessagingService extends Service {
     private MessageProcessor messageProcessor;
 
     private static final String TAG = "BleMessagingService";
+    private static final String NOTIFICATION_GROUP_KEY = "com.antor.nearbychat.MESSAGES";
+    private static final int SUMMARY_NOTIFICATION_ID = -1001;
+
     private static final String CHANNEL_ID = "nearby_chat_service";
     private static final int NOTIFICATION_ID = 1001;
 
@@ -92,6 +99,9 @@ public class BleMessagingService extends Service {
         void onMessageTimeout(MessageModel failedMessage);
     }
 
+    private PowerManager.WakeLock wakeLock;
+    private WifiManager.WifiLock wifiLock;
+
     private MessageTimeoutCallback timeoutCallback;
 
     public void setMessageTimeoutCallback(MessageTimeoutCallback callback) {
@@ -103,7 +113,6 @@ public class BleMessagingService extends Service {
     private BluetoothLeScanner scanner;
     private AdvertiseCallback advertiseCallback;
 
-    private PowerManager.WakeLock wakeLock;
     private boolean isScanning = false;
     private boolean isServiceRunning = false;
     private Handler mainHandler;
@@ -189,6 +198,7 @@ public class BleMessagingService extends Service {
             try {
                 startForegroundService();
                 initializeBle();
+                scheduleServiceRestarter();
                 isServiceRunning = true;
             } catch (SecurityException e) {
                 Log.e(TAG, "SecurityException starting service", e);
@@ -209,6 +219,25 @@ public class BleMessagingService extends Service {
             }
         }
         return START_STICKY;
+    }
+
+    private void scheduleServiceRestarter() {
+        // ✅ Restart service every 15 minutes to prevent system kill
+        mainHandler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (isServiceRunning) {
+                    Log.d(TAG, "🔄 Periodic service health check");
+
+                    if (!isScanning) {
+                        Log.w(TAG, "⚠️ Scanning stopped, restarting...");
+                        stopBleOperations();
+                        mainHandler.postDelayed(() -> initializeBle(), 1000);
+                    }
+                    scheduleServiceRestarter();
+                }
+            }
+        }, 15 * 60 * 1000); // 15 minutes
     }
 
     private void loadConfigurableSettings() {
@@ -272,14 +301,17 @@ public class BleMessagingService extends Service {
     }
 
     private void createNotificationChannel() {
+        // Service channel (silent)
         NotificationChannel serviceChannel = new NotificationChannel(
                 CHANNEL_ID,
                 "Nearby Chat Service",
-                NotificationManager.IMPORTANCE_LOW
+                NotificationManager.IMPORTANCE_DEFAULT
         );
         serviceChannel.setShowBadge(false);
         serviceChannel.setSound(null, null);
+        serviceChannel.enableVibration(false);
 
+        // ✅ Message notification channel (with sound + popup)
         Uri soundUri = Uri.parse("android.resource://" + getPackageName() + "/" + R.raw.notification_sound);
         android.media.AudioAttributes audioAttributes = new android.media.AudioAttributes.Builder()
                 .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
@@ -289,11 +321,11 @@ public class BleMessagingService extends Service {
         NotificationChannel messageChannel = new NotificationChannel(
                 "message_notifications",
                 "New Messages",
-                NotificationManager.IMPORTANCE_HIGH
+                NotificationManager.IMPORTANCE_HIGH  // ✅ HIGH for popup
         );
         messageChannel.setShowBadge(true);
         messageChannel.enableVibration(true);
-        messageChannel.setVibrationPattern(new long[]{0, 500, 200, 500});
+        messageChannel.setVibrationPattern(new long[]{0, 250, 250, 250});
         messageChannel.setSound(soundUri, audioAttributes);
 
         NotificationManager manager = getSystemService(NotificationManager.class);
@@ -304,10 +336,23 @@ public class BleMessagingService extends Service {
     }
 
     private void acquireWakeLock() {
+        // CPU WakeLock
         PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
         if (pm != null) {
-            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "NearbyChatService::WakeLock");
+            wakeLock = pm.newWakeLock(
+                    PowerManager.PARTIAL_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                    "NearbyChatService::WakeLock"
+            );
+            wakeLock.setReferenceCounted(false);
             wakeLock.acquire();
+            Log.d(TAG, "WakeLock acquired");
+        }
+        WifiManager wm = (WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
+        if (wm != null) {
+            wifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "NearbyChatService::WifiLock");
+            wifiLock.setReferenceCounted(false);
+            wifiLock.acquire();
+            Log.d(TAG, "WiFi WakeLock acquired");
         }
     }
 
@@ -708,10 +753,11 @@ public class BleMessagingService extends Service {
             if ("F".equals(msg.getChatType())) {
                 autoAddFriendIfNeeded(msg.getSenderId());
             }
-        }
 
-        if (!msg.isSelf() && msg.isComplete() && !msg.isFailed()) {
-            showNotificationIfNeeded(msg);
+            // ✅ Show notification for new message
+            if (msg.isComplete() && !msg.isFailed()) {
+                showNewMessageNotification(msg);
+            }
         }
 
         try {
@@ -723,7 +769,7 @@ public class BleMessagingService extends Service {
                 if (messageDao.messageExists(msg.getSenderId(), msg.getMessage(), msg.getTimestamp()) == 0) {
                     messageDao.insertMessage(com.antor.nearbychat.Database.MessageEntity.fromMessageModel(msg));
                     AppDatabase.cleanupOldMessages(this, MAX_MESSAGE_SAVED);
-                    Log.d(TAG, "✓ Saved complete message: " + msg.getMessageId());
+                    Log.d(TAG, "✅ Saved complete message: " + msg.getMessageId());
                 }
             } else {
                 if (messageDao.partialMessageExists(msg.getSenderId(), msg.getMessageId()) > 0) {
@@ -747,6 +793,252 @@ public class BleMessagingService extends Service {
                 " | content=" + msg.getMessage().substring(0, Math.min(50, msg.getMessage().length())));
     }
 
+    private void showNewMessageNotification(MessageModel msg) {
+        try {
+            // ধাপ ১: নোটিফিকেশন এই চ্যাটের জন্য সক্রিয় আছে কি না তা পরীক্ষা করুন
+            SharedPreferences prefs = getSharedPreferences("NearbyChatPrefs", MODE_PRIVATE);
+            String key = msg.getChatType() + ":" + msg.getChatId();
+            // ডিফল্ট 'false' (সক্রিয় করা না থাকলে নোটিফিকেশন দেখাবে না)
+            boolean isNotificationEnabled = prefs.getBoolean("notification_" + key, false);
+
+            if (!isNotificationEnabled) {
+                Log.d(TAG, "Notification disabled for chat: " + key);
+                return; // নোটিফিকেশন সক্রিয় না থাকলে, এখান থেকেই প্রস্থান করুন
+            }
+
+            // ধাপ ২: ব্যবহারকারী বর্তমানে এই চ্যাটে সক্রিয় আছে কি না তা পরীক্ষা করুন
+            SharedPreferences activePrefs = getSharedPreferences("ActiveChatInfo", MODE_PRIVATE);
+            String activeChatType = activePrefs.getString("chatType", "N");
+            String activeChatId = activePrefs.getString("chatId", "");
+
+            if (msg.getChatType().equals(activeChatType) && msg.getChatId().equals(activeChatId)) {
+                Log.d(TAG, "User is in the chat, skipping notification");
+                return; // ব্যবহারকারী এই চ্যাটেই থাকলে নোটিফিকেশন দেখাবেন না
+            }
+
+            // --- পুরনো কোড শুরু ---
+            String chatKey = msg.getChatType() + ":" + msg.getChatId();
+            String senderName = getSenderDisplayName(msg.getSenderId());
+            String chatTitle;
+
+            // Determine notification title
+            if ("G".equals(msg.getChatType())) {
+                chatTitle = getGroupName(msg.getChatId());
+            } else {
+                chatTitle = senderName;
+            }
+
+            // Parse message preview
+            String newMessageText = "New message";
+            try {
+                PayloadCompress.ParsedPayload parsed = PayloadCompress.parsePayload(msg.getMessage());
+                if (!parsed.message.isEmpty()) {
+                    newMessageText = parsed.message.length() > 100
+                            ? parsed.message.substring(0, 100) + "..."
+                            : parsed.message;
+                } else if (!parsed.imageUrls.isEmpty() || !parsed.videoUrls.isEmpty()) {
+                    newMessageText = "📷 Photo";
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Error parsing message for notification", e);
+            }
+
+            // ✅ Build stacked notification text
+            SharedPreferences notifPrefs = getSharedPreferences("NotificationMessages", MODE_PRIVATE);
+            String existingMessages = notifPrefs.getString(chatKey, "");
+
+            String updatedMessages;
+            if (existingMessages.isEmpty()) {
+                // First message
+                if ("G".equals(msg.getChatType())) {
+                    updatedMessages = senderName + ": " + newMessageText;
+                } else {
+                    updatedMessages = newMessageText;
+                }
+            } else {
+                // Append new message
+                if ("G".equals(msg.getChatType())) {
+                    updatedMessages = existingMessages + "\n" + senderName + ": " + newMessageText;
+                } else {
+                    updatedMessages = existingMessages + "\n" + newMessageText;
+                }
+            }
+
+            // Limit to last 5 messages
+            String[] lines = updatedMessages.split("\n");
+            if (lines.length > 5) {
+                StringBuilder limited = new StringBuilder();
+                for (int i = lines.length - 5; i < lines.length; i++) {
+                    if (limited.length() > 0) limited.append("\n");
+                    limited.append(lines[i]);
+                }
+                updatedMessages = limited.toString();
+            }
+
+            // Save updated messages
+            notifPrefs.edit().putString(chatKey, updatedMessages).apply();
+
+            // ✅ Load profile picture
+            Bitmap largeIcon = null;
+            try {
+                if ("G".equals(msg.getChatType())) {
+                    long bits = MessageHelper.asciiIdToTimestamp(msg.getChatId());
+                    String displayId = MessageHelper.timestampToDisplayId(bits);
+                    largeIcon = loadProfilePictureBitmap(displayId, true);
+                } else {
+                    largeIcon = loadProfilePictureBitmap(msg.getSenderId(), false);
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Error loading profile picture for notification", e);
+            }
+
+            // Create intent
+            Intent notificationIntent = new Intent(this, MainActivity.class);
+            notificationIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            notificationIntent.putExtra("chatType", msg.getChatType());
+            notificationIntent.putExtra("chatId", msg.getChatId());
+
+            PendingIntent pendingIntent = PendingIntent.getActivity(
+                    this,
+                    chatKey.hashCode(),
+                    notificationIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+            );
+
+            // ✅ Build notification with BigTextStyle
+            NotificationCompat.Builder builder = new NotificationCompat.Builder(this, "message_notifications")
+                    .setSmallIcon(R.drawable.notify)
+                    .setContentTitle(chatTitle)
+                    .setContentText(updatedMessages.split("\n")[updatedMessages.split("\n").length - 1]) // Last line
+                    .setStyle(new NotificationCompat.BigTextStyle()
+                            .bigText(updatedMessages)
+                            .setBigContentTitle(chatTitle))
+                    .setContentIntent(pendingIntent)
+                    .setAutoCancel(true)
+                    .setPriority(NotificationCompat.PRIORITY_HIGH)
+                    .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                    .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                    .setGroup(NOTIFICATION_GROUP_KEY); // মেসেঞ্জার-স্টাইল গ্রুপিং
+
+            // ✅ Add profile picture if available
+            if (largeIcon != null) {
+                builder.setLargeIcon(largeIcon);
+            }
+
+            // ✅ Show notification
+            NotificationManager notificationManager =
+                    (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+
+            if (notificationManager != null) {
+                int notificationId = chatKey.hashCode();
+                notificationManager.notify(notificationId, builder.build());
+                Log.d(TAG, "📬 Notification updated for: " + chatTitle);
+
+                // --- সারাংশ (Summary) নোটিফিকেশন তৈরি করুন ---
+
+                NotificationCompat.Builder summaryBuilder = new NotificationCompat.Builder(this, "message_notifications")
+                        .setSmallIcon(R.drawable.notify)
+                        .setContentTitle("Nearby Chat")
+                        .setContentText("New messages received") // এটি সাধারণত দেখা যায় না
+                        .setGroup(NOTIFICATION_GROUP_KEY)
+                        .setGroupSummary(true) // এটিই মূল কাজ
+                        .setPriority(NotificationCompat.PRIORITY_HIGH)
+                        .setAutoCancel(true);
+
+                // সারাংশ নোটিফিকেশনটি পোস্ট করুন
+                notificationManager.notify(SUMMARY_NOTIFICATION_ID, summaryBuilder.build());
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error showing notification", e);
+        }
+    }
+
+    private Bitmap loadProfilePictureBitmap(String userId, boolean isGroup) {
+        int size = (int) (64 * getResources().getDisplayMetrics().density);
+
+        String base64Image = getSharedPreferences("NearbyChatPrefs", MODE_PRIVATE)
+                .getString("profile_" + userId, null);
+
+        if (base64Image != null) {
+            try {
+                byte[] imageBytes = Base64.decode(base64Image, Base64.DEFAULT);
+                Bitmap bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.length);
+
+                if (bitmap != null) {
+                    Bitmap cropped = ImageConverter.resizeAndCrop(bitmap, size, size);
+                    return ImageConverter.createCircularBitmap(cropped);
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Error loading saved profile picture for " + userId, e);
+            }
+        }
+        try {
+            Bitmap generatedBitmap = ProfilePicLoader.getProfilePicBitmapForNotification(userId, isGroup);
+
+            return ImageConverter.resizeAndCrop(generatedBitmap, size, size);
+        } catch (Exception e) {
+            Log.e(TAG, "Error generating default profile picture for notification", e);
+            return null;
+        }
+    }
+
+    private Bitmap generateProfilePicBitmap(String userId) {
+        // Same logic as ProfilePicLoader.generateProfilePic()
+        if (userId == null || userId.length() < 8) {
+            return createTextBitmapForNotification("??", 0xFF95A5A6);
+        }
+        String text = userId.substring(6, 8);
+        char colorChar = userId.charAt(5);
+        int colorIndex = getAlphabetIndexForNotification(colorChar);
+        int[] colors = {0xFF1ABC9C, 0xFF2ECC71, 0xFF3498DB, 0xFF9B59B6, 0xFFE74C3C};
+        int bgColor = colors[colorIndex % colors.length];
+        return createTextBitmapForNotification(text, bgColor);
+    }
+
+    private Bitmap generateGroupProfilePicBitmap(String userId) {
+        if (userId == null || userId.length() < 8) {
+            return createTextBitmapForNotification("??", 0xFF95A5A6);
+        }
+        String text = userId.substring(0, 2);
+        char colorChar = userId.charAt(5);
+        int colorIndex = getAlphabetIndexForNotification(colorChar);
+        int[] colors = {0xFF1ABC9C, 0xFF2ECC71, 0xFF3498DB, 0xFF9B59B6, 0xFFE74C3C};
+        int bgColor = colors[colorIndex % colors.length];
+        return createTextBitmapForNotification(text, bgColor);
+    }
+
+    private int getAlphabetIndexForNotification(char c) {
+        char[] alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ123456".toCharArray();
+        for (int i = 0; i < alphabet.length; i++) {
+            if (alphabet[i] == c) return i;
+        }
+        return 0;
+    }
+
+    private Bitmap createTextBitmapForNotification(String text, int bgColor) {
+        int size = 128; // Notification icon size
+        Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+        android.graphics.Canvas canvas = new android.graphics.Canvas(bitmap);
+
+        android.graphics.Paint bgPaint = new android.graphics.Paint();
+        bgPaint.setAntiAlias(true);
+        bgPaint.setColor(bgColor);
+        canvas.drawCircle(size / 2f, size / 2f, size / 2f, bgPaint);
+
+        android.graphics.Paint textPaint = new android.graphics.Paint();
+        textPaint.setAntiAlias(true);
+        textPaint.setColor(0xFFFFFFFF);
+        textPaint.setTextSize(size * 0.4f);
+        textPaint.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        textPaint.setTextAlign(android.graphics.Paint.Align.CENTER);
+
+        android.graphics.Paint.FontMetrics fm = textPaint.getFontMetrics();
+        float textY = (size + (fm.bottom - fm.top)) / 2f - fm.bottom;
+        canvas.drawText(text, size / 2f, textY, textPaint);
+
+        return bitmap;
+    }
+
     private void autoAddFriendIfNeeded(String friendDisplayId) {
         SharedPreferences prefs = getSharedPreferences("NearbyChatPrefs", MODE_PRIVATE);
         String friendsJson = prefs.getString("friendsList", null);
@@ -763,79 +1055,6 @@ public class BleMessagingService extends Service {
             prefs.edit().putString("friendsList", gson.toJson(friends)).apply();
             DataCache.invalidate();
             Log.d(TAG, "Auto-added new friend: " + friendDisplayId);
-        }
-    }
-
-    private void showNotificationIfNeeded(MessageModel msg) {
-        SharedPreferences prefs = getSharedPreferences("NearbyChatPrefs", MODE_PRIVATE);
-        String key = msg.getChatType() + ":" + msg.getChatId();
-        boolean isNotificationEnabled = prefs.getBoolean("notification_" + key, false);
-
-        if (!isNotificationEnabled) {
-            Log.d(TAG, "Notification disabled for chat: " + key);
-            return;
-        }
-        SharedPreferences activePrefs = getSharedPreferences("ActiveChatInfo", MODE_PRIVATE);
-        String activeChatType = activePrefs.getString("chatType", "N");
-        String activeChatId = activePrefs.getString("chatId", "");
-
-        if (msg.getChatType().equals(activeChatType) && msg.getChatId().equals(activeChatId)) {
-            Log.d(TAG, "User is in the chat, skipping notification");
-            return;
-        }
-        showMessageNotification(msg);
-    }
-
-    private void showMessageNotification(MessageModel msg) {
-        try {
-            PayloadCompress.ParsedPayload parsed = PayloadCompress.parsePayload(msg.getMessage());
-            String messagePreview = parsed.message.isEmpty() ? "New message" : parsed.message;
-            if (messagePreview.length() > 50) {
-                messagePreview = messagePreview.substring(0, 50) + "...";
-            }
-
-            // ✅ CHANGED: Load title based on chat type
-            String notificationTitle;
-            String notificationText;
-
-            if ("G".equals(msg.getChatType())) {
-                // Group message: Show group name as title, sender + message as text
-                notificationTitle = getGroupName(msg.getChatId());
-                String senderName = getSenderDisplayName(msg.getSenderId());
-                notificationText = senderName + ": " + messagePreview;
-            } else {
-                // Friend/Nearby message: Show sender name as title
-                notificationTitle = getSenderDisplayName(msg.getSenderId());
-                notificationText = messagePreview;
-            }
-
-            Intent notificationIntent = new Intent(this, MainActivity.class);
-            notificationIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-            notificationIntent.putExtra("chatType", msg.getChatType());
-            notificationIntent.putExtra("chatId", msg.getChatId());
-
-            PendingIntent pendingIntent = PendingIntent.getActivity(
-                    this,
-                    (msg.getChatType() + msg.getChatId()).hashCode(),
-                    notificationIntent,
-                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
-            );
-
-            NotificationCompat.Builder builder = new NotificationCompat.Builder(this, "message_notifications")
-                    .setContentTitle(notificationTitle)
-                    .setContentText(notificationText)
-                    .setSmallIcon(R.drawable.notify)
-                    .setContentIntent(pendingIntent)
-                    .setAutoCancel(true)
-                    .setPriority(NotificationCompat.PRIORITY_HIGH);
-
-            NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-            if (notificationManager != null) {
-                int notificationId = (msg.getChatType() + msg.getChatId()).hashCode();
-                notificationManager.notify(notificationId, builder.build());
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "Error showing notification", e);
         }
     }
 
@@ -933,7 +1152,7 @@ public class BleMessagingService extends Service {
                 .setContentTitle("Nearby Chat")
                 .setContentText(text)
                 .setSmallIcon(R.drawable.notify)
-                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                 .setOngoing(ongoing)
                 .setShowWhen(false);
         Intent intent = new Intent(this, MainActivity.class);
@@ -978,7 +1197,15 @@ public class BleMessagingService extends Service {
         bleExecutor.shutdownNow();
         processingExecutor.shutdownNow();
         stopBleOperations();
-        if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
+
+        if (wakeLock != null && wakeLock.isHeld()) {
+            wakeLock.release();
+            Log.d(TAG, "WakeLock released");
+        }
+        if (wifiLock != null && wifiLock.isHeld()) {
+            wifiLock.release();
+            Log.d(TAG, "WiFi WakeLock released");
+        }
         if (bluetoothReceiver != null) {
             try {
                 unregisterReceiver(bluetoothReceiver);
