@@ -74,7 +74,6 @@ public class GroupsFriendsActivity extends Activity {
         if (activeChatType == null) activeChatType = "N";
         if (activeChatId == null) activeChatId = "";
 
-        loadData();
         setupUI();
     }
 
@@ -105,12 +104,14 @@ public class GroupsFriendsActivity extends Activity {
             }
         });
         recyclerView.setLayoutManager(new LinearLayoutManager(this));
-        loadAndDisplayAllChats();
+        // loadAndDisplayAllChats(); // <-- REMOVED (onResume will handle it)
     }
 
     @Override
     protected void onResume() {
         super.onResume();
+        // This is now the ONLY place that loads the list,
+        // ensuring it's always up-to-date when the dialog is shown/resumed.
         loadData();
         loadAndDisplayAllChats();
     }
@@ -323,10 +324,21 @@ public class GroupsFriendsActivity extends Activity {
 
     private void onChatLongClick(ChatItem chat) {
         if (chat.type.equals("N")) {
-            Toast.makeText(this, "Cannot modify Nearby Chat", Toast.LENGTH_SHORT).show();
+            // "Nearby Chat" long click: Only show "Clear History"
+            String[] options = {"Clear History"};
+
+            new AlertDialog.Builder(this)
+                    .setTitle("Chat Options")
+                    .setItems(options, (dialog, which) -> {
+                        if (which == 0) { // Clear History
+                            clearHistory(chat);
+                        }
+                    })
+                    .show();
             return;
         }
 
+        // --- Other chats (Friends/Groups) ---
         String[] options = {"Block", "Clear History", "Delete Chat"};
 
         new AlertDialog.Builder(this)
@@ -336,10 +348,10 @@ public class GroupsFriendsActivity extends Activity {
                         case 0: // Block
                             blockChat(chat);
                             break;
-                        case 1:
+                        case 1: // Clear History
                             clearHistory(chat);
                             break;
-                        case 2:
+                        case 2: // Delete Chat
                             deleteChat(chat);
                             break;
                     }
@@ -380,7 +392,7 @@ public class GroupsFriendsActivity extends Activity {
                     friends.removeIf(f -> f.getDisplayId().equals(userIdToBlock));
                     DataCache.saveFriends(this, friends);
 
-                    loadAndDisplayAllChats();
+//                    loadAndDisplayAllChats();
                     Toast.makeText(this, "User blocked", Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Cancel", null)
@@ -395,7 +407,7 @@ public class GroupsFriendsActivity extends Activity {
                     executor.execute(() -> {
                         AppDatabase.getInstance(this).messageDao().deleteMessagesForChat(chat.type, chat.id);
                         runOnUiThread(() -> {
-                            loadAndDisplayAllChats();
+//                            loadAndDisplayAllChats();
                             Toast.makeText(this, "History cleared", Toast.LENGTH_SHORT).show();
                         });
                     });
@@ -429,7 +441,7 @@ public class GroupsFriendsActivity extends Activity {
                     executor.execute(() -> {
                         AppDatabase.getInstance(this).messageDao().deleteMessagesForChat(chat.type, chat.id);
                         runOnUiThread(() -> {
-                            loadAndDisplayAllChats();
+//                            loadAndDisplayAllChats();
                             Toast.makeText(this, chat.name + " deleted", Toast.LENGTH_SHORT).show();
                         });
                     });
@@ -477,9 +489,9 @@ public class GroupsFriendsActivity extends Activity {
         dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         EditText editName = dialog.findViewById(R.id.editName);
         EditText editKey = dialog.findViewById(R.id.editEncryptionKey);
-        Button btnDelete = dialog.findViewById(R.id.btnDelete);
         Button btnAdd = dialog.findViewById(R.id.btnAdd);
 
+        ImageView switchNotification = dialog.findViewById(R.id.switchNotification);
         ImageView profilePic = dialog.findViewById(R.id.profilePicRound);
         TextView groupIdText = dialog.findViewById(R.id.groupID);
         ImageView qrCodeShow = dialog.findViewById(R.id.qrCodeShow);
@@ -489,7 +501,6 @@ public class GroupsFriendsActivity extends Activity {
             btnAdd.setText("Save");
             editName.setText(group.getName());
             editKey.setText(group.getEncryptionKey());
-            btnDelete.setVisibility(View.VISIBLE);
             if (profilePic != null) {
                 profilePic.setVisibility(View.VISIBLE);
                 long bits = asciiIdToTimestamp(group.getId());
@@ -516,7 +527,9 @@ public class GroupsFriendsActivity extends Activity {
                 });
             }
         } else {
-            if (profilePic != null) {
+            if (switchNotification != null) {
+                switchNotification.setVisibility(View.GONE);
+            }if (profilePic != null) {
                 profilePic.setVisibility(View.GONE);
             }
             if (groupIdText != null) {
@@ -525,15 +538,8 @@ public class GroupsFriendsActivity extends Activity {
             if (qrCodeShow != null) {
                 qrCodeShow.setVisibility(View.GONE);
             }
-            btnDelete.setVisibility(View.GONE);
         }
         dialog.findViewById(R.id.btnCancel).setOnClickListener(v -> dialog.dismiss());
-        btnDelete.setOnClickListener(v -> {
-            groupsList.remove(position);
-            saveGroups();
-            loadAndDisplayAllChats();
-            dialog.dismiss();
-        });
         btnAdd.setOnClickListener(v -> {
             String name = editName.getText().toString().trim();
             if (name.isEmpty()) {
@@ -547,10 +553,74 @@ public class GroupsFriendsActivity extends Activity {
                 groupsList.add(new GroupModel(MessageHelper.timestampToAsciiId(System.currentTimeMillis()), name, editKey.getText().toString().trim()));
             }
             saveGroups();
-            loadAndDisplayAllChats();
+//            loadAndDisplayAllChats();
             dialog.dismiss();
         });
         dialog.show();
+    }
+
+    private boolean isUserBlocked(String displayId) {
+        SharedPreferences prefs = getSharedPreferences("NearbyChatPrefs", MODE_PRIVATE);
+        String json = prefs.getString("blockedList", null);
+        if (json == null) return false;
+        Type type = new TypeToken<List<String>>(){}.getType();
+        List<String> blockedList = gson.fromJson(json, type);
+        return blockedList != null && blockedList.contains(displayId);
+    }
+
+    private void blockUser(String displayId, String name) {
+        SharedPreferences prefs = getSharedPreferences("NearbyChatPrefs", MODE_PRIVATE);
+        String json = prefs.getString("blockedList", null);
+        List<String> blockedList;
+        if (json != null) {
+            Type type = new TypeToken<List<String>>(){}.getType();
+            blockedList = gson.fromJson(json, type);
+        } else {
+            blockedList = new ArrayList<>();
+        }
+        if (!blockedList.contains(displayId)) {
+            blockedList.add(displayId);
+            prefs.edit().putString("blockedList", gson.toJson(blockedList)).apply();
+        }
+        // Remove from friends list
+        List<FriendModel> friends = DataCache.getFriends(this);
+        friends.removeIf(f -> f.getDisplayId().equals(displayId));
+        DataCache.saveFriends(this, friends);
+
+        String toastName = (name == null || name.isEmpty()) ? displayId : name;
+        Toast.makeText(this, "User " + toastName + " blocked", Toast.LENGTH_SHORT).show();
+
+        // Refresh the chat list in this activity
+        loadAndDisplayAllChats();
+    }
+
+    private void unblockUser(String displayId, String name) {
+        SharedPreferences prefs = getSharedPreferences("NearbyChatPrefs", MODE_PRIVATE);
+        String json = prefs.getString("blockedList", null);
+        List<String> blockedList;
+        if (json != null) {
+            Type type = new TypeToken<List<String>>(){}.getType();
+            blockedList = gson.fromJson(json, type);
+        } else {
+            return; // Not blocked anyway
+        }
+        if (blockedList.contains(displayId)) {
+            blockedList.remove(displayId);
+            prefs.edit().putString("blockedList", gson.toJson(blockedList)).apply();
+        }
+        // Add back to friends list
+        List<FriendModel> friends = DataCache.getFriends(this);
+        boolean exists = friends.stream().anyMatch(f -> f.getDisplayId().equals(displayId));
+        if (!exists) {
+            String friendName = (name == null || name.isEmpty()) ? displayId : name;
+            friends.add(new FriendModel(displayId, friendName, ""));
+            DataCache.saveFriends(this, friends);
+        }
+        String toastName = (name == null || name.isEmpty()) ? displayId : name;
+        Toast.makeText(this, "User " + toastName + " unblocked", Toast.LENGTH_SHORT).show();
+
+        // Refresh the chat list in this activity
+        loadAndDisplayAllChats();
     }
 
     private long asciiIdToTimestamp(String asciiId) {
@@ -574,8 +644,13 @@ public class GroupsFriendsActivity extends Activity {
         EditText editName = dialog.findViewById(R.id.editName);
         EditText editId = dialog.findViewById(R.id.editFriendId);
         EditText editKey = dialog.findViewById(R.id.editEncryptionKey);
-        Button btnDelete = dialog.findViewById(R.id.btnDelete);
+
+        // ▼▼▼ এখান থেকে পরিবর্তন শুরু ▼▼▼
+        Button btnBlockUnblock = dialog.findViewById(R.id.btnDelete); // XML-এর btnDelete আইডি
+        // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
         Button btnAdd = dialog.findViewById(R.id.btnAdd);
+        ImageView switchNotification = dialog.findViewById(R.id.switchNotification);
         ImageView profilePic = dialog.findViewById(R.id.profilePicRound);
         ImageView qrCodeShow = dialog.findViewById(R.id.qrCodeShow);
 
@@ -586,7 +661,35 @@ public class GroupsFriendsActivity extends Activity {
             editId.setText(friend.getDisplayId());
             editKey.setText(friend.getEncryptionKey());
             editId.setEnabled(false);
-            btnDelete.setVisibility(View.VISIBLE);
+
+            // ▼▼▼ এখান থেকে পরিবর্তন শুরু ▼▼▼
+            btnBlockUnblock.setVisibility(View.VISIBLE); // বাটনটি দেখান
+
+            // --- নতুন Block/Unblock লজিক ---
+            final boolean isBlocked = isUserBlocked(friend.getDisplayId());
+            if (isBlocked) {
+                btnBlockUnblock.setText("Unblock");
+                btnBlockUnblock.setBackgroundColor(Color.parseColor("#007BFF")); // Blue
+            } else {
+                btnBlockUnblock.setText("Block");
+                btnBlockUnblock.setBackgroundColor(Color.parseColor("#DC3545")); // Red
+            }
+
+            btnBlockUnblock.setOnClickListener(v -> {
+                String currentName = editName.getText().toString().trim();
+                if (currentName.isEmpty()) currentName = friend.getName();
+                if (currentName.isEmpty()) currentName = friend.getDisplayId();
+
+                if (isBlocked) {
+                    unblockUser(friend.getDisplayId(), currentName);
+                } else {
+                    blockUser(friend.getDisplayId(), currentName);
+                }
+                dialog.dismiss();
+            });
+            // --- পুরনো ডিলিট লজিক সরিয়ে ফেলা হয়েছে ---
+            // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
             if (profilePic != null) {
                 profilePic.setVisibility(View.VISIBLE);
                 ProfilePicLoader.loadProfilePicture(this, friend.getDisplayId(), profilePic);
@@ -594,30 +697,58 @@ public class GroupsFriendsActivity extends Activity {
             if (qrCodeShow != null) {
                 qrCodeShow.setVisibility(View.VISIBLE);
                 qrCodeShow.setOnClickListener(v -> {
-                    String qrData = "FRIEND:" + friend.getDisplayId() + "|" + friend.getName() + "|" + friend.getEncryptionKey();
+                    String currentName = editName.getText().toString().trim();
+                    if (currentName.isEmpty()) currentName = friend.getName();
+
+                    String plainText = friend.getDisplayId() + "|" + currentName + "|" + editKey.getText().toString().trim();
+                    String encryptedData = QREncryption.encrypt(plainText);
+                    String qrData = "FRIEND:" + encryptedData;
+
                     Intent intent = new Intent(this, QRCodeActivity.class);
                     intent.putExtra("qr_data", qrData);
                     intent.putExtra("qr_type", "friend");
-                    intent.putExtra("display_name", friend.getName());
+                    intent.putExtra("display_name", currentName);
                     startActivity(intent);
                 });
             }
+
+            // নোটিফিকেশন টগল (friend != null কন্ডিশনের ভিতরে)
+            String friendChatId = MessageHelper.timestampToAsciiId(
+                    MessageHelper.displayIdToTimestamp(friend.getDisplayId())
+            );
+
+            boolean isNotificationEnabled = getNotificationState("F", friendChatId);
+            switchNotification.setImageResource(
+                    isNotificationEnabled ? R.drawable.ic_enable_notification : R.drawable.ic_disable_notification
+            );
+            switchNotification.setOnClickListener(v -> {
+                boolean newState = !getNotificationState("F", friendChatId);
+                saveNotificationState("F", friendChatId, newState);
+                switchNotification.setImageResource(
+                        newState ? R.drawable.ic_enable_notification : R.drawable.ic_disable_notification
+                );
+                Toast.makeText(this, newState ? "Notifications enabled" : "Notifications disabled",
+                        Toast.LENGTH_SHORT).show();
+            });
+
         } else {
+            // Add New Friend মোড
+            if (switchNotification != null) {
+                switchNotification.setVisibility(View.GONE);
+            }
             if (profilePic != null) {
                 profilePic.setVisibility(View.GONE);
             }
             if (qrCodeShow != null) {
                 qrCodeShow.setVisibility(View.GONE);
             }
-            btnDelete.setVisibility(View.GONE);
+            btnBlockUnblock.setVisibility(View.GONE); // Add New মোডে বাটনটি দেখাবেন না
         }
+
         dialog.findViewById(R.id.btnCancel).setOnClickListener(v -> dialog.dismiss());
-        btnDelete.setOnClickListener(v -> {
-            friendsList.remove(position);
-            saveFriends();
-            loadAndDisplayAllChats();
-            dialog.dismiss();
-        });
+
+        // পুরনো ডিলিট বাটন লিসেনারটি সরিয়ে ফেলা হয়েছে (এটি এখন Block/Unblock লিসেনার)
+
         btnAdd.setOnClickListener(v -> {
             String name = editName.getText().toString().trim();
             String id = editId.getText().toString().trim();
@@ -634,14 +765,31 @@ public class GroupsFriendsActivity extends Activity {
             if (friend != null) {
                 friend.setName(name);
                 friend.setEncryptionKey(key);
+                // পজিশন অনুযায়ী লিস্ট আপডেট করুন
+                if (position != -1 && position < friendsList.size()) {
+                    friendsList.set(position, friend);
+                }
             } else {
+                // নতুন ফ্রেন্ড যোগ করুন
                 friendsList.add(new FriendModel(id, name, key));
             }
             saveFriends();
-            loadAndDisplayAllChats();
+//            loadAndDisplayAllChats();
             dialog.dismiss();
         });
         dialog.show();
+    }
+
+    private boolean getNotificationState(String chatType, String chatId) {
+        SharedPreferences prefs = getSharedPreferences("NearbyChatPrefs", MODE_PRIVATE);
+        String key = chatType + ":" + chatId;
+        return prefs.getBoolean("notification_" + key, false); // Default: false (disabled)
+    }
+
+    private void saveNotificationState(String chatType, String chatId, boolean enabled) {
+        SharedPreferences prefs = getSharedPreferences("NearbyChatPrefs", MODE_PRIVATE);
+        String key = chatType + ":" + chatId;
+        prefs.edit().putBoolean("notification_" + key, enabled).apply();
     }
 
     private void loadData() {

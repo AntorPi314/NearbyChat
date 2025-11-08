@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="500dp"
+    android:background="@drawable/dialog_background"
+    android:orientation="vertical"
+    android:layout_margin="24dp"
+    android:elevation="8dp">
+
+    <!-- Header -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_margin="16dp"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/dialogTitle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Full Message"
+            android:textColor="#212529"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:gravity="start"/>
+
+        <ImageView
+            android:id="@+id/btnCloseIcon"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:src="@drawable/close"
+            android:scaleType="centerInside"
+            android:tint="#FFFFFF"
+            android:background="@drawable/bg_round_chunk_red"
+            android:padding="7dp"/>
+
+    </LinearLayout>
+
+    <!-- Divider -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#DEE2E6"/>
+
+    <!-- Content -->
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:maxHeight="450dp"
+        android:padding="16dp"
+        android:scrollbars="vertical"
+        android:fadeScrollbars="false">
+
+        <TextView
+            android:id="@+id/fullMessageText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="#212529"
+            android:textSize="16sp"
+            android:lineSpacingExtra="6dp"
+            android:autoLink="all"
+            android:linksClickable="true"
+            android:textIsSelectable="true"
+            android:padding="8dp"/>
+
+    </ScrollView>
+
+    <!-- Divider -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#DEE2E6"/>
+
+
+</LinearLayout>

@@ -1,6 +1,7 @@
 package com.antor.nearbychat;
 
 import android.app.Activity;
+import android.app.Dialog;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
@@ -12,6 +13,7 @@ import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -40,6 +42,8 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
     private final Map<String, Bitmap> imageCache = new HashMap<>();
     private static ExecutorService sharedExecutor;
     private final ExecutorService executor;
+
+    private static final int MAX_MESSAGE_LENGTH = 500;
 
     public interface MessageClickListener {
         void onClick(MessageModel msg);
@@ -83,6 +87,11 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
             if (!rawMessage.isEmpty()) {
                 holder.message.setVisibility(View.VISIBLE);
                 holder.message.setText(rawMessage);
+
+                holder.message.setOnLongClickListener(v -> {
+                    longClickListener.onClick(msg);
+                    return true;
+                });
             } else {
                 holder.message.setVisibility(View.GONE);
             }
@@ -105,14 +114,17 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
         } else {
             PayloadCompress.ParsedPayload parsed = PayloadCompress.parsePayload(rawMessage);
 
-            // ✅ Eikhane poriborton-ti kora hoyeche
             if (JsonFetcher.isJsonUrl(parsed.message) && parsed.imageUrls.isEmpty() && parsed.videoUrls.isEmpty()) {
 
                 holder.message.setVisibility(View.VISIBLE);
                 holder.message.setText("Fetching...");
                 holder.message.setTextColor(Color.parseColor("#0066CC")); // Blue color
 
-                // ছবি ও ভিডিও কন্টেইনার রিসেট করুন
+                holder.message.setOnLongClickListener(v -> {
+                    longClickListener.onClick(msg);
+                    return true;
+                });
+
                 if (holder.imageContainer != null) {
                     holder.imageContainer.setVisibility(View.GONE);
                 }
@@ -134,8 +146,29 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
                             // 1. টেক্সট ভিউ সেট করুন
                             if (fetchedData.message != null && !fetchedData.message.isEmpty()) {
                                 holder.message.setVisibility(View.VISIBLE);
-                                holder.message.setText(fetchedData.message);
-                                // টেক্সটের রঙ স্বাভাবিক করুন
+
+                                // Clean excessive newlines
+                                String cleanedMessage = removeExcessiveNewlines(fetchedData.message);
+
+                                // Truncate if needed
+                                String displayMessage = truncateMessage(cleanedMessage);
+                                holder.message.setText(displayMessage);
+
+                                // ✅ SHORT CLICK: Show full message if truncated
+                                if (cleanedMessage.length() > MAX_MESSAGE_LENGTH) {
+                                    final String fullMessage = cleanedMessage;
+                                    holder.message.setOnClickListener(v -> showFullMessageDialog(fullMessage));
+                                } else {
+                                    holder.message.setOnClickListener(null);
+                                }
+
+                                // ✅ LONG CLICK: Show message options (NEW)
+                                holder.message.setOnLongClickListener(v -> {
+                                    longClickListener.onClick(msg);
+                                    return true;
+                                });
+
+                                // Text color setting (keep existing code)
                                 if (msg.isSelf()) {
                                     holder.message.setTextColor(Color.WHITE);
                                 } else {
@@ -225,11 +258,35 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
 
                 holder.itemView.setBackgroundColor(Color.TRANSPARENT);
 
+                // ▼▼▼ এখান থেকে পরিবর্তন শুরু ▼▼▼
                 // ক্লিক লিসেনার এবং প্রোফাইল পিক সেট করুন
                 if (holder.profilePic != null) {
                     main.loadProfilePictureForAdapter(msg.getSenderId(), holder.profilePic);
                     holder.profilePic.setOnClickListener(v -> main.openFriendChat(msg.getSenderId()));
+
+                    // --- নতুন লং-ক্লিক লিসেনার ---
+                    holder.profilePic.setOnLongClickListener(v -> {
+                        String senderId = msg.getSenderId();
+
+                        // Vibrate
+                        android.os.Vibrator vibrator = (android.os.Vibrator) context.getSystemService(Context.VIBRATOR_SERVICE);
+                        if (vibrator != null && vibrator.hasVibrator()) {
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                                vibrator.vibrate(android.os.VibrationEffect.createOneShot(50, android.os.VibrationEffect.DEFAULT_AMPLITUDE));
+                            } else {
+                                vibrator.vibrate(50);
+                            }
+                        }
+
+                        // MainActivity-এর নতুন পাবলিক মেথড কল করুন
+                        ((MainActivity) context).showEditFriendDialogForSender(senderId);
+
+                        return true; // লং-ক্লিক সফলভাবে হ্যান্ডল হয়েছে
+                    });
+                    // --- নতুন ব্লক শেষ ---
                 }
+                // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
                 holder.itemView.setOnLongClickListener(v -> {
                     longClickListener.onClick(msg);
                     return true;
@@ -241,7 +298,27 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
 
             if (!parsed.message.isEmpty()) {
                 holder.message.setVisibility(View.VISIBLE);
-                holder.message.setText(parsed.message);
+
+                // Clean excessive newlines
+                String cleanedMessage = removeExcessiveNewlines(parsed.message);
+
+                // Truncate if needed
+                String displayMessage = truncateMessage(cleanedMessage);
+                holder.message.setText(displayMessage);
+
+                // ✅ SHORT CLICK: Show full message if truncated
+                if (cleanedMessage.length() > MAX_MESSAGE_LENGTH) {
+                    final String fullMessage = cleanedMessage;
+                    holder.message.setOnClickListener(v -> showFullMessageDialog(fullMessage));
+                } else {
+                    holder.message.setOnClickListener(null);
+                }
+
+                // ✅ LONG CLICK: Show message options (NEW)
+                holder.message.setOnLongClickListener(v -> {
+                    longClickListener.onClick(msg);
+                    return true;
+                });
             } else {
                 holder.message.setVisibility(View.GONE);
             }
@@ -314,10 +391,35 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
                 }
             }
         }
+
+        // ▼▼▼ এখান থেকে পরিবর্তন শুরু ▼▼▼
         if (holder.profilePic != null) {
             main.loadProfilePictureForAdapter(msg.getSenderId(), holder.profilePic);
             holder.profilePic.setOnClickListener(v -> main.openFriendChat(msg.getSenderId()));
+
+            // --- নতুন লং-ক্লিক লিসেনার ---
+            holder.profilePic.setOnLongClickListener(v -> {
+                String senderId = msg.getSenderId();
+
+                // Vibrate
+                android.os.Vibrator vibrator = (android.os.Vibrator) context.getSystemService(Context.VIBRATOR_SERVICE);
+                if (vibrator != null && vibrator.hasVibrator()) {
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                        vibrator.vibrate(android.os.VibrationEffect.createOneShot(50, android.os.VibrationEffect.DEFAULT_AMPLITUDE));
+                    } else {
+                        vibrator.vibrate(50);
+                    }
+                }
+
+                // MainActivity-এর নতুন পাবলিক মেথড কল করুন
+                ((MainActivity) context).showEditFriendDialogForSender(senderId);
+
+                return true; // লং-ক্লিক সফলভাবে হ্যান্ডল হয়েছে
+            });
+            // --- নতুন ব্লক শেষ ---
         }
+        // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
         holder.itemView.setOnLongClickListener(v -> {
             longClickListener.onClick(msg);
             return true;
@@ -325,7 +427,68 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
         holder.itemView.setOnClickListener(v -> clickListener.onClick(msg));
     }
 
+    private String removeExcessiveNewlines(String text) {
+        if (text == null) return "";
+        // Replace 4 or more consecutive newlines with just 3
+        return text.replaceAll("\n{4,}", "\n\n\n");
+    }
 
+    /**
+     * Truncates text to MAX_MESSAGE_LENGTH and adds "...(Click to View Full)"
+     */
+    private String truncateMessage(String text) {
+        if (text == null || text.length() <= MAX_MESSAGE_LENGTH) {
+            return text;
+        }
+        return text.substring(0, MAX_MESSAGE_LENGTH) + "\n........(Click to View Full)";
+    }
+
+    /**
+     * Shows full message in a custom dialog
+     */
+    private void showFullMessageDialog(String fullText) {
+        // Create dialog
+        Dialog dialog = new Dialog(context);
+        dialog.setContentView(R.layout.dialog_full_message);
+
+        // Make dialog background transparent with rounded corners
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawable(
+                    new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT)
+            );
+            dialog.getWindow().setLayout(
+                    android.view.WindowManager.LayoutParams.MATCH_PARENT,
+                    android.view.WindowManager.LayoutParams.WRAP_CONTENT
+            );
+
+            // Add margin
+            android.view.WindowManager.LayoutParams params = dialog.getWindow().getAttributes();
+            params.width = android.view.WindowManager.LayoutParams.MATCH_PARENT;
+            params.height = android.view.WindowManager.LayoutParams.WRAP_CONTENT;
+            dialog.getWindow().setAttributes(params);
+        }
+
+        // Set full text
+        TextView fullMessageText = dialog.findViewById(R.id.fullMessageText);
+        fullMessageText.setText(fullText);
+
+        // Enable links
+        fullMessageText.setAutoLinkMask(android.text.util.Linkify.ALL);
+        fullMessageText.setLinksClickable(true);
+        fullMessageText.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
+
+        // Close button (TextView style)
+        TextView btnClose = dialog.findViewById(R.id.btnClose);
+        btnClose.setOnClickListener(v -> dialog.dismiss());
+
+        // Close icon
+        ImageView btnCloseIcon = dialog.findViewById(R.id.btnCloseIcon);
+        if (btnCloseIcon != null) {
+            btnCloseIcon.setOnClickListener(v -> dialog.dismiss());
+        }
+
+        dialog.show();
+    }
 
     private void setupVideoViews(LinearLayout videoContainer, ArrayList<String> videoUrls) {
         int columns = 3;

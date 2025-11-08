@@ -87,6 +87,9 @@ public class MainActivity extends BaseActivity {
     private int inputMode = 0;
     private EditText inputVideoURL;
 
+    private String lastRefreshedChatType = null;
+    private String lastRefreshedChatId = null;
+
     private EditText inputMessage;
     private ImageView switchInputImage;
     private EditText inputImageURL;
@@ -99,6 +102,10 @@ public class MainActivity extends BaseActivity {
     private ImageView appIcon;
     private TextView appTitle;
     private TextView unseenMsgCountView;
+
+    private TextView chunkCountView;
+    private int currentMaxPayloadSize = 27; // Default value
+    private static final int MAX_CHUNKS_LIMIT = 250;
 
     private SharedPreferences prefs;
     private BleMessagingService bleService;
@@ -201,6 +208,9 @@ public class MainActivity extends BaseActivity {
         loadActiveChat();
         mainHandler = new Handler(Looper.getMainLooper());
         handleNotificationIntent(getIntent());
+
+        loadChunkSettings(); // <-- ADD THIS LINE
+
         setupUI();
         initializeData();
         setupDatabase();
@@ -209,6 +219,8 @@ public class MainActivity extends BaseActivity {
         checkBatteryOptimization();
         checkPermissionsAndStartService();
     }
+
+    // In MainActivity.java
 
     private void setupUI() {
         final View rootView = findViewById(android.R.id.content);
@@ -229,6 +241,11 @@ public class MainActivity extends BaseActivity {
         inputImageURL = findViewById(R.id.inputImageURL);
         inputVideoURL = findViewById(R.id.inputVideoURL);
 
+        // ▼▼▼ ADD LISTENER FOR CHUNK COUNT ▼▼▼
+        inputImageURL.addTextChangedListener(chunkCalculatorWatcher);
+        inputVideoURL.addTextChangedListener(chunkCalculatorWatcher);
+        // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
         textStatus = findViewById(R.id.textStatus);
         setupMessageInput();
         setupSearchUI();
@@ -248,6 +265,8 @@ public class MainActivity extends BaseActivity {
         loadingContainer = findViewById(R.id.loadingContainer);
         sendProgressBar = findViewById(R.id.sendProgressBar);
         sendButtonContainer = findViewById(R.id.sendButtonContainer);
+
+        chunkCountView = findViewById(R.id.chunkCount); // <-- ADD THIS LINE
 
         sendButtonContainer.setOnClickListener(this::onSendButtonClick);
 
@@ -272,6 +291,7 @@ public class MainActivity extends BaseActivity {
             }
         });
         updateChatUIForSelection();
+        updateChunkCountUI(); // <-- ADD THIS LINE to initialize count
     }
 
     private void handleNotificationIntent(Intent intent) {
@@ -293,6 +313,22 @@ public class MainActivity extends BaseActivity {
             }
         }
     }
+
+    private final TextWatcher chunkCalculatorWatcher = new TextWatcher() {
+        @Override
+        public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            // No action needed
+        }
+        @Override
+        public void onTextChanged(CharSequence s, int start, int before, int count) {
+            // No action needed
+        }
+        @Override
+        public void afterTextChanged(Editable s) {
+            // Update the chunk count UI whenever text changes in any input
+            updateChunkCountUI();
+        }
+    };
 
     private boolean isCurrentUserBlocked() {
         if (!"F".equals(activeChatType)) {
@@ -641,7 +677,6 @@ public class MainActivity extends BaseActivity {
 
     private void showEditGroupDialog() {
         List<GroupModel> groupsList = DataCache.getGroups(this);
-
         GroupModel groupToEdit = null;
         int groupPosition = -1;
         for (int i = 0; i < groupsList.size(); i++) {
@@ -651,13 +686,10 @@ public class MainActivity extends BaseActivity {
                 break;
             }
         }
-
         if (groupToEdit == null) {
             Toast.makeText(this, "Could not find group to edit.", Toast.LENGTH_SHORT).show();
             return;
         }
-
-        // ✅ make them final (or effectively final copies)
         final GroupModel g = groupToEdit;
         final int pos = groupPosition;
         final List<GroupModel> listRef = groupsList;
@@ -670,16 +702,23 @@ public class MainActivity extends BaseActivity {
         ImageView switchNotification = dialog.findViewById(R.id.switchNotification);
         EditText editName = dialog.findViewById(R.id.editName);
         EditText editKey = dialog.findViewById(R.id.editEncryptionKey);
-        Button btnDelete = dialog.findViewById(R.id.btnDelete);
         Button btnCancel = dialog.findViewById(R.id.btnCancel);
         Button btnSave = dialog.findViewById(R.id.btnAdd);
         ImageView qrCodeShow = dialog.findViewById(R.id.qrCodeShow);
+
+        // ▼▼▼ এই লেআউটে কোনো ডিলিট বাটন নেই, তাই XML অনুযায়ী এটি ঠিক আছে ▼▼▼
+        // dialog_add_edit_groups.xml-এ 'btnDelete' নামের কোনো আইডি নেই।
+        // যদি থাকতো, তাহলে আমরা নিচের লাইনটি যোগ করতাম:
+        // Button btnDelete = dialog.findViewById(R.id.btnDelete);
+        // if (btnDelete != null) {
+        //     btnDelete.setVisibility(View.GONE);
+        // }
+        // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
         title.setText("Edit Group");
         btnSave.setText("Save");
         editName.setText(g.getName());
         editKey.setText(g.getEncryptionKey());
-        btnDelete.setVisibility(View.VISIBLE);
 
         TextView groupIdText = dialog.findViewById(R.id.groupID);
         if (groupIdText != null) {
@@ -690,10 +729,19 @@ public class MainActivity extends BaseActivity {
 
         ImageView dialogProfilePic = dialog.findViewById(R.id.profilePicRound);
         if (dialogProfilePic != null) {
+            // গ্রুপ প্রোফাইল পিক লোড করার জন্য সঠিক মেথড কল করুন
+            long bits = MessageHelper.asciiIdToTimestamp(g.getId());
+            String displayId = getUserIdString(bits);
+            ProfilePicLoader.loadGroupProfilePicture(this, displayId, dialogProfilePic);
+
             dialogProfilePic.setOnClickListener(v -> {
-                currentUserId = g.getId();
+                // গ্রুপের ডিসপ্লে আইডি পাস করুন
+                long bitsId = MessageHelper.asciiIdToTimestamp(g.getId());
+                String displayIdForPic = getUserIdString(bitsId);
+
+                currentUserId = displayIdForPic; // এখানে ডিসপ্লে আইডি ব্যবহার করুন
                 currentProfilePic = dialogProfilePic;
-                showImagePickerDialog(g.getId(), dialogProfilePic);
+                showImagePickerDialog(displayIdForPic, dialogProfilePic);
             });
         }
 
@@ -732,17 +780,6 @@ public class MainActivity extends BaseActivity {
         });
 
         btnCancel.setOnClickListener(v -> dialog.dismiss());
-
-        btnDelete.setOnClickListener(v -> {
-            listRef.remove(pos);
-            DataCache.saveGroups(this, listRef);
-            Toast.makeText(this, "Group deleted. Returning to Nearby Chat.", Toast.LENGTH_SHORT).show();
-            activeChatType = "N";
-            activeChatId = "";
-            saveActiveChat();
-            updateChatUIForSelection();
-            dialog.dismiss();
-        });
 
         btnSave.setOnClickListener(v -> {
             String name = editName.getText().toString().trim();
@@ -789,8 +826,12 @@ public class MainActivity extends BaseActivity {
                 break;
             }
         }
+
+        // যদি ফ্রেন্ড লিস্টে না থাকে (যেমন, ব্লক করার পর ডায়লগ খোলা)
         if (friendToEdit == null) {
-            friendToEdit = new FriendModel(displayIdToFind, "", "");
+            String name = getDisplayName(displayIdToFind); // নাম ম্যাপ চেক করবে
+            if (name.equals(displayIdToFind)) name = ""; // নাম না পেলে খালি রাখুন
+            friendToEdit = new FriendModel(displayIdToFind, name, "");
             friendPosition = -1;
         }
 
@@ -804,11 +845,15 @@ public class MainActivity extends BaseActivity {
         dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
 
         TextView title = dialog.findViewById(R.id.dia_title);
-        ImageView switchNotification = dialog.findViewById(R.id.switchNotification); // ✅ ADD THIS
+        ImageView switchNotification = dialog.findViewById(R.id.switchNotification);
         EditText editName = dialog.findViewById(R.id.editName);
         EditText editId = dialog.findViewById(R.id.editFriendId);
         EditText editKey = dialog.findViewById(R.id.editEncryptionKey);
-        Button btnDelete = dialog.findViewById(R.id.btnDelete);
+
+        // ▼▼▼ এখান থেকে পরিবর্তন শুরু ▼▼▼
+        Button btnBlockUnblock = dialog.findViewById(R.id.btnDelete); // XML-এর btnDelete আইডি ব্যবহার করা হচ্ছে
+        // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
         Button btnCancel = dialog.findViewById(R.id.btnCancel);
         Button btnSave = dialog.findViewById(R.id.btnAdd);
         ImageView qrCodeShow = dialog.findViewById(R.id.qrCodeShow);
@@ -819,7 +864,9 @@ public class MainActivity extends BaseActivity {
         editId.setText(f.getDisplayId());
         editKey.setText(f.getEncryptionKey());
         editId.setEnabled(false);
-        btnDelete.setVisibility(pos != -1 ? View.VISIBLE : View.GONE);
+
+        // ▼▼▼ এখান থেকে পরিবর্তন শুরু ▼▼▼
+        btnBlockUnblock.setVisibility(View.VISIBLE); // বাটনটি সবসময় দেখান
 
         ImageView dialogProfilePic = dialog.findViewById(R.id.profilePicRound);
         ProfilePicLoader.loadProfilePicture(this, displayId, dialogProfilePic);
@@ -831,22 +878,26 @@ public class MainActivity extends BaseActivity {
             });
         }
 
+        // (বাকি কোড যেমন qrCodeShow, switchNotification অপরিবর্তিত)
         if (qrCodeShow != null) {
             qrCodeShow.setVisibility(View.VISIBLE);
             qrCodeShow.setOnClickListener(v -> {
-                String plainText = f.getDisplayId() + "|" + f.getName() + "|" + f.getEncryptionKey();
+                // নামের জন্য EditText থেকে বর্তমান ভ্যালু নিন
+                String currentName = editName.getText().toString().trim();
+                if (currentName.isEmpty()) currentName = f.getName();
+
+                String plainText = f.getDisplayId() + "|" + currentName + "|" + editKey.getText().toString().trim();
                 String encryptedData = QREncryption.encrypt(plainText);
                 String qrData = "FRIEND:" + encryptedData;
 
                 Intent intent = new Intent(this, QRCodeActivity.class);
                 intent.putExtra("qr_data", qrData);
                 intent.putExtra("qr_type", "friend");
-                intent.putExtra("display_name", f.getName());
+                intent.putExtra("display_name", currentName);
                 startActivity(intent);
             });
         }
 
-        // ✅ ADD NOTIFICATION TOGGLE FOR FRIEND
         String friendChatId = MessageHelper.timestampToAsciiId(
                 MessageHelper.displayIdToTimestamp(displayId)
         );
@@ -859,29 +910,47 @@ public class MainActivity extends BaseActivity {
         switchNotification.setOnClickListener(v -> {
             boolean newState = !getNotificationState("F", friendChatId);
             saveNotificationState("F", friendChatId, newState);
-
             switchNotification.setImageResource(
                     newState ? R.drawable.ic_enable_notification : R.drawable.ic_disable_notification
             );
-
             Toast.makeText(this, newState ? "Notifications enabled" : "Notifications disabled",
                     Toast.LENGTH_SHORT).show();
         });
 
         btnCancel.setOnClickListener(v -> dialog.dismiss());
 
-        btnDelete.setOnClickListener(v -> {
-            if (pos != -1) {
-                listRef.remove(pos);
-                DataCache.saveFriends(this, listRef);
-                Toast.makeText(this, "Friend deleted. Returning to Nearby Chat.", Toast.LENGTH_SHORT).show();
-                activeChatType = "N";
-                activeChatId = "";
-                saveActiveChat();
-                updateChatUIForSelection();
+        // --- নতুন Block/Unblock লজিক ---
+        final boolean isBlocked = isUserBlocked(displayId);
+        if (isBlocked) {
+            btnBlockUnblock.setText("Unblock");
+            btnBlockUnblock.setBackgroundColor(Color.parseColor("#007BFF")); // Blue
+        } else {
+            btnBlockUnblock.setText("Block");
+            btnBlockUnblock.setBackgroundColor(Color.parseColor("#DC3545")); // Red
+        }
+
+        btnBlockUnblock.setOnClickListener(v -> {
+            String currentName = editName.getText().toString().trim();
+            if (currentName.isEmpty()) currentName = f.getName(); // স্টোর করা নাম
+            if (currentName.isEmpty()) currentName = displayId;  // ফলব্যাক
+
+            if (isBlocked) {
+                unblockUser(displayId, currentName);
+            } else {
+                blockUser(displayId, currentName);
             }
             dialog.dismiss();
+
+            // UI আপডেট করুন (GroupsFriendsActivity-তে যাওয়ার জন্য)
+            Intent intent = new Intent(this, GroupsFriendsActivity.class);
+            intent.putExtra("currentChatType", activeChatType);
+            intent.putExtra("currentChatId", activeChatId);
+            startActivityForResult(intent, REQUEST_CODE_SELECT_CHAT);
         });
+
+        // --- পুরনো ডিলিট লজিক সরিয়ে ফেলা হয়েছে ---
+
+        // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
         btnSave.setOnClickListener(v -> {
             String name = editName.getText().toString().trim();
@@ -909,7 +978,239 @@ public class MainActivity extends BaseActivity {
         dialog.show();
     }
 
+    // In MainActivity.java, add this NEW public method:
 
+    public void showEditFriendDialogForSender(String senderDisplayId) {
+        List<FriendModel> friendsList = DataCache.getFriends(this);
+
+        FriendModel friendToEdit = null;
+        int friendPosition = -1;
+        for (int i = 0; i < friendsList.size(); i++) {
+            if (friendsList.get(i).getDisplayId().equals(senderDisplayId)) {
+                friendToEdit = friendsList.get(i);
+                friendPosition = i;
+                break;
+            }
+        }
+
+        // If friend isn't in the list, create a temporary model
+        if (friendToEdit == null) {
+            // Use getDisplayName to check nameMap AND friends list
+            String name = getDisplayName(senderDisplayId);
+            if (name.equals(senderDisplayId)) { // If name is just the ID
+                friendToEdit = new FriendModel(senderDisplayId, "", "");
+            } else {
+                friendToEdit = new FriendModel(senderDisplayId, name, "");
+            }
+            friendPosition = -1; // Not in the list
+        }
+
+        final FriendModel f = friendToEdit;
+        final int pos = friendPosition;
+        final List<FriendModel> listRef = friendsList;
+        final String displayId = senderDisplayId; // Use the passed-in ID
+
+        Dialog dialog = new Dialog(this);
+        dialog.setContentView(R.layout.dialog_add_edit_friend);
+        dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+
+        TextView title = dialog.findViewById(R.id.dia_title);
+        ImageView switchNotification = dialog.findViewById(R.id.switchNotification);
+        EditText editName = dialog.findViewById(R.id.editName);
+        EditText editId = dialog.findViewById(R.id.editFriendId);
+        EditText editKey = dialog.findViewById(R.id.editEncryptionKey);
+        Button btnBlockUnblock = dialog.findViewById(R.id.btnDelete);
+        Button btnCancel = dialog.findViewById(R.id.btnCancel);
+        Button btnSave = dialog.findViewById(R.id.btnAdd);
+        ImageView qrCodeShow = dialog.findViewById(R.id.qrCodeShow);
+
+        title.setText("Edit Friend");
+        btnSave.setText("Save");
+        editName.setText(f.getName());
+        editId.setText(f.getDisplayId());
+        editKey.setText(f.getEncryptionKey());
+        editId.setEnabled(false);
+        btnBlockUnblock.setVisibility(View.VISIBLE); // Always show
+
+        ImageView dialogProfilePic = dialog.findViewById(R.id.profilePicRound);
+        ProfilePicLoader.loadProfilePicture(this, displayId, dialogProfilePic);
+        if (dialogProfilePic != null) {
+            dialogProfilePic.setOnClickListener(v -> {
+                currentUserId = displayId;
+                currentProfilePic = dialogProfilePic;
+                showImagePickerDialog(displayId, dialogProfilePic);
+            });
+        }
+
+        if (qrCodeShow != null) {
+            qrCodeShow.setVisibility(View.VISIBLE);
+            qrCodeShow.setOnClickListener(v -> {
+                String plainText = f.getDisplayId() + "|" + editName.getText().toString().trim() + "|" + editKey.getText().toString().trim();
+                String encryptedData = QREncryption.encrypt(plainText);
+                String qrData = "FRIEND:" + encryptedData;
+
+                Intent intent = new Intent(this, QRCodeActivity.class);
+                intent.putExtra("qr_data", qrData);
+                intent.putExtra("qr_type", "friend");
+                intent.putExtra("display_name", editName.getText().toString().trim());
+                startActivity(intent);
+            });
+        }
+
+        String friendChatId = MessageHelper.timestampToAsciiId(
+                MessageHelper.displayIdToTimestamp(displayId)
+        );
+
+        boolean isNotificationEnabled = getNotificationState("F", friendChatId);
+        switchNotification.setImageResource(
+                isNotificationEnabled ? R.drawable.ic_enable_notification : R.drawable.ic_disable_notification
+        );
+
+        switchNotification.setOnClickListener(v -> {
+            boolean newState = !getNotificationState("F", friendChatId);
+            saveNotificationState("F", friendChatId, newState);
+
+            switchNotification.setImageResource(
+                    newState ? R.drawable.ic_enable_notification : R.drawable.ic_disable_notification
+            );
+
+            Toast.makeText(this, newState ? "Notifications enabled" : "Notifications disabled",
+                    Toast.LENGTH_SHORT).show();
+        });
+
+        // BLOCK/UNBLOCK LOGIC
+        final boolean isBlocked = isUserBlocked(displayId);
+        if (isBlocked) {
+            btnBlockUnblock.setText("Unblock");
+            btnBlockUnblock.setBackgroundColor(Color.parseColor("#007BFF")); // Blue
+        } else {
+            btnBlockUnblock.setText("Block");
+            btnBlockUnblock.setBackgroundColor(Color.parseColor("#DC3545")); // Red
+        }
+
+        btnBlockUnblock.setOnClickListener(v -> {
+            String currentName = editName.getText().toString().trim();
+            if (currentName.isEmpty()) currentName = f.getName(); // use stored name
+            if (currentName.isEmpty()) currentName = displayId;  // use ID as fallback
+
+            if (isBlocked) {
+                unblockUser(displayId, currentName);
+            } else {
+                blockUser(displayId, currentName);
+            }
+            dialog.dismiss();
+        });
+
+        btnCancel.setOnClickListener(v -> dialog.dismiss());
+
+        btnSave.setOnClickListener(v -> {
+            String name = editName.getText().toString().trim();
+            String key = editKey.getText().toString().trim();
+
+            f.setName(name);
+            f.setEncryptionKey(key);
+
+            boolean exists = false;
+            for (int i = 0; i < listRef.size(); i++) {
+                if (listRef.get(i).getDisplayId().equals(f.getDisplayId())) {
+                    listRef.set(i, f);
+                    exists = true;
+                    break;
+                }
+            }
+            if (!exists) listRef.add(f);
+
+            DataCache.saveFriends(this, listRef);
+
+            // If this is the active chat, update the title bar
+            if (isChatWithUser(activeChatType, activeChatId, displayId)) {
+                updateChatUIForSelection();
+            }
+
+            Toast.makeText(this, "Friend saved", Toast.LENGTH_SHORT).show();
+            dialog.dismiss();
+        });
+
+        dialog.show();
+    }
+
+    private boolean isUserBlocked(String displayId) {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        String json = prefs.getString("blockedList", null);
+        if (json == null) return false;
+        Type type = new TypeToken<List<String>>(){}.getType();
+        List<String> blockedList = gson.fromJson(json, type);
+        return blockedList != null && blockedList.contains(displayId);
+    }
+
+    private void blockUser(String displayId, String name) {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        String json = prefs.getString("blockedList", null);
+        List<String> blockedList;
+        if (json != null) {
+            Type type = new TypeToken<List<String>>(){}.getType();
+            blockedList = gson.fromJson(json, type);
+        } else {
+            blockedList = new ArrayList<>();
+        }
+        if (!blockedList.contains(displayId)) {
+            blockedList.add(displayId);
+            prefs.edit().putString("blockedList", gson.toJson(blockedList)).apply();
+        }
+        // Remove from friends list
+        List<FriendModel> friends = DataCache.getFriends(this);
+        friends.removeIf(f -> f.getDisplayId().equals(displayId));
+        DataCache.saveFriends(this, friends);
+
+        String toastName = (name == null || name.isEmpty()) ? displayId : name;
+        Toast.makeText(this, "User " + toastName + " blocked", Toast.LENGTH_SHORT).show();
+
+        // If the blocked user is the current chat, switch to Nearby
+        if (isChatWithUser(activeChatType, activeChatId, displayId)) {
+            activeChatType = "N";
+            activeChatId = "";
+            saveActiveChat();
+            updateChatUIForSelection();
+        }
+    }
+
+    private void unblockUser(String displayId, String name) {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        String json = prefs.getString("blockedList", null);
+        List<String> blockedList;
+        if (json != null) {
+            Type type = new TypeToken<List<String>>(){}.getType();
+            blockedList = gson.fromJson(json, type);
+        } else {
+            return; // Not blocked anyway
+        }
+        if (blockedList.contains(displayId)) {
+            blockedList.remove(displayId);
+            prefs.edit().putString("blockedList", gson.toJson(blockedList)).apply();
+        }
+        // Add back to friends list
+        List<FriendModel> friends = DataCache.getFriends(this);
+        boolean exists = friends.stream().anyMatch(f -> f.getDisplayId().equals(displayId));
+        if (!exists) {
+            String friendName = (name == null || name.isEmpty()) ? displayId : name;
+            friends.add(new FriendModel(displayId, friendName, ""));
+            DataCache.saveFriends(this, friends);
+        }
+        String toastName = (name == null || name.isEmpty()) ? displayId : name;
+        Toast.makeText(this, "User " + toastName + " unblocked", Toast.LENGTH_SHORT).show();
+    }
+
+    // Helper to check if current chat is the user being blocked
+    private boolean isChatWithUser(String chatType, String chatId, String displayId) {
+        if (!"F".equals(chatType)) return false;
+        try {
+            long bits = MessageHelper.asciiIdToTimestamp(chatId);
+            String currentDisplayId = getUserIdString(bits);
+            return currentDisplayId.equals(displayId);
+        } catch (Exception e) {
+            return false;
+        }
+    }
 
     private void updateChatUIForSelection() {
 
@@ -992,6 +1293,14 @@ public class MainActivity extends BaseActivity {
             setupDatabase();
             markCurrentChatAsRead();
         }, 100);
+
+
+        // ▼▼▼ এই দুটি লাইন শেষে যোগ করা হয়েছে ▼▼▼
+        // মনে রাখুন যে এই চ্যাটটি সর্বশেষ রিলোড করা হয়েছে
+        lastRefreshedChatType = activeChatType;
+        lastRefreshedChatId = activeChatId;
+        Log.d(TAG, "updateChatUIForSelection: Refreshed trackers to " + activeChatType + "/" + activeChatId);
+        // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
     }
 
 
@@ -1151,25 +1460,11 @@ public class MainActivity extends BaseActivity {
     }
 
     private void setupMessageInput() {
-        inputMessage.addTextChangedListener(new TextWatcher() {
-            @Override
-            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
-            }
-            @Override
-            public void onTextChanged(CharSequence s, int start, int before, int count) {
-            }
-            @Override
-            public void afterTextChanged(Editable s) {
-                if (s.length() > WARNING_THRESHOLD) {
-                    inputMessage.setTextColor(Color.parseColor("#FF0000"));
-                } else {
-                    inputMessage.setTextColor(Color.parseColor("#000000"));
-                }
-                if (s.length() > MAX_MESSAGE_LENGTH) {
-                    Toast.makeText(MainActivity.this, "Message too long (" + s.length() + "/" + MAX_MESSAGE_LENGTH + ")", Toast.LENGTH_SHORT).show();
-                }
-            }
-        });
+        // Remove old listener
+        // inputMessage.addTextChangedListener(new TextWatcher() { ... });
+
+        // Add the new listener
+        inputMessage.addTextChangedListener(chunkCalculatorWatcher);
     }
 
     private void initializeData() {
@@ -1406,6 +1701,112 @@ public class MainActivity extends BaseActivity {
         }
     }
 
+    // In MainActivity.java
+
+    // ▼▼▼ ADD THESE THREE NEW METHODS ▼▼▼
+
+    /**
+     * Loads chunk-related settings from SharedPreferences.
+     */
+    private void loadChunkSettings() {
+        SharedPreferences prefs = getSharedPreferences("NearbyChatSettings", MODE_PRIVATE);
+        currentMaxPayloadSize = prefs.getInt("MAX_PAYLOAD_SIZE", 27);
+        if (currentMaxPayloadSize < 20) {
+            currentMaxPayloadSize = 20;
+        }
+    }
+
+    /**
+     * Calculates the estimated number of chunks for the current message.
+     * This logic mirrors MessageConverterForBle.
+     */
+    private int calculateCurrentChunkCount() {
+        if (inputMessage == null || inputImageURL == null || inputVideoURL == null) {
+            return 0; // UI not ready
+        }
+
+        String textMsg = inputMessage.getText().toString().trim();
+        String imageUrlsRaw = inputImageURL.getText().toString().trim();
+        String videoUrlsRaw = inputVideoURL.getText().toString().trim();
+
+        // 1. Build the payload
+        String compressedPayload = PayloadCompress.buildPayload(textMsg, imageUrlsRaw, videoUrlsRaw);
+
+        // 2. Encrypt if necessary
+        String messagePayload;
+        if ("N".equals(activeChatType)) {
+            messagePayload = compressedPayload;
+        } else {
+            // Need 'userId' (my display ID) for friend chat key fallback
+            String password = MessageHelper.getPasswordForChat(this, activeChatType, activeChatId, userId);
+            messagePayload = CryptoUtils.encrypt(compressedPayload, password);
+        }
+
+        if (messagePayload == null || messagePayload.isEmpty()) {
+            return 0; // Empty message
+        }
+
+        byte[] messageBytes = messagePayload.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1);
+
+        // 3. Define header sizes
+        final int BASE_HEADER_SIZE = 13; // CHAT_TYPE(1) + USER_ID(5) + MSG_ID(5) + CHUNKS(2)
+        final int FIRST_CHUNK_GF_HEADER_SIZE = 18; // BASE_HEADER_SIZE + CHAT_ID(5)
+
+        // 4. Define data sizes per chunk
+        int firstChunkDataSize;
+        int nextChunkDataSize;
+
+        if ("N".equals(activeChatType)) {
+            firstChunkDataSize = currentMaxPayloadSize - BASE_HEADER_SIZE;
+            nextChunkDataSize = currentMaxPayloadSize - BASE_HEADER_SIZE;
+        } else {
+            firstChunkDataSize = currentMaxPayloadSize - FIRST_CHUNK_GF_HEADER_SIZE;
+            nextChunkDataSize = currentMaxPayloadSize - BASE_HEADER_SIZE;
+        }
+
+        if (firstChunkDataSize <= 0 || nextChunkDataSize <= 0) {
+            // Failsafe if MAX_PAYLOAD_SIZE is set ridiculously low
+            return 999;
+        }
+
+        // 5. Calculate total chunks
+        if (messageBytes.length == 0) {
+            return 1; // Empty message is still 1 chunk
+        }
+
+        int totalChunks = 0;
+        int offset = 0;
+        boolean isFirst = true;
+
+        while (offset < messageBytes.length) {
+            int chunkSize = (isFirst) ? firstChunkDataSize : nextChunkDataSize;
+            offset += chunkSize;
+            totalChunks++;
+            isFirst = false;
+        }
+
+        return totalChunks;
+    }
+
+    /**
+     * Updates the chunk count TextView and its color.
+     */
+    private void updateChunkCountUI() {
+        if (chunkCountView == null) {
+            return; // View not initialized yet
+        }
+
+        int chunkCount = calculateCurrentChunkCount();
+        chunkCountView.setText(String.valueOf(chunkCount));
+
+        if (chunkCount > MAX_CHUNKS_LIMIT) {
+            chunkCountView.setBackgroundResource(R.drawable.bg_round_chunk_red);
+        } else {
+            chunkCountView.setBackgroundResource(R.drawable.bg_round_chunk);
+        }
+    }
+    // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
     private void onSendButtonClick(View v) {
         if (isAdvertising) {
             if (bleService != null && isServiceBound) {
@@ -1422,8 +1823,6 @@ public class MainActivity extends BaseActivity {
         String imageUrlsRaw = inputImageURL.getText().toString().trim();
         String videoUrlsRaw = inputVideoURL.getText().toString().trim();
 
-
-
         if (textMsg.isEmpty() && imageUrlsRaw.isEmpty() && videoUrlsRaw.isEmpty()) {
             Toast.makeText(this, "Message cannot be empty!", Toast.LENGTH_SHORT).show();
             return;
@@ -1435,12 +1834,17 @@ public class MainActivity extends BaseActivity {
             return;
         }
 
-        String compressedPayload = PayloadCompress.buildPayload(textMsg, imageUrlsRaw, videoUrlsRaw);
-
-        if (compressedPayload.length() > MAX_MESSAGE_LENGTH) {
-            Toast.makeText(this, "Message too long (" + compressedPayload.length() + "/" + MAX_MESSAGE_LENGTH + ")", Toast.LENGTH_SHORT).show();
+        // ▼▼▼ REPLACE LENGTH CHECK WITH CHUNK CHECK ▼▼▼
+        int chunkCount = calculateCurrentChunkCount();
+        if (chunkCount > MAX_CHUNKS_LIMIT) {
+            Toast.makeText(this, "Message too large (" + chunkCount + "/" + MAX_CHUNKS_LIMIT + " chunks)", Toast.LENGTH_LONG).show();
             return;
         }
+        // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
+        String compressedPayload = PayloadCompress.buildPayload(textMsg, imageUrlsRaw, videoUrlsRaw);
+
+        // REMOVED old MAX_MESSAGE_LENGTH check
 
         if (!validateBluetoothAndService()) {
             return;
@@ -1488,24 +1892,39 @@ public class MainActivity extends BaseActivity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == REQUEST_CODE_SELECT_CHAT && resultCode == RESULT_OK && data != null) {
-            activeChatType = data.getStringExtra("chatType");
-            activeChatId = data.getStringExtra("chatId");
-            saveActiveChat();
 
-            Log.d(TAG, "Chat selected: type=" + activeChatType + " id=" + activeChatId);
+        if (requestCode == REQUEST_CODE_SELECT_CHAT) {
+            if (resultCode == RESULT_OK && data != null) {
+                // একটি নতুন চ্যাট সিলেক্ট করা হয়েছে।
+                // আমরা শুধু activeChatType এবং activeChatId আপডেট করবো।
+                // onResume() মেথডটি এরপর নিজে থেকেই কল হবে এবং
+                // সেখানের নতুন লজিকটি পরিবর্তনটি সনাক্ত করে UI রিলোড করবে।
 
-            if (isShowingSavedMessages) {
-                isShowingSavedMessages = false;
-                enableInputContainer();
-                if (savedMessagesLiveData != null) {
-                    savedMessagesLiveData.removeObservers(this);
-                    savedMessagesLiveData = null;
+                activeChatType = data.getStringExtra("chatType");
+                activeChatId = data.getStringExtra("chatId");
+                saveActiveChat();
+                Log.d(TAG, "onActivityResult: New chat selected (" + activeChatType + "/" + activeChatId + "). onResume will handle reload.");
+
+                if (isShowingSavedMessages) {
+                    isShowingSavedMessages = false;
+                    enableInputContainer();
+                    if (savedMessagesLiveData != null) {
+                        savedMessagesLiveData.removeObservers(this);
+                        savedMessagesLiveData = null;
+                    }
                 }
+
+                // updateChatUIForSelection(); // <-- আমরা এখান থেকে রিলোড কলটি সরিয়ে দিয়েছি
+            } else {
+                // resultCode == RESULT_CANCELED (অর্থাৎ Back বা outside-click)
+                // কিছুই করার দরকার নেই। onResume() কল হবে,
+                // এবং এটি দেখবে যে চ্যাট পরিবর্তন হয়নি, তাই রিলোড স্কিপ করবে।
+                Log.d(TAG, "onActivityResult: Chat selection canceled (Back pressed). No reload.");
             }
-            updateChatUIForSelection();
-            return;
+            return; // REQUEST_CODE_SELECT_CHAT হ্যান্ডল করা হয়েছে
         }
+
+        // অন্যান্য onActivityResult লজিক (Location, Gallery, Camera, etc.)
         if (requestCode == REQUEST_ENABLE_LOCATION) {
             if (isLocationEnabled()) requestAllPermissions();
             else Toast.makeText(this, "Location is required", Toast.LENGTH_LONG).show();
@@ -2319,6 +2738,7 @@ public class MainActivity extends BaseActivity {
     protected void onResume() {
         super.onResume();
 
+        // ১. লোড করুন কোন চ্যাটটি সক্রিয় থাকা উচিত
         activeChatType = prefs.getString(KEY_CHAT_TYPE, "N");
         activeChatId = prefs.getString(KEY_CHAT_ID, "");
 
@@ -2331,19 +2751,44 @@ public class MainActivity extends BaseActivity {
         if (bluetoothAdapter != null && bluetoothAdapter.isEnabled() && hasAllRequiredPermissions()) {
             startBleService();
         }
-        updateChatUIForSelection();
+
+        // ▼▼▼ মূল পরিবর্তন এখানে ▼▼▼
+        // ২. চেক করুন: বর্তমান চ্যাটটিই কি সর্বশেষ রিলোড করা চ্যাট?
+        if (activeChatType.equals(lastRefreshedChatType) && activeChatId.equals(lastRefreshedChatId)) {
+            // যদি একই হয়, তাহলে সম্পূর্ণ UI রিলোড করার দরকার নেই।
+            // ব্যবহারকারী শুধু অন্য স্ক্রিন থেকে ফিরে এসেছে।
+            Log.d(TAG, "onResume: Same chat (" + activeChatType + "/" + activeChatId + "), skipping full reload.");
+
+            // শুধু মেসেজগুলো 'read' হিসেবে মার্ক করুন
+            markCurrentChatAsRead();
+        } else {
+            // যদি এটি ভিন্ন চ্যাট হয় (অথবা অ্যাপ প্রথমবার লোড হয়),
+            // তাহলে সম্পূর্ণ UI রিলোড করুন।
+            Log.d(TAG, "onResume: New chat (" + activeChatType + "/" + activeChatId + "), performing full reload.");
+            updateChatUIForSelection();
+
+            // ৩. মনে রাখুন যে এই চ্যাটটি রিলোড করা হয়েছে
+            lastRefreshedChatType = activeChatType;
+            lastRefreshedChatId = activeChatId;
+        }
+        // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
     }
 
     @Override
     protected void onPause() {
         super.onPause();
+        // We SAVE the active chat here so the service knows what's open,
+        // instead of clearing it.
         SharedPreferences activePrefs = getSharedPreferences(PREFS_ACTIVE_CHAT, MODE_PRIVATE);
         activePrefs.edit()
-                .remove(KEY_CHAT_TYPE)
-                .remove(KEY_CHAT_ID)
+                .putString(KEY_CHAT_TYPE, activeChatType)
+                .putString(KEY_CHAT_ID, activeChatId)
                 .apply();
 
-        Log.d(TAG, "App paused. Active chat info cleared.");
+        // .remove(KEY_CHAT_TYPE) // <-- REMOVED
+        // .remove(KEY_CHAT_ID)   // <-- REMOVED
+
+        Log.d(TAG, "App paused. Active chat info SAVED.");
     }
 
     @Override
