@@ -89,7 +89,10 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
                 holder.message.setText(rawMessage);
 
                 holder.message.setOnLongClickListener(v -> {
-                    longClickListener.onClick(msg);
+                    int adapterPosition = holder.getAdapterPosition();
+                    if (adapterPosition != RecyclerView.NO_POSITION) {
+                        longClickListener.onClick(messageList.get(adapterPosition));
+                    }
                     return true;
                 });
             } else {
@@ -121,7 +124,10 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
                 holder.message.setTextColor(Color.parseColor("#0066CC")); // Blue color
 
                 holder.message.setOnLongClickListener(v -> {
-                    longClickListener.onClick(msg);
+                    int adapterPosition = holder.getAdapterPosition();
+                    if (adapterPosition != RecyclerView.NO_POSITION) {
+                        longClickListener.onClick(messageList.get(adapterPosition));
+                    }
                     return true;
                 });
 
@@ -136,12 +142,10 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
                 JsonFetcher.fetchJson(context, parsed.message, new JsonFetcher.JsonCallback() {
                     @Override
                     public void onSuccess(JsonFetcher.ParsedJson fetchedData) {
-                        // ❌ DB update code nei (amra eta ager step-ei remove korechilam)
-
-                        // ✅ UI update korar code
                         ((Activity) context).runOnUiThread(() -> {
-                            // হোল্ডারটি রিসাইকেল হয়ে গেছে কিনা তা পরীক্ষা করুন
-                            if (holder.getAdapterPosition() != position) return;
+                            // Check if holder is still valid
+                            int currentPosition = holder.getAdapterPosition();
+                            if (currentPosition == RecyclerView.NO_POSITION) return;
 
                             // 1. টেক্সট ভিউ সেট করুন
                             if (fetchedData.message != null && !fetchedData.message.isEmpty()) {
@@ -164,12 +168,15 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
 
                                 // ✅ LONG CLICK: Show message options (NEW)
                                 holder.message.setOnLongClickListener(v -> {
-                                    longClickListener.onClick(msg);
+                                    int adapterPosition = holder.getAdapterPosition();
+                                    if (adapterPosition != RecyclerView.NO_POSITION) {
+                                        longClickListener.onClick(messageList.get(adapterPosition));
+                                    }
                                     return true;
                                 });
 
                                 // Text color setting (keep existing code)
-                                if (msg.isSelf()) {
+                                if (messageList.get(currentPosition).isSelf()) {
                                     holder.message.setTextColor(Color.WHITE);
                                 } else {
                                     holder.message.setTextColor(Color.BLACK);
@@ -191,7 +198,7 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
                                         holder.imageContainer.setTag(fetchedData.images);
                                         holder.imageContainer.setVisibility(View.VISIBLE);
                                         holder.imageContainer.removeAllViews();
-                                        setupImageViews(holder.imageContainer, imageUrls, msg.isSelf());
+                                        setupImageViews(holder.imageContainer, imageUrls, messageList.get(currentPosition).isSelf());
                                     } else {
                                         holder.imageContainer.setTag(null);
                                         holder.imageContainer.setVisibility(View.GONE);
@@ -230,17 +237,15 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
 
                     @Override
                     public void onError(String error) {
-                        // ❌ DB update code nei
-
-                        // ✅ UI-te error dekhanor code
                         ((Activity) context).runOnUiThread(() -> {
-                            // হোল্ডারটি রিসাইকেল হয়ে গেছে কিনা তা পরীক্ষা করুন
-                            if (holder.getAdapterPosition() != position) return;
+                            // Check if holder is still valid
+                            int currentPosition = holder.getAdapterPosition();
+                            if (currentPosition == RecyclerView.NO_POSITION) return;
 
                             holder.message.setVisibility(View.VISIBLE);
                             holder.message.setText("JSON Fetch Failed: " + error);
-                            // টেক্সটের রঙ স্বাভাবিক করুন
-                            if (msg.isSelf()) {
+                            // টেক্সটের রং স্বাভাবিক করুন
+                            if (messageList.get(currentPosition).isSelf()) {
                                 holder.message.setTextColor(Color.WHITE);
                             } else {
                                 holder.message.setTextColor(Color.BLACK);
@@ -264,9 +269,11 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
                     main.loadProfilePictureForAdapter(msg.getSenderId(), holder.profilePic);
                     holder.profilePic.setOnClickListener(v -> main.openFriendChat(msg.getSenderId()));
 
-                    // --- নতুন লং-ক্লিক লিসেনার ---
                     holder.profilePic.setOnLongClickListener(v -> {
-                        String senderId = msg.getSenderId();
+                        int adapterPosition = holder.getAdapterPosition();
+                        if (adapterPosition == RecyclerView.NO_POSITION) return true;
+
+                        String senderId = messageList.get(adapterPosition).getSenderId();
 
                         // Vibrate
                         android.os.Vibrator vibrator = (android.os.Vibrator) context.getSystemService(Context.VIBRATOR_SERVICE);
@@ -281,17 +288,25 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
                         // MainActivity-এর নতুন পাবলিক মেথড কল করুন
                         ((MainActivity) context).showEditFriendDialogForSender(senderId);
 
-                        return true; // লং-ক্লিক সফলভাবে হ্যান্ডল হয়েছে
+                        return true;
                     });
                     // --- নতুন ব্লক শেষ ---
                 }
                 // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
                 holder.itemView.setOnLongClickListener(v -> {
-                    longClickListener.onClick(msg);
+                    int adapterPosition = holder.getAdapterPosition();
+                    if (adapterPosition != RecyclerView.NO_POSITION) {
+                        longClickListener.onClick(messageList.get(adapterPosition));
+                    }
                     return true;
                 });
-                holder.itemView.setOnClickListener(v -> clickListener.onClick(msg));
+                holder.itemView.setOnClickListener(v -> {
+                    int adapterPosition = holder.getAdapterPosition();
+                    if (adapterPosition != RecyclerView.NO_POSITION) {
+                        clickListener.onClick(messageList.get(adapterPosition));
+                    }
+                });
 
                 return; // ✅ এখানে কোড শেষ করুন
             }
@@ -314,9 +329,11 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
                     holder.message.setOnClickListener(null);
                 }
 
-                // ✅ LONG CLICK: Show message options (NEW)
                 holder.message.setOnLongClickListener(v -> {
-                    longClickListener.onClick(msg);
+                    int adapterPosition = holder.getAdapterPosition();
+                    if (adapterPosition != RecyclerView.NO_POSITION) {
+                        longClickListener.onClick(messageList.get(adapterPosition));
+                    }
                     return true;
                 });
             } else {
@@ -397,9 +414,11 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
             main.loadProfilePictureForAdapter(msg.getSenderId(), holder.profilePic);
             holder.profilePic.setOnClickListener(v -> main.openFriendChat(msg.getSenderId()));
 
-            // --- নতুন লং-ক্লিক লিসেনার ---
             holder.profilePic.setOnLongClickListener(v -> {
-                String senderId = msg.getSenderId();
+                int adapterPosition = holder.getAdapterPosition();
+                if (adapterPosition == RecyclerView.NO_POSITION) return true;
+
+                String senderId = messageList.get(adapterPosition).getSenderId();
 
                 // Vibrate
                 android.os.Vibrator vibrator = (android.os.Vibrator) context.getSystemService(Context.VIBRATOR_SERVICE);
@@ -414,7 +433,7 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
                 // MainActivity-এর নতুন পাবলিক মেথড কল করুন
                 ((MainActivity) context).showEditFriendDialogForSender(senderId);
 
-                return true; // লং-ক্লিক সফলভাবে হ্যান্ডল হয়েছে
+                return true;
             });
             // --- নতুন ব্লক শেষ ---
         }
@@ -470,21 +489,30 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
 
         // Set full text
         TextView fullMessageText = dialog.findViewById(R.id.fullMessageText);
-        fullMessageText.setText(fullText);
+        if (fullMessageText != null) {
+            fullMessageText.setText(fullText);
 
-        // Enable links
-        fullMessageText.setAutoLinkMask(android.text.util.Linkify.ALL);
-        fullMessageText.setLinksClickable(true);
-        fullMessageText.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
+            // Enable links
+            fullMessageText.setAutoLinkMask(android.text.util.Linkify.ALL);
+            fullMessageText.setLinksClickable(true);
+            fullMessageText.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
+        }
 
-        // Close button (TextView style)
+        // Close button (TextView style) - with null check
         TextView btnClose = dialog.findViewById(R.id.btnClose);
-        btnClose.setOnClickListener(v -> dialog.dismiss());
+        if (btnClose != null) {
+            btnClose.setOnClickListener(v -> dialog.dismiss());
+        }
 
-        // Close icon
+        // Close icon - with null check
         ImageView btnCloseIcon = dialog.findViewById(R.id.btnCloseIcon);
         if (btnCloseIcon != null) {
             btnCloseIcon.setOnClickListener(v -> dialog.dismiss());
+        }
+
+        // If both are null, allow dismissing by touching outside
+        if (btnClose == null && btnCloseIcon == null) {
+            dialog.setCanceledOnTouchOutside(true);
         }
 
         dialog.show();
