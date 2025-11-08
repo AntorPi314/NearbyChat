@@ -3,5 +3,5 @@
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
     <color name="grey_icons">#66000000</color>
-    <color name="active_chat_background">#66DFDFE7</color>
+    <color name="active_chat_background">#E3F2FD</color>
 </resources>

@@ -142,7 +142,7 @@ public class MainActivity extends BaseActivity {
     private boolean isAdvertising = false;
 
     private boolean isShowingSavedMessages = false;
-    private androidx.lifecycle.LiveData<List<com.antor.nearbychat.Database.MessageEntity>> savedMessagesLiveData = null;
+    private androidx.lifecycle.LiveData<List<com.antor.nearbychat.Database.SavedMessageEntity>> savedMessagesLiveData = null;
 
     private boolean isKeyboardVisible = false;
     private String currentSearchQuery = "";
@@ -254,10 +254,14 @@ public class MainActivity extends BaseActivity {
         setupAppIconClick();
 
         LinearLayout titleContainer = findViewById(R.id.titleContainer);
+
         titleContainer.setOnClickListener(v -> {
             Intent intent = new Intent(this, GroupsFriendsActivity.class);
+            intent.putExtra("currentChatType", activeChatType);
+            intent.putExtra("currentChatId", activeChatId);
             startActivityForResult(intent, REQUEST_CODE_SELECT_CHAT);
         });
+
         appIcon.setOnClickListener(v -> {
             if ("G".equals(activeChatType) && !activeChatId.isEmpty()) {
                 showEditGroupDialog();
@@ -287,6 +291,29 @@ public class MainActivity extends BaseActivity {
                     updateChatUIForSelection();
                 }, 500);
             }
+        }
+    }
+
+    private boolean isCurrentUserBlocked() {
+        if (!"F".equals(activeChatType)) {
+            return false;
+        }
+        try {
+            long bits = MessageHelper.asciiIdToTimestamp(activeChatId);
+            String displayIdToFind = getUserIdString(bits);
+
+            SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+            String json = prefs.getString("blockedList", null);
+            if (json == null) {
+                return false;
+            }
+            Type type = new TypeToken<List<String>>(){}.getType();
+            List<String> blockedList = gson.fromJson(json, type);
+
+            return blockedList != null && blockedList.contains(displayIdToFind);
+        } catch (Exception e) {
+            Log.e(TAG, "Error checking if user is blocked", e);
+            return false;
         }
     }
 
@@ -885,6 +912,11 @@ public class MainActivity extends BaseActivity {
 
 
     private void updateChatUIForSelection() {
+
+        // ===== START: ইনপুট কন্ট্রোল লজিক আপডেট করুন =====
+        boolean inputEnabled = true;
+        String hint = "Type your message...";
+
         if ("N".equals(activeChatType)) {
             appTitle.setText("Nearby Chat");
             appIcon.setImageResource(R.drawable.nearby);
@@ -922,7 +954,36 @@ public class MainActivity extends BaseActivity {
 
             appTitle.setText(friendName);
             ProfilePicLoader.loadProfilePicture(this, displayId, appIcon);
+
+            // ফ্রেন্ড চ্যাটে চেক করুন ইউজার ব্লকড কিনা
+            if (isCurrentUserBlocked()) {
+                inputEnabled = false;
+                hint = "This user is blocked";
+            }
         }
+
+        // "Saved Messages" ভিউ সবকিছুর উপরে override করবে
+        if (isShowingSavedMessages) {
+            inputEnabled = false;
+            hint = "Disable"; // ✅ এখানে পরিবর্তন করা হয়েছে
+        }
+
+        // ইনপুট বক্সের state সেট করুন
+        if (inputEnabled) {
+            enableInputContainer();
+        } else {
+            disableInputContainer();
+            inputMessage.setHint(hint); // কাস্টম hint সেট করুন
+        }
+        // ===== END: ইনপুট কন্ট্রোল লজিক আপডেট করুন =====
+
+        // ===== START: চ্যাট সুইচ করলে ইনপুট মোড রিসেট করুন =====
+        inputMode = 0;
+        inputMessage.setVisibility(View.VISIBLE);
+        inputImageURL.setVisibility(View.GONE);
+        inputVideoURL.setVisibility(View.GONE);
+        switchInputImage.setImageResource(R.drawable.text);
+        // ===== END: চ্যাট সুইচ করলে ইনপুট মোড রিসেট করুন =====
 
         messageList.clear();
         chatAdapter.notifyDataSetChanged();
@@ -1042,6 +1103,13 @@ public class MainActivity extends BaseActivity {
         dialog.findViewById(R.id.id_notepad).setOnClickListener(v -> {
             dialog.dismiss();
             startActivity(new Intent(this, NotepadActivity.class));
+        });
+        dialog.findViewById(R.id.id_blocked_list).setOnClickListener(v -> {
+            dialog.dismiss();
+            Intent intent = new Intent(this, BlockActivity.class);
+            intent.putExtra("currentChatType", activeChatType);
+            intent.putExtra("currentChatId", activeChatId);
+            startActivity(intent);
         });
         dialog.findViewById(R.id.id_settings).setOnClickListener(v -> {
             dialog.dismiss();
@@ -1979,12 +2047,9 @@ public class MainActivity extends BaseActivity {
         if (savedMessagesLiveData != null) {
             savedMessagesLiveData.removeObservers(this);
         }
+        savedMessagesLiveData = database.savedMessageDao().getAllSavedMessages();
 
-        // USE SavedMessageDao instead
-        androidx.lifecycle.LiveData<List<SavedMessageEntity>> savedLiveData =
-                database.savedMessageDao().getAllSavedMessages();
-
-        savedLiveData.observe(this, messages -> {
+        savedMessagesLiveData.observe(this, messages -> {
             if (messages != null) {
                 messageList.clear();
                 for (SavedMessageEntity entity : messages) {
@@ -2019,6 +2084,7 @@ public class MainActivity extends BaseActivity {
         inputMessage.setEnabled(false);
         inputImageURL.setEnabled(false);
         inputVideoURL.setEnabled(false);
+        switchInputImage.setEnabled(false); // ✅ এখানে যোগ করা হয়েছে
 
         inputMessage.setHintTextColor(Color.parseColor("#CCCCCC"));
         inputImageURL.setHintTextColor(Color.parseColor("#CCCCCC"));
@@ -2026,15 +2092,23 @@ public class MainActivity extends BaseActivity {
 
         inputMessage.setTextColor(Color.parseColor("#CCCCCC"));
         inputImageURL.setTextColor(Color.parseColor("#CCCCCC"));
-        inputImageURL.setTextColor(Color.parseColor("#CCCCCC"));
+        inputVideoURL.setTextColor(Color.parseColor("#CCCCCC"));
 
         sendButtonContainer.setAlpha(0.6f);
+        switchInputImage.setAlpha(0.6f); // ✅ এখানে যোগ করা হয়েছে
     }
 
     private void enableInputContainer() {
         inputMessage.setEnabled(true);
         inputImageURL.setEnabled(true);
         inputVideoURL.setEnabled(true);
+        switchInputImage.setEnabled(true); // ✅ এখানে যোগ করা হয়েছে
+
+        // ===== START: ডিফল্ট hint গুলো রিসেট করুন =====
+        inputMessage.setHint("Type your message...");
+        inputImageURL.setHint("Paste your image link here...");
+        inputVideoURL.setHint("Paste your video link here...");
+        // ===== END: ডিফল্ট hint গুলো রিসেট করুন =====
 
         inputMessage.setHintTextColor(Color.parseColor("#787878"));
         inputImageURL.setHintTextColor(Color.parseColor("#787878"));
@@ -2042,9 +2116,10 @@ public class MainActivity extends BaseActivity {
 
         inputMessage.setTextColor(Color.parseColor("#000000"));
         inputImageURL.setTextColor(Color.parseColor("#000000"));
-        inputImageURL.setTextColor(Color.parseColor("#000000"));
+        inputVideoURL.setTextColor(Color.parseColor("#000000"));
 
         sendButtonContainer.setAlpha(1.0f);
+        switchInputImage.setAlpha(1.0f); // ✅ এখানে যোগ করা হয়েছে
     }
 
     private void copyMessageToClipboard(MessageModel msg) {
@@ -2244,21 +2319,19 @@ public class MainActivity extends BaseActivity {
     protected void onResume() {
         super.onResume();
 
-        // যখনই MainActivity সামনে আসবে, active chat তথ্য সেভ করুন
         activeChatType = prefs.getString(KEY_CHAT_TYPE, "N");
         activeChatId = prefs.getString(KEY_CHAT_ID, "");
 
-        // *** নতুন কোড: সার্ভিসকে জানান যে এই চ্যাটটি এখন খোলা আছে ***
         SharedPreferences activePrefs = getSharedPreferences(PREFS_ACTIVE_CHAT, MODE_PRIVATE);
         activePrefs.edit()
                 .putString(KEY_CHAT_TYPE, activeChatType)
                 .putString(KEY_CHAT_ID, activeChatId)
                 .apply();
 
-        // আপনার বাকি onResume কোড...
         if (bluetoothAdapter != null && bluetoothAdapter.isEnabled() && hasAllRequiredPermissions()) {
             startBleService();
         }
+        updateChatUIForSelection();
     }
 
     @Override

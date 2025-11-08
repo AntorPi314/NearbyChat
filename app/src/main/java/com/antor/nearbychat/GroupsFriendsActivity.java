@@ -66,7 +66,14 @@ public class GroupsFriendsActivity extends Activity {
             getWindow().setGravity(Gravity.BOTTOM);
         }
         setFinishOnTouchOutside(true);
-        loadActiveChat();
+
+        Intent intent = getIntent();
+        activeChatType = intent.getStringExtra("currentChatType");
+        activeChatId = intent.getStringExtra("currentChatId");
+
+        if (activeChatType == null) activeChatType = "N";
+        if (activeChatId == null) activeChatId = "";
+
         loadData();
         setupUI();
     }
@@ -316,13 +323,85 @@ public class GroupsFriendsActivity extends Activity {
 
     private void onChatLongClick(ChatItem chat) {
         if (chat.type.equals("N")) {
-            Toast.makeText(this, "Cannot delete Nearby Chat", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Cannot modify Nearby Chat", Toast.LENGTH_SHORT).show();
             return;
         }
-        new AlertDialog.Builder(this).setTitle("Delete " + chat.name + "?")
-                .setMessage("This will delete the chat and all associated messages.")
-                .setPositiveButton("Delete", (dialog, which) -> deleteChat(chat))
-                .setNegativeButton("Cancel", null).show();
+
+        String[] options = {"Block", "Clear History", "Delete Chat"};
+
+        new AlertDialog.Builder(this)
+                .setTitle("Chat Options")
+                .setItems(options, (dialog, which) -> {
+                    switch (which) {
+                        case 0: // Block
+                            blockChat(chat);
+                            break;
+                        case 1:
+                            clearHistory(chat);
+                            break;
+                        case 2:
+                            deleteChat(chat);
+                            break;
+                    }
+                })
+                .show();
+    }
+
+    private void blockChat(ChatItem chat) {
+        String userIdToBlock;
+
+        if ("G".equals(chat.type)) {
+            Toast.makeText(this, "Cannot block groups", Toast.LENGTH_SHORT).show();
+            return;
+        } else if ("F".equals(chat.type)) {
+            userIdToBlock = chat.displayId;
+        } else {
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Block User")
+                .setMessage("Block " + chat.name + "?\n\nYou will no longer receive messages from this user.")
+                .setPositiveButton("Block", (dialog, which) -> {
+                    SharedPreferences prefs = getSharedPreferences("NearbyChatPrefs", MODE_PRIVATE);
+                    String json = prefs.getString("blockedList", null);
+                    List<String> blockedList;
+
+                    if (json != null) {
+                        Type type = new TypeToken<List<String>>(){}.getType();
+                        blockedList = new Gson().fromJson(json, type);
+                    } else {
+                        blockedList = new ArrayList<>();
+                    }
+                    if (!blockedList.contains(userIdToBlock)) {
+                        blockedList.add(userIdToBlock);
+                        prefs.edit().putString("blockedList", new Gson().toJson(blockedList)).apply();
+                    }
+                    List<FriendModel> friends = DataCache.getFriends(this);
+                    friends.removeIf(f -> f.getDisplayId().equals(userIdToBlock));
+                    DataCache.saveFriends(this, friends);
+
+                    loadAndDisplayAllChats();
+                    Toast.makeText(this, "User blocked", Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void clearHistory(ChatItem chat) {
+        new AlertDialog.Builder(this)
+                .setTitle("Clear History")
+                .setMessage("Delete all messages in this chat?")
+                .setPositiveButton("Clear", (dialog, which) -> {
+                    executor.execute(() -> {
+                        AppDatabase.getInstance(this).messageDao().deleteMessagesForChat(chat.type, chat.id);
+                        runOnUiThread(() -> {
+                            loadAndDisplayAllChats();
+                            Toast.makeText(this, "History cleared", Toast.LENGTH_SHORT).show();
+                        });
+                    });
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
     }
 
     private void deleteChat(ChatItem chat) {
@@ -330,28 +409,33 @@ public class GroupsFriendsActivity extends Activity {
             Toast.makeText(this, "Cannot delete Nearby Chat", Toast.LENGTH_SHORT).show();
             return;
         }
-
-        if (chat.type.equals("G")) {
-            List<GroupModel> groups = DataCache.getGroups(this);
-            groups.removeIf(g -> g.getId().equals(chat.id));
-            DataCache.saveGroups(this, groups);
-        } else if (chat.type.equals("F")) {
-            List<FriendModel> friends = DataCache.getFriends(this);
-            friends.removeIf(f ->
-                    MessageHelper.timestampToAsciiId(
-                            MessageHelper.displayIdToTimestamp(f.getDisplayId())
-                    ).equals(chat.id)
-            );
-            DataCache.saveFriends(this, friends);
-        }
-
-        executor.execute(() -> {
-            AppDatabase.getInstance(this).messageDao().deleteMessagesForChat(chat.type, chat.id);
-            runOnUiThread(() -> {
-                loadAndDisplayAllChats();
-                Toast.makeText(this, chat.name + " deleted", Toast.LENGTH_SHORT).show();
-            });
-        });
+        new AlertDialog.Builder(this)
+                .setTitle("Delete Chat")
+                .setMessage("Delete " + chat.name + "?\n\nThis will delete the chat and all messages.")
+                .setPositiveButton("Delete", (dialog, which) -> {
+                    if (chat.type.equals("G")) {
+                        List<GroupModel> groups = DataCache.getGroups(this);
+                        groups.removeIf(g -> g.getId().equals(chat.id));
+                        DataCache.saveGroups(this, groups);
+                    } else if (chat.type.equals("F")) {
+                        List<FriendModel> friends = DataCache.getFriends(this);
+                        friends.removeIf(f ->
+                                MessageHelper.timestampToAsciiId(
+                                        MessageHelper.displayIdToTimestamp(f.getDisplayId())
+                                ).equals(chat.id)
+                        );
+                        DataCache.saveFriends(this, friends);
+                    }
+                    executor.execute(() -> {
+                        AppDatabase.getInstance(this).messageDao().deleteMessagesForChat(chat.type, chat.id);
+                        runOnUiThread(() -> {
+                            loadAndDisplayAllChats();
+                            Toast.makeText(this, chat.name + " deleted", Toast.LENGTH_SHORT).show();
+                        });
+                    });
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
     }
 
 
@@ -368,12 +452,6 @@ public class GroupsFriendsActivity extends Activity {
             }
         }
         chatAdapter.updateList(filtered, activeChatType, activeChatId);
-    }
-
-    private void loadActiveChat() {
-        SharedPreferences prefs = getSharedPreferences(PREFS_ACTIVE_CHAT, MODE_PRIVATE);
-        activeChatType = prefs.getString(KEY_CHAT_TYPE, "N");
-        activeChatId = prefs.getString(KEY_CHAT_ID, "");
     }
 
     public static class ChatItem {

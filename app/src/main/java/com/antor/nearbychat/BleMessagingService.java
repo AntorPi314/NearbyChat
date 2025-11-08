@@ -562,16 +562,35 @@ public class BleMessagingService extends Service {
         if (record == null) return;
         byte[] data = record.getServiceData(new ParcelUuid(SERVICE_UUID));
         if (data == null) return;
+
         String messageId = Arrays.toString(data);
         if (receivedMessages.get(messageId) != null) return;
         receivedMessages.put(messageId, true);
 
         processingExecutor.submit(() -> {
             MessageModel msg = messageProcessor.processIncomingData(data, userId);
+
             if (msg != null) {
+                if (isUserBlocked(msg.getSenderId())) {
+                    Log.d(TAG, "⛔ Dropping message from blocked user: " + msg.getSenderId());
+                    return;
+                }
                 addMessage(msg);
             }
         });
+    }
+
+    private boolean isUserBlocked(String senderId) {
+        SharedPreferences prefs = getSharedPreferences("NearbyChatPrefs", MODE_PRIVATE);
+        String json = prefs.getString("blockedList", null);
+
+        if (json != null) {
+            Type type = new TypeToken<List<String>>(){}.getType();
+            List<String> blockedList = new com.google.gson.Gson().fromJson(json, type);
+            return blockedList != null && blockedList.contains(senderId);
+        }
+
+        return false;
     }
 
     public void sendMessage(String payload, String chatType, String chatId) {

@@ -105,6 +105,11 @@
             android:theme="@style/BottomSheetActivityTheme"
             android:windowSoftInputMode="stateHidden|adjustResize" />
         <activity
+            android:name=".BlockActivity"
+            android:exported="false"
+            android:theme="@style/BottomSheetActivityTheme"
+            android:windowSoftInputMode="stateHidden|adjustResize" />
+        <activity
             android:name=".MainActivity"
             android:exported="false"
             android:windowSoftInputMode="stateHidden|adjustResize" />
