@@ -242,6 +242,12 @@ public class MessageProcessor {
         return baseTime + " | " + chunkCount + "C";
     }
 
+    public java.util.concurrent.CompletableFuture<MessageModel> processIncomingDataAsync(byte[] data, String myDisplayId) {
+        return java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+            return processIncomingData(data, myDisplayId);
+        }, processingExecutor);
+    }
+
     public void cleanupExpiredReassemblers(long timeoutMs, TimeoutCallback callback) {
         synchronized (reassemblers) {
             Iterator<Map.Entry<String, MessageReassembler>> it = reassemblers.entrySet().iterator();

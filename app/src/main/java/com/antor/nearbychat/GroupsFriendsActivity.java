@@ -799,9 +799,11 @@ public class GroupsFriendsActivity extends Activity {
 
     private void saveGroups() {
         DataCache.saveGroups(this, groupsList);
+        CryptoUtils.clearKeyCache();
     }
 
     private void saveFriends() {
         DataCache.saveFriends(this, friendsList);
+        CryptoUtils.clearKeyCache();
     }
 }

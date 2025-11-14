@@ -64,6 +64,7 @@ public class BleMessagingService extends Service {
     private ExecutorService processingExecutor;
     private final ConcurrentLinkedQueue<byte[]> sendingQueue = new ConcurrentLinkedQueue<>();
     private final android.util.LruCache<String, Boolean> receivedMessages = new android.util.LruCache<>(2000);
+    private android.util.LruCache<String, Boolean> receivedChunks;
     private volatile boolean isCycleRunning = false;
 
     private AppDatabase database;
@@ -151,6 +152,12 @@ public class BleMessagingService extends Service {
     public void onCreate() {
         super.onCreate();
         Log.d(TAG, "Service onCreate");
+
+        int maxMemory = (int) (Runtime.getRuntime().maxMemory() / 1024);
+        int chunkCacheSize = Math.max(2000, maxMemory / 100);
+        receivedChunks = new android.util.LruCache<>(chunkCacheSize);
+        Log.d(TAG, "Chunk cache initialized with size: " + chunkCacheSize);
+
         bleExecutor = Executors.newSingleThreadScheduledExecutor();
         processingExecutor = Executors.newCachedThreadPool();
         mainHandler = new Handler(Looper.getMainLooper());
@@ -275,6 +282,26 @@ public class BleMessagingService extends Service {
 
         } catch (Exception e) {
             Log.e(TAG, "Error loading settings", e);
+        }
+    }
+
+    private String generateChunkKey(byte[] data) {
+        if (data == null || data.length < 13) {
+            return "";
+        }
+
+        try {
+            // Extract: chatType(1) + senderId(5) + messageId(5) + totalChunks(1) + chunkIndex(1) = 13 bytes
+            StringBuilder key = new StringBuilder();
+
+            // Append first 13 bytes as hex string (this includes the chunkIndex)
+            for (int i = 0; i < Math.min(13, data.length); i++) {
+                key.append(String.format("%02x", data[i]));
+            }
+            return key.toString();
+        } catch (Exception e) {
+            Log.e(TAG, "Error generating chunk key", e);
+            return "";
         }
     }
 
@@ -563,21 +590,37 @@ public class BleMessagingService extends Service {
         byte[] data = record.getServiceData(new ParcelUuid(SERVICE_UUID));
         if (data == null) return;
 
+        // ✅ NEW: Check chunk-level deduplication first
+        String chunkKey = generateChunkKey(data);
+        if (!chunkKey.isEmpty() && receivedChunks.get(chunkKey) != null) {
+            // This exact chunk already processed, skip
+            return;
+        }
+
+        // Mark chunk as received
+        if (!chunkKey.isEmpty()) {
+            receivedChunks.put(chunkKey, true);
+        }
+
+        // Keep message-level deduplication for backward compatibility
         String messageId = Arrays.toString(data);
         if (receivedMessages.get(messageId) != null) return;
         receivedMessages.put(messageId, true);
 
-        processingExecutor.submit(() -> {
-            MessageModel msg = messageProcessor.processIncomingData(data, userId);
-
-            if (msg != null) {
-                if (isUserBlocked(msg.getSenderId())) {
-                    Log.d(TAG, "⛔ Dropping message from blocked user: " + msg.getSenderId());
-                    return;
-                }
-                addMessage(msg);
-            }
-        });
+        messageProcessor.processIncomingDataAsync(data, userId)
+                .thenAccept(msg -> {
+                    if (msg != null) {
+                        if (isUserBlocked(msg.getSenderId())) {
+                            Log.d(TAG, "⛔ Dropping message from blocked user: " + msg.getSenderId());
+                            return;
+                        }
+                        addMessage(msg);
+                    }
+                })
+                .exceptionally(e -> {
+                    Log.e(TAG, "Error processing message", e);
+                    return null;
+                });
     }
 
     private boolean isUserBlocked(String senderId) {

@@ -10,10 +10,19 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.security.MessageDigest;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 public class ImageCacheManager {
     private static final String TAG = "ImageCacheManager";
     private static ImageCacheManager instance;
+
+    private static final long MAX_CACHE_SIZE_BYTES = 200 * 1024 * 1024; // 200 MB
+    private static final long TARGET_CACHE_SIZE_BYTES = 120 * 1024 * 1024; // 120 MB (after cleanup)
 
     private final LruCache<String, Bitmap> memoryCache;
     private final File diskCacheDir;
@@ -69,6 +78,9 @@ public class ImageCacheManager {
 
     private void saveToDisk(String key, Bitmap bitmap, boolean isThumbnail) {
         try {
+            // ✅ NEW: Check and evict old files if needed
+            evictIfNeeded();
+
             File cacheDir = isThumbnail ? thumbnailCacheDir : diskCacheDir;
             File file = new File(cacheDir, key);
 
@@ -76,6 +88,8 @@ public class ImageCacheManager {
             bitmap.compress(Bitmap.CompressFormat.JPEG, isThumbnail ? 85 : 95, fos);
             fos.flush();
             fos.close();
+
+            Log.d(TAG, "Saved to disk: " + key + " (size: " + file.length() / 1024 + " KB)");
         } catch (Exception e) {
             Log.e(TAG, "Error saving to disk: " + e.getMessage());
         }
@@ -121,6 +135,154 @@ public class ImageCacheManager {
         deleteDirectory(thumbnailCacheDir);
         diskCacheDir.mkdirs();
         thumbnailCacheDir.mkdirs();
+    }
+
+    private long calculateCacheSize() {
+        long totalSize = 0;
+
+        try {
+            // Calculate disk cache size
+            if (diskCacheDir.exists()) {
+                File[] files = diskCacheDir.listFiles();
+                if (files != null) {
+                    for (File file : files) {
+                        totalSize += file.length();
+                    }
+                }
+            }
+
+            // Calculate thumbnail cache size
+            if (thumbnailCacheDir.exists()) {
+                File[] files = thumbnailCacheDir.listFiles();
+                if (files != null) {
+                    for (File file : files) {
+                        totalSize += file.length();
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error calculating cache size", e);
+        }
+
+        return totalSize;
+    }
+
+    private List<File> getSortedCacheFiles() {
+        List<File> allFiles = new ArrayList<>();
+
+        try {
+            // Collect disk cache files
+            if (diskCacheDir.exists()) {
+                File[] files = diskCacheDir.listFiles();
+                if (files != null) {
+                    for (File file : files) {
+                        allFiles.add(file);
+                    }
+                }
+            }
+
+            // Collect thumbnail cache files
+            if (thumbnailCacheDir.exists()) {
+                File[] files = thumbnailCacheDir.listFiles();
+                if (files != null) {
+                    for (File file : files) {
+                        allFiles.add(file);
+                    }
+                }
+            }
+
+            // Sort by last modified (oldest first)
+            Collections.sort(allFiles, new Comparator<File>() {
+                @Override
+                public int compare(File f1, File f2) {
+                    return Long.compare(f1.lastModified(), f2.lastModified());
+                }
+            });
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error sorting cache files", e);
+        }
+
+        return allFiles;
+    }
+
+    private void evictIfNeeded() {
+        try {
+            long totalSize = calculateCacheSize();
+
+            if (totalSize <= MAX_CACHE_SIZE_BYTES) {
+                return; // Cache size is OK
+            }
+
+            Log.d(TAG, "Cache size exceeded: " + (totalSize / 1024 / 1024) + " MB. Starting smart eviction...");
+
+            List<CacheEntry> entries = getSmartSortedCacheFiles();
+            int deletedCount = 0;
+
+            // Delete least valuable files until we reach target size
+            for (CacheEntry entry : entries) {
+                if (totalSize <= TARGET_CACHE_SIZE_BYTES) {
+                    break;
+                }
+
+                long fileSize = entry.file.length();
+                if (entry.file.delete()) {
+                    totalSize -= fileSize;
+                    deletedCount++;
+                }
+            }
+
+            Log.d(TAG, "Smart eviction complete. Deleted " + deletedCount + " files. New size: " + (totalSize / 1024 / 1024) + " MB");
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error during cache eviction", e);
+        }
+    }
+
+    // ✅ NEW helper class
+    private static class CacheEntry {
+        File file;
+        long score; // Lower score = delete first
+
+        CacheEntry(File file, long lastModified, int accessCount) {
+            this.file = file;
+            // Score combines recency + frequency
+            // More recent = higher score, more accessed = higher score
+            this.score = lastModified + (accessCount * 3600000L); // 1 access = 1 hour bonus
+        }
+    }
+
+    // ✅ NEW method
+    private List<CacheEntry> getSmartSortedCacheFiles() {
+        List<File> allFiles = new ArrayList<>();
+        Map<String, Integer> accessCounts = new HashMap<>(); // You can track this in SharedPreferences
+
+        // Collect files
+        if (diskCacheDir.exists()) {
+            File[] files = diskCacheDir.listFiles();
+            if (files != null) {
+                Collections.addAll(allFiles, files);
+            }
+        }
+
+        if (thumbnailCacheDir.exists()) {
+            File[] files = thumbnailCacheDir.listFiles();
+            if (files != null) {
+                Collections.addAll(allFiles, files);
+            }
+        }
+
+        // Create scored entries
+        List<CacheEntry> entries = new ArrayList<>();
+        for (File file : allFiles) {
+            int accessCount = accessCounts.getOrDefault(file.getName(), 0);
+            entries.add(new CacheEntry(file, file.lastModified(), accessCount));
+        }
+
+        // Sort by score (lowest first = delete first)
+        Collections.sort(entries, (e1, e2) -> Long.compare(e1.score, e2.score));
+
+        return entries;
     }
 
     private void deleteDirectory(File dir) {

@@ -76,375 +76,207 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
         MessageModel msg = messageList.get(position);
         MainActivity main = (MainActivity) context;
 
-        String displayName = main.getDisplayName(msg.getSenderId());
-        holder.senderId.setText(displayName.isEmpty() ? msg.getSenderId() : displayName);
-        holder.timestamp.setText(msg.getTimestamp());
+        // ---------------------------------------------------------
+        // ✅ 1. SMART SENDER ID RECYCLING
+        // ---------------------------------------------------------
+        String currentSenderId = (String) holder.itemView.getTag(R.id.tag_sender_id);
 
-        String rawMessage = msg.getMessage();
-
-
-        if ((!msg.isComplete() || msg.isFailed()) && !rawMessage.startsWith("[u>") && !rawMessage.startsWith("[m>") && !rawMessage.startsWith("[v>")) {
-            if (!rawMessage.isEmpty()) {
-                holder.message.setVisibility(View.VISIBLE);
-                holder.message.setText(rawMessage);
-
-                holder.message.setOnLongClickListener(v -> {
-                    int adapterPosition = holder.getAdapterPosition();
-                    if (adapterPosition != RecyclerView.NO_POSITION) {
-                        longClickListener.onClick(messageList.get(adapterPosition));
-                    }
-                    return true;
-                });
-            } else {
-                holder.message.setVisibility(View.GONE);
-            }
-            if (holder.imageContainer != null) {
-                holder.imageContainer.setVisibility(View.GONE);
-            }
-            if (holder.videoContainer != null) {
-                holder.videoContainer.setVisibility(View.GONE);
-            }
-            holder.itemView.setBackgroundColor(Color.TRANSPARENT);
-            if (msg.isSelf()) {
-                holder.message.setTextColor(msg.isFailed() ? Color.parseColor("#CC0000") : Color.WHITE);
-                holder.itemView.setBackgroundColor(msg.isFailed() ? Color.parseColor("#FFCCCC") : Color.TRANSPARENT);
-            } else {
-                holder.message.setTextColor(msg.isFailed() ? Color.parseColor("#CC0000") : Color.BLACK);
-                if (msg.isFailed()) {
-                    holder.itemView.setBackgroundColor(Color.parseColor("#FFEEEE"));
-                }
-            }
-        } else {
-            PayloadCompress.ParsedPayload parsed = PayloadCompress.parsePayload(rawMessage);
-
-            if (JsonFetcher.isJsonUrl(parsed.message) && parsed.imageUrls.isEmpty() && parsed.videoUrls.isEmpty()) {
-
-                holder.message.setVisibility(View.VISIBLE);
-                holder.message.setText("Fetching...");
-                holder.message.setTextColor(Color.parseColor("#0066CC")); // Blue color
-
-                holder.message.setOnLongClickListener(v -> {
-                    int adapterPosition = holder.getAdapterPosition();
-                    if (adapterPosition != RecyclerView.NO_POSITION) {
-                        longClickListener.onClick(messageList.get(adapterPosition));
-                    }
-                    return true;
-                });
-
-                if (holder.imageContainer != null) {
-                    holder.imageContainer.setVisibility(View.GONE);
-                }
-                if (holder.videoContainer != null) {
-                    holder.videoContainer.setVisibility(View.GONE);
-                }
-
-                // ✅ Notun line-e 'context' pass kora hoyeche
-                JsonFetcher.fetchJson(context, parsed.message, new JsonFetcher.JsonCallback() {
-                    @Override
-                    public void onSuccess(JsonFetcher.ParsedJson fetchedData) {
-                        ((Activity) context).runOnUiThread(() -> {
-                            // Check if holder is still valid
-                            int currentPosition = holder.getAdapterPosition();
-                            if (currentPosition == RecyclerView.NO_POSITION) return;
-
-                            // 1. টেক্সট ভিউ সেট করুন
-                            if (fetchedData.message != null && !fetchedData.message.isEmpty()) {
-                                holder.message.setVisibility(View.VISIBLE);
-
-                                // Clean excessive newlines
-                                String cleanedMessage = removeExcessiveNewlines(fetchedData.message);
-
-                                // Truncate if needed
-                                String displayMessage = truncateMessage(cleanedMessage);
-                                holder.message.setText(displayMessage);
-
-                                // ✅ SHORT CLICK: Show full message if truncated
-                                if (cleanedMessage.length() > MAX_MESSAGE_LENGTH) {
-                                    final String fullMessage = cleanedMessage;
-                                    holder.message.setOnClickListener(v -> showFullMessageDialog(fullMessage));
-                                } else {
-                                    holder.message.setOnClickListener(null);
-                                }
-
-                                // ✅ LONG CLICK: Show message options (NEW)
-                                holder.message.setOnLongClickListener(v -> {
-                                    int adapterPosition = holder.getAdapterPosition();
-                                    if (adapterPosition != RecyclerView.NO_POSITION) {
-                                        longClickListener.onClick(messageList.get(adapterPosition));
-                                    }
-                                    return true;
-                                });
-
-                                // Text color setting (keep existing code)
-                                if (messageList.get(currentPosition).isSelf()) {
-                                    holder.message.setTextColor(Color.WHITE);
-                                } else {
-                                    holder.message.setTextColor(Color.BLACK);
-                                }
-                            } else {
-                                holder.message.setVisibility(View.GONE);
-                            }
-
-                            // 2. ইমেজ ভিউ সেট করুন
-                            if (holder.imageContainer != null) {
-                                if (fetchedData.images != null && !fetchedData.images.isEmpty()) {
-                                    String[] urls = fetchedData.images.split(",");
-                                    ArrayList<String> imageUrls = new ArrayList<>();
-                                    for (String url : urls) {
-                                        String trimmed = url.trim();
-                                        if (!trimmed.isEmpty()) imageUrls.add(trimmed);
-                                    }
-                                    if (!imageUrls.isEmpty()) {
-                                        holder.imageContainer.setTag(fetchedData.images);
-                                        holder.imageContainer.setVisibility(View.VISIBLE);
-                                        holder.imageContainer.removeAllViews();
-                                        setupImageViews(holder.imageContainer, imageUrls, messageList.get(currentPosition).isSelf());
-                                    } else {
-                                        holder.imageContainer.setTag(null);
-                                        holder.imageContainer.setVisibility(View.GONE);
-                                    }
-                                } else {
-                                    holder.imageContainer.setTag(null);
-                                    holder.imageContainer.setVisibility(View.GONE);
-                                }
-                            }
-
-                            // 3. ভিডিও ভিউ সেট করুন
-                            if (holder.videoContainer != null) {
-                                if (fetchedData.videos != null && !fetchedData.videos.isEmpty()) {
-                                    String[] urls = fetchedData.videos.split(",");
-                                    ArrayList<String> videoUrls = new ArrayList<>();
-                                    for (String url : urls) {
-                                        String trimmed = url.trim();
-                                        if (!trimmed.isEmpty()) videoUrls.add(trimmed);
-                                    }
-                                    if (!videoUrls.isEmpty()) {
-                                        holder.videoContainer.setTag(fetchedData.videos);
-                                        holder.videoContainer.setVisibility(View.VISIBLE);
-                                        holder.videoContainer.removeAllViews();
-                                        setupVideoViews(holder.videoContainer, videoUrls);
-                                    } else {
-                                        holder.videoContainer.setTag(null);
-                                        holder.videoContainer.setVisibility(View.GONE);
-                                    }
-                                } else {
-                                    holder.videoContainer.setTag(null);
-                                    holder.videoContainer.setVisibility(View.GONE);
-                                }
-                            }
-                        });
-                    }
-
-                    @Override
-                    public void onError(String error) {
-                        ((Activity) context).runOnUiThread(() -> {
-                            // Check if holder is still valid
-                            int currentPosition = holder.getAdapterPosition();
-                            if (currentPosition == RecyclerView.NO_POSITION) return;
-
-                            holder.message.setVisibility(View.VISIBLE);
-                            holder.message.setText("JSON Fetch Failed: " + error);
-                            // টেক্সটের রং স্বাভাবিক করুন
-                            if (messageList.get(currentPosition).isSelf()) {
-                                holder.message.setTextColor(Color.WHITE);
-                            } else {
-                                holder.message.setTextColor(Color.BLACK);
-                            }
-
-                            if (holder.imageContainer != null) {
-                                holder.imageContainer.setVisibility(View.GONE);
-                            }
-                            if (holder.videoContainer != null) {
-                                holder.videoContainer.setVisibility(View.GONE);
-                            }
-                        });
-                    }
-                });
-
-                holder.itemView.setBackgroundColor(Color.TRANSPARENT);
-
-                // ▼▼▼ এখান থেকে পরিবর্তন শুরু ▼▼▼
-                // ক্লিক লিসেনার এবং প্রোফাইল পিক সেট করুন
-                if (holder.profilePic != null) {
-                    main.loadProfilePictureForAdapter(msg.getSenderId(), holder.profilePic);
-                    holder.profilePic.setOnClickListener(v -> main.openFriendChat(msg.getSenderId()));
-
-                    holder.profilePic.setOnLongClickListener(v -> {
-                        int adapterPosition = holder.getAdapterPosition();
-                        if (adapterPosition == RecyclerView.NO_POSITION) return true;
-
-                        String senderId = messageList.get(adapterPosition).getSenderId();
-
-                        // Vibrate
-                        android.os.Vibrator vibrator = (android.os.Vibrator) context.getSystemService(Context.VIBRATOR_SERVICE);
-                        if (vibrator != null && vibrator.hasVibrator()) {
-                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                                vibrator.vibrate(android.os.VibrationEffect.createOneShot(50, android.os.VibrationEffect.DEFAULT_AMPLITUDE));
-                            } else {
-                                vibrator.vibrate(50);
-                            }
-                        }
-
-                        // MainActivity-এর নতুন পাবলিক মেথড কল করুন
-                        ((MainActivity) context).showEditFriendDialogForSender(senderId);
-
-                        return true;
-                    });
-                    // --- নতুন ব্লক শেষ ---
-                }
-                // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
-
-                holder.itemView.setOnLongClickListener(v -> {
-                    int adapterPosition = holder.getAdapterPosition();
-                    if (adapterPosition != RecyclerView.NO_POSITION) {
-                        longClickListener.onClick(messageList.get(adapterPosition));
-                    }
-                    return true;
-                });
-                holder.itemView.setOnClickListener(v -> {
-                    int adapterPosition = holder.getAdapterPosition();
-                    if (adapterPosition != RecyclerView.NO_POSITION) {
-                        clickListener.onClick(messageList.get(adapterPosition));
-                    }
-                });
-
-                return; // ✅ এখানে কোড শেষ করুন
-            }
-
-            if (!parsed.message.isEmpty()) {
-                holder.message.setVisibility(View.VISIBLE);
-
-                // Clean excessive newlines
-                String cleanedMessage = removeExcessiveNewlines(parsed.message);
-
-                // Truncate if needed
-                String displayMessage = truncateMessage(cleanedMessage);
-                holder.message.setText(displayMessage);
-
-                // ✅ SHORT CLICK: Show full message if truncated
-                if (cleanedMessage.length() > MAX_MESSAGE_LENGTH) {
-                    final String fullMessage = cleanedMessage;
-                    holder.message.setOnClickListener(v -> showFullMessageDialog(fullMessage));
-                } else {
-                    holder.message.setOnClickListener(null);
-                }
-
-                holder.message.setOnLongClickListener(v -> {
-                    int adapterPosition = holder.getAdapterPosition();
-                    if (adapterPosition != RecyclerView.NO_POSITION) {
-                        longClickListener.onClick(messageList.get(adapterPosition));
-                    }
-                    return true;
-                });
-            } else {
-                holder.message.setVisibility(View.GONE);
-            }
-            holder.itemView.setBackgroundColor(Color.TRANSPARENT);
-            if (msg.isSelf()) {
-                holder.message.setTextColor(Color.WHITE);
-            } else {
-                holder.message.setTextColor(Color.BLACK);
-            }
-            if (holder.imageContainer != null) {
-                if (!parsed.imageUrls.isEmpty()) {
-                    Log.d("ChatAdapter", "📸 Image URLs found: " + parsed.imageUrls); // Debug line
-
-                    String[] urls = parsed.imageUrls.split(",");
-                    ArrayList<String> imageUrls = new ArrayList<>();
-                    for (String url : urls) {
-                        String trimmed = url.trim();
-                        if (!trimmed.isEmpty()) {
-                            imageUrls.add(trimmed);
-                            Log.d("ChatAdapter", "  ✓ Added: " + trimmed); // Debug line
-                        }
-                    }
-
-                    if (!imageUrls.isEmpty()) {
-                        holder.imageContainer.setTag(parsed.imageUrls);
-                        holder.imageContainer.setVisibility(View.VISIBLE);
-                        holder.imageContainer.removeAllViews();
-                        setupImageViews(holder.imageContainer, imageUrls, msg.isSelf());
-                        Log.d("ChatAdapter", "✓ Showing " + imageUrls.size() + " images"); // Debug line
-                    } else {
-                        holder.imageContainer.setTag(null);
-                        holder.imageContainer.setVisibility(View.GONE);
-                        Log.d("ChatAdapter", "✗ No valid image URLs after splitting"); // Debug line
-                    }
-                } else {
-                    holder.imageContainer.setTag(null);
-                    holder.imageContainer.setVisibility(View.GONE);
-                    Log.d("ChatAdapter", "✗ No image URLs in parsed payload"); // Debug line
-                }
-            }
-            if (holder.videoContainer != null) {
-                if (!parsed.videoUrls.isEmpty()) {
-                    Log.d("ChatAdapter", "🎬 Video URLs found: " + parsed.videoUrls); // Debug line
-
-                    String[] urls = parsed.videoUrls.split(",");
-                    ArrayList<String> videoUrls = new ArrayList<>();
-                    for (String url : urls) {
-                        String trimmed = url.trim();
-                        if (!trimmed.isEmpty()) {
-                            videoUrls.add(trimmed);
-                            Log.d("ChatAdapter", "  ✓ Added: " + trimmed); // Debug line
-                        }
-                    }
-
-                    if (!videoUrls.isEmpty()) {
-                        holder.videoContainer.setTag(parsed.videoUrls);
-                        holder.videoContainer.setVisibility(View.VISIBLE);
-                        holder.videoContainer.removeAllViews();
-                        setupVideoViews(holder.videoContainer, videoUrls);
-                        Log.d("ChatAdapter", "✓ Showing " + videoUrls.size() + " videos"); // Debug line
-                    } else {
-                        holder.videoContainer.setTag(null);
-                        holder.videoContainer.setVisibility(View.GONE);
-                        Log.d("ChatAdapter", "✗ No valid video URLs after splitting"); // Debug line
-                    }
-                } else {
-                    holder.videoContainer.setTag(null);
-                    holder.videoContainer.setVisibility(View.GONE);
-                    Log.d("ChatAdapter", "✗ No video URLs in parsed payload");
-                }
-            }
+        if (!msg.getSenderId().equals(currentSenderId)) {
+            String displayName = main.getDisplayName(msg.getSenderId());
+            holder.senderId.setText(displayName.isEmpty() ? msg.getSenderId() : displayName);
+            holder.itemView.setTag(R.id.tag_sender_id, msg.getSenderId());
         }
 
-        // ▼▼▼ এখান থেকে পরিবর্তন শুরু ▼▼▼
+        holder.timestamp.setText(msg.getTimestamp());
+
+        // ▼▼▼ প্রোফাইল পিকচার লোডিং (সবার আগে) ▼▼▼
         if (holder.profilePic != null) {
             main.loadProfilePictureForAdapter(msg.getSenderId(), holder.profilePic);
+
             holder.profilePic.setOnClickListener(v -> main.openFriendChat(msg.getSenderId()));
 
             holder.profilePic.setOnLongClickListener(v -> {
-                int adapterPosition = holder.getAdapterPosition();
-                if (adapterPosition == RecyclerView.NO_POSITION) return true;
+                main.showEditFriendDialogForSender(msg.getSenderId());
+                return true;
+            });
+        }
+        // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
-                String senderId = messageList.get(adapterPosition).getSenderId();
+        String rawMessage = msg.getMessage();
 
-                // Vibrate
-                android.os.Vibrator vibrator = (android.os.Vibrator) context.getSystemService(Context.VIBRATOR_SERVICE);
-                if (vibrator != null && vibrator.hasVibrator()) {
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                        vibrator.vibrate(android.os.VibrationEffect.createOneShot(50, android.os.VibrationEffect.DEFAULT_AMPLITUDE));
-                    } else {
-                        vibrator.vibrate(50);
+        // NORMAL MESSAGE (not payload) - e.g., "Receiving...", "Failed..."
+        if ((!msg.isComplete() || msg.isFailed()) &&
+                !rawMessage.startsWith("[u>") &&
+                !rawMessage.startsWith("[m>") &&
+                !rawMessage.startsWith("[v>")) {
+
+            bindText(holder, rawMessage);
+            bindImages(holder, "", false);
+            bindVideos(holder, "");
+
+            return; // ✅ প্রোফাইল পিক লোড হয়ে গেছে, তাই return করা নিরাপদ
+        }
+
+        // ---------------------------------------------------------
+        // Payload Parsed
+        // ---------------------------------------------------------
+        PayloadCompress.ParsedPayload parsed = PayloadCompress.parsePayload(rawMessage);
+
+        // ▼▼▼ START: NEW JSON FETCHING LOGIC ▼▼▼
+
+        // Check if this is a JSON fetch request
+        if (JsonFetcher.isJsonUrl(parsed.message) &&
+                parsed.imageUrls.isEmpty() &&
+                parsed.videoUrls.isEmpty()) {
+
+            final String gUrl = parsed.message;
+            // ট্যাগ সেট করুন, যাতে রিসাইক্লিং চেক করা যায়
+            holder.itemView.setTag(gUrl);
+
+            // লোডিং অবস্থা দেখান
+            bindText(holder, "Loading JSON...");
+            bindImages(holder, "", false);
+            bindVideos(holder, "");
+
+            JsonFetcher.fetchJson(context, gUrl, new JsonFetcher.JsonCallback() {
+                @Override
+                public void onSuccess(JsonFetcher.ParsedJson fetchedData) {
+                    if (context instanceof Activity) {
+                        ((Activity) context).runOnUiThread(() -> {
+                            // হোল্ডারটি রিসাইকেল হয়েছে কিনা চেক করুন
+                            if (!gUrl.equals(holder.itemView.getTag())) {
+                                return; // রিসাইকেল হয়ে গেছে, আপডেট করবেন না
+                            }
+                            // ফেচ করা ডেটা বাইন্ড করুন
+                            bindText(holder, fetchedData.message);
+                            bindImages(holder, fetchedData.images, msg.isSelf());
+                            bindVideos(holder, fetchedData.videos);
+                        });
                     }
                 }
 
-                // MainActivity-এর নতুন পাবলিক মেথড কল করুন
-                ((MainActivity) context).showEditFriendDialogForSender(senderId);
-
-                return true;
+                @Override
+                public void onError(String error) {
+                    if (context instanceof Activity) {
+                        ((Activity) context).runOnUiThread(() -> {
+                            // হোল্ডারটি রিসাইকেল হয়েছে কিনা চেক করুন
+                            if (!gUrl.equals(holder.itemView.getTag())) {
+                                return; // রিসাইকেল হয়ে গেছে, আপডেট করবেন না
+                            }
+                            bindText(holder, "[Failed to load JSON]");
+                            bindImages(holder, "", false);
+                            bindVideos(holder, "");
+                        });
+                    }
+                }
             });
-            // --- নতুন ব্লক শেষ ---
-        }
-        // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
+        } else {
+            // এটি একটি সাধারণ মেসেজ, সরাসরি ডেটা বাইন্ড করুন
+            holder.itemView.setTag(null); // ট্যাগ ক্লিয়ার করুন
+            bindText(holder, parsed.message);
+            bindImages(holder, parsed.imageUrls, msg.isSelf());
+            bindVideos(holder, parsed.videoUrls);
+        }
+        // ▲▲▲ END: NEW JSON FETCHING LOGIC ▲▲▲
+
+
+        // ---------------------------------------------------------
+        // CLICK LISTENERS
+        // ---------------------------------------------------------
+        holder.itemView.setOnClickListener(v -> clickListener.onClick(msg));
         holder.itemView.setOnLongClickListener(v -> {
             longClickListener.onClick(msg);
             return true;
         });
-        holder.itemView.setOnClickListener(v -> clickListener.onClick(msg));
     }
+
+    // ▼▼▼ START: NEW HELPER METHODS ▼▼▼
+
+    /**
+     * Binds text content to the message TextView.
+     */
+    private void bindText(ChatViewHolder holder, String message) {
+        if (message != null && !message.isEmpty()) {
+            holder.message.setVisibility(View.VISIBLE);
+
+            // Clean excessive newlines
+            String cleanedMessage = removeExcessiveNewlines(message);
+            // Truncate if needed
+            String displayMessage = truncateMessage(cleanedMessage);
+            holder.message.setText(displayMessage);
+
+            // Click to view full message
+            if (cleanedMessage.length() > MAX_MESSAGE_LENGTH) {
+                final String fullMessage = cleanedMessage;
+                holder.message.setOnClickListener(v -> showFullMessageDialog(fullMessage));
+            } else {
+                holder.message.setOnClickListener(null); // Remove previous listener
+            }
+
+        } else {
+            holder.message.setVisibility(View.GONE);
+        }
+    }
+
+    /**
+     * Binds image URLs to the image container.
+     */
+    private void bindImages(ChatViewHolder holder, String imageUrls, boolean isSelf) {
+        if (holder.imageContainer == null) return;
+
+        if (imageUrls != null && !imageUrls.isEmpty()) {
+            // Check if view is already built for this set of URLs
+            String currentImageTag = (String) holder.imageContainer.getTag(R.id.tag_image_urls);
+            if (!imageUrls.equals(currentImageTag)) {
+                holder.imageContainer.removeAllViews();
+                ArrayList<String> urls = new ArrayList<>();
+                for (String u : imageUrls.split(",")) {
+                    if (!u.trim().isEmpty()) urls.add(u.trim());
+                }
+                if (!urls.isEmpty()) {
+                    setupImageViews(holder.imageContainer, urls, isSelf);
+                }
+                holder.imageContainer.setTag(R.id.tag_image_urls, imageUrls);
+            }
+            holder.imageContainer.setVisibility(View.VISIBLE);
+        } else {
+            // No images, clean up
+            holder.imageContainer.setTag(R.id.tag_image_urls, null);
+            holder.imageContainer.setVisibility(View.GONE);
+        }
+    }
+
+    /**
+     * Binds video URLs to the video container.
+     */
+    private void bindVideos(ChatViewHolder holder, String videoUrls) {
+        if (holder.videoContainer == null) return;
+
+        if (videoUrls != null && !videoUrls.isEmpty()) {
+            // Check if view is already built for this set of URLs
+            String currentVideoTag = (String) holder.videoContainer.getTag(R.id.tag_video_urls);
+            if (!videoUrls.equals(currentVideoTag)) {
+                holder.videoContainer.removeAllViews();
+                ArrayList<String> urls = new ArrayList<>();
+                for (String u : videoUrls.split(",")) {
+                    if (!u.trim().isEmpty()) urls.add(u.trim());
+                }
+                if (!urls.isEmpty()) {
+                    setupVideoViews(holder.videoContainer, urls);
+                }
+                holder.videoContainer.setTag(R.id.tag_video_urls, videoUrls);
+            }
+            holder.videoContainer.setVisibility(View.VISIBLE);
+        } else {
+            // No videos, clean up
+            holder.videoContainer.setTag(R.id.tag_video_urls, null);
+            holder.videoContainer.setVisibility(View.GONE);
+        }
+    }
+
+    // ▲▲▲ END: NEW HELPER METHODS ▲▲▲
+
 
     private String removeExcessiveNewlines(String text) {
         if (text == null) return "";
@@ -756,7 +588,7 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
         TextView senderId, message, timestamp;
         ImageView profilePic;
         LinearLayout imageContainer;
-        LinearLayout videoContainer;  // ADD THIS LINE
+        LinearLayout videoContainer;
 
         public ChatViewHolder(@NonNull View itemView) {
             super(itemView);
@@ -765,7 +597,7 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
             timestamp = itemView.findViewById(R.id.textTimestamp);
             profilePic = itemView.findViewById(R.id.profilePicRound);
             imageContainer = itemView.findViewById(R.id.imageContainer);
-            videoContainer = itemView.findViewById(R.id.videoContainer);  // ADD THIS LINE
+            videoContainer = itemView.findViewById(R.id.videoContainer);
         }
     }
 }

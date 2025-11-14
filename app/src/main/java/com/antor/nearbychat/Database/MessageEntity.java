@@ -8,7 +8,8 @@ import androidx.room.Index;
         indices = {
                 @Index(value = {"senderId", "timestamp"}),
                 @Index(value = {"messageId"}),
-                @Index(value = {"chatType", "chatId", "timestampMillis"})
+                @Index(value = {"chatType", "chatId", "timestampMillis"}),
+                @Index(value = {"message"})
         })
 public class MessageEntity {
     @PrimaryKey(autoGenerate = true)

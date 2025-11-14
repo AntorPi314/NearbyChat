@@ -17,6 +17,8 @@ public class SavedMessageEntity {
     public String messageId;
     public long savedTimestamp;
     public long originalTimestampMillis;
+    public long senderTimestampBits = 0;
+    public long messageTimestampBits = 0;
 
     public SavedMessageEntity() {}
 
@@ -31,12 +33,20 @@ public class SavedMessageEntity {
         saved.messageId = entity.messageId;
         saved.savedTimestamp = System.currentTimeMillis();
         saved.originalTimestampMillis = entity.timestampMillis;
+
+        saved.senderTimestampBits = entity.senderTimestampBits;
+        saved.messageTimestampBits = entity.messageTimestampBits;
         return saved;
     }
 
     public com.antor.nearbychat.MessageModel toMessageModel() {
         com.antor.nearbychat.MessageModel model = new com.antor.nearbychat.MessageModel(
-                senderId, message, isSelf, timestamp, 0, 0
+                senderId,
+                message,
+                isSelf,
+                timestamp,
+                senderTimestampBits,
+                messageTimestampBits
         );
         model.setMessageId(messageId);
         model.setChatType(chatType);

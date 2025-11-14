@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item name="tag_sender_id" type="id"/>
+    <item name="tag_image_urls" type="id"/>
+    <item name="tag_video_urls" type="id"/>
+</resources>

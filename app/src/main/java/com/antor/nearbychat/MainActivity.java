@@ -23,6 +23,12 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import com.antor.nearbychat.CryptoUtils;
+
+import androidx.work.PeriodicWorkRequest;
+import androidx.work.WorkManager;
+import androidx.work.ExistingPeriodicWorkPolicy;
+import java.util.concurrent.TimeUnit;
 
 import java.util.Map;
 import android.os.PowerManager;
@@ -218,6 +224,7 @@ public class MainActivity extends BaseActivity {
         observeTotalUnreadCount();
         checkBatteryOptimization();
         checkPermissionsAndStartService();
+        scheduleServiceWatchdog();
     }
 
     // In MainActivity.java
@@ -1263,10 +1270,9 @@ public class MainActivity extends BaseActivity {
             }
         }
 
-        // "Saved Messages" ভিউ সবকিছুর উপরে override করবে
         if (isShowingSavedMessages) {
-            inputEnabled = false;
-            hint = "Disable"; // ✅ এখানে পরিবর্তন করা হয়েছে
+            inputEnabled = true;  // ✅ CHANGE from false
+            hint = "Type to save locally...";  // ✅ NEW hint
         }
 
         // ইনপুট বক্সের state সেট করুন
@@ -1815,8 +1821,71 @@ public class MainActivity extends BaseActivity {
             return;
         }
         if (isShowingSavedMessages) {
-            Toast.makeText(this, "Cannot send messages from Saved view", Toast.LENGTH_SHORT).show();
-            return;
+            // ✅ NEW: Allow sending but DON'T broadcast, just save locally
+            String textMsg = inputMessage.getText().toString().trim();
+            String imageUrlsRaw = inputImageURL.getText().toString().trim();
+            String videoUrlsRaw = inputVideoURL.getText().toString().trim();
+
+            if (textMsg.isEmpty() && imageUrlsRaw.isEmpty() && videoUrlsRaw.isEmpty()) {
+                Toast.makeText(this, "Message cannot be empty!", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            if (!validateAllLinks(imageUrlsRaw, videoUrlsRaw)) {
+                Toast.makeText(this, "Invalid link format. Please check URLs.", Toast.LENGTH_LONG).show();
+                return;
+            }
+
+            int chunkCount = calculateCurrentChunkCount();
+            if (chunkCount > MAX_CHUNKS_LIMIT) {
+                Toast.makeText(this, "Message too large (" + chunkCount + "/" + MAX_CHUNKS_LIMIT + " chunks)", Toast.LENGTH_LONG).show();
+                return;
+            }
+
+            // ✅ Build the message but DON'T broadcast
+            String compressedPayload = PayloadCompress.buildPayload(textMsg, imageUrlsRaw, videoUrlsRaw);
+
+            // ✅ Create MessageModel
+            long currentTimeBits = System.currentTimeMillis() & ((1L << 40) - 1);
+            String messageId = MessageHelper.timestampToDisplayId(currentTimeBits);
+            String timestamp = MessageHelper.formatTimestamp(System.currentTimeMillis()) + " | 1C";
+
+            MessageModel newMsg = new MessageModel(
+                    userId,
+                    compressedPayload,
+                    true,  // isSelf = true
+                    timestamp,
+                    userIdBits,
+                    currentTimeBits
+            );
+            newMsg.setMessageId(messageId);
+            newMsg.setChatType("N");  // Treat as Nearby for simplicity
+            newMsg.setChatId("");
+            newMsg.setSaved(true);  // Mark as saved
+
+            // ✅ Save to saved_messages table
+            new Thread(() -> {
+                try {
+                    com.antor.nearbychat.Database.MessageEntity tempEntity =
+                            com.antor.nearbychat.Database.MessageEntity.fromMessageModel(newMsg);
+
+                    com.antor.nearbychat.Database.SavedMessageEntity savedEntity =
+                            com.antor.nearbychat.Database.SavedMessageEntity.fromMessageEntity(tempEntity);
+
+                    database.savedMessageDao().insertSavedMessage(savedEntity);
+
+                    runOnUiThread(() -> {
+                        Toast.makeText(this, "Message saved locally (not broadcasted)", Toast.LENGTH_SHORT).show();
+                        inputMessage.setText("");
+                        inputImageURL.setText("");
+                        inputVideoURL.setText("");
+                    });
+                } catch (Exception e) {
+                    runOnUiThread(() -> Toast.makeText(this, "Error saving message", Toast.LENGTH_SHORT).show());
+                }
+            }).start();
+
+            return;  // ✅ DON'T proceed to broadcast
         }
 
         String textMsg = inputMessage.getText().toString().trim();
@@ -2458,7 +2527,8 @@ public class MainActivity extends BaseActivity {
         appTitle.setText("Saved");
         appIcon.setImageResource(R.drawable.saved_blue);
 
-        disableInputContainer();
+        enableInputContainer();  // ✅ Allow typing
+        inputMessage.setHint("Type to save locally...");  // ✅ Custom hint
 
         if (currentMessagesLiveData != null) {
             currentMessagesLiveData.removeObservers(this);
@@ -2822,5 +2892,30 @@ public class MainActivity extends BaseActivity {
             mainHandler.removeCallbacksAndMessages(null);
         }
         super.onDestroy();
+    }
+
+    private void scheduleServiceWatchdog() {
+        try {
+            androidx.work.PeriodicWorkRequest watchdogWork =
+                    new androidx.work.PeriodicWorkRequest.Builder(
+                            ServiceWatchdogWorker.class,
+                            15, // Repeat every 15 minutes
+                            java.util.concurrent.TimeUnit.MINUTES
+                    )
+                            .addTag("service_watchdog")
+                            .build();
+
+            androidx.work.WorkManager.getInstance(this)
+                    .enqueueUniquePeriodicWork(
+                            "service_watchdog",
+                            androidx.work.ExistingPeriodicWorkPolicy.KEEP,
+                            watchdogWork
+                    );
+
+            Log.d(TAG, "✅ Service watchdog scheduled");
+
+        } catch (Exception e) {
+            Log.e(TAG, "❌ Failed to schedule watchdog", e);
+        }
     }
 }
