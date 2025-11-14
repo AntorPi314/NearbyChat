@@ -11,6 +11,7 @@ import android.os.Handler;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageView;
+import android.widget.Switch;
 import android.widget.Toast;
 import java.util.HashMap;
 import java.util.Map;
@@ -20,6 +21,7 @@ public class SettingsActivity extends BaseActivity {
 
     private static final String TAG = "SettingsActivity";
     private static final int MIN_MS_VALUE = 100;
+    private Switch switchAutoImageThumbnails;
 
     private EditText uuidEditablePart;
     private SharedPreferences prefs;
@@ -59,6 +61,9 @@ public class SettingsActivity extends BaseActivity {
         settingInputs.put("SCAN_MODE", findViewById(R.id.editScanMode));
         settingInputs.put("ADVERTISE_MODE", findViewById(R.id.editAdvertiseMode));
         settingInputs.put("TX_POWER_LEVEL", findViewById(R.id.editTxPowerLevel));
+        switchAutoImageThumbnails = findViewById(R.id.switchAutoImageThumbnails);
+
+
 
         Button saveButton = findViewById(R.id.saveAndRestartButton);
         saveButton.setOnClickListener(v -> saveSettingsAndRestart());
@@ -134,6 +139,8 @@ public class SettingsActivity extends BaseActivity {
         } else {
             uuidEditablePart.setText("aaaa");
         }
+        boolean autoThumbnails = prefs.getBoolean("AUTO_IMAGE_THUMBNAILS", true);
+        switchAutoImageThumbnails.setChecked(autoThumbnails);
     }
 
     private void saveSettingsAndRestart() {
@@ -204,6 +211,7 @@ public class SettingsActivity extends BaseActivity {
                 }
             }
         }
+        editor.putBoolean("AUTO_IMAGE_THUMBNAILS", switchAutoImageThumbnails.isChecked());
         if (!hasError) {
             editor.apply();
             Toast.makeText(this, "Settings saved! Restarting service...", Toast.LENGTH_SHORT).show();
@@ -227,6 +235,8 @@ public class SettingsActivity extends BaseActivity {
         settingInputs.get("SCAN_MODE").setText("2");
         settingInputs.get("ADVERTISE_MODE").setText("2");
         settingInputs.get("TX_POWER_LEVEL").setText("3");
+
+        switchAutoImageThumbnails.setChecked(true);
 
         Toast.makeText(this, "Defaults restored. Saving and restarting...", Toast.LENGTH_SHORT).show();
         new Handler().postDelayed(this::saveSettingsAndRestart, 500);

@@ -1,6 +1,8 @@
 package com.antor.nearbychat.Message;
 
 import android.content.Context;
+import android.util.Log;
+
 import com.antor.nearbychat.CryptoUtils;
 import com.antor.nearbychat.MessageModel;
 
@@ -74,9 +76,27 @@ public class MessageConverterForBle {
         if ("N".equals(chatType)) {
             messagePayload = payloadToSend;
         } else {
-            String password = MessageHelper.getPasswordForChat(context, chatType, chatId, senderDisplayId);
-            messagePayload = CryptoUtils.encrypt(payloadToSend, password);
+            // ✅ ADD null check for encryption
+            try {
+                String password = MessageHelper.getPasswordForChat(context, chatType, chatId, senderDisplayId);
+                messagePayload = CryptoUtils.encrypt(payloadToSend, password);
+
+                // ✅ Check if encryption failed
+                if (messagePayload == null || messagePayload.isEmpty()) {
+                    Log.e("MessageConverter", "Encryption failed, using original payload");
+                    messagePayload = payloadToSend;
+                }
+            } catch (Exception e) {
+                Log.e("MessageConverter", "Error encrypting message", e);
+                messagePayload = payloadToSend;
+            }
         }
+
+        // ✅ ADD validation
+        if (messagePayload == null) {
+            messagePayload = "";
+        }
+
         byte[] messageBytes = messagePayload.getBytes(ISO_8859_1);
 
         int firstChunkDataSize;
@@ -107,7 +127,14 @@ public class MessageConverterForBle {
             this.messageToSave.setChatId(chatId);
         }
         this.blePacketsToSend = new ArrayList<>();
-        String paddedChatId = String.format("%-5s", chatId).substring(0, 5);
+
+        // ✅ ADD null/empty check for chatId
+        String paddedChatId;
+        if (chatId == null || chatId.isEmpty()) {
+            paddedChatId = "     "; // 5 spaces
+        } else {
+            paddedChatId = String.format("%-5s", chatId).substring(0, 5);
+        }
 
         for (int i = 0; i < totalChunks; i++) {
             byte[] chunkData = dataChunks.get(i);

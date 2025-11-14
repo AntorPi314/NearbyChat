@@ -195,37 +195,56 @@ public class BleMessagingService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         Log.d(TAG, "Service onStartCommand");
-        if (!hasAllRequiredServicePermissions()) {
-            Log.e(TAG, "Missing required permissions");
-            stopSelf();
-            return START_NOT_STICKY;
-        }
-        loadConfigurableSettings();
-        if (!isServiceRunning) {
+
+        try {
+            // ✅ ALWAYS start foreground FIRST, even if permissions missing
             try {
                 startForegroundService();
-                initializeBle();
-                scheduleServiceRestarter();
-                isServiceRunning = true;
-            } catch (SecurityException e) {
-                Log.e(TAG, "SecurityException starting service", e);
-                stopSelf();
+            } catch (Exception e) {
+                Log.e(TAG, "Error starting foreground service", e);
+            }
+
+            // ✅ THEN check permissions
+            if (!hasAllRequiredServicePermissions()) {
+                Log.e(TAG, "Missing required permissions");
+                // Don't stop service immediately, wait a bit
+                mainHandler.postDelayed(() -> stopSelf(), 1000);
                 return START_NOT_STICKY;
             }
-        } else {
-            stopBleOperations();
-            mainHandler.postDelayed(this::initializeBle, 1000);
-        }
-        if (intent != null && intent.hasExtra("message_to_send")) {
-            String message = intent.getStringExtra("message_to_send");
-            String chatType = intent.getStringExtra("chat_type");
-            String chatId = intent.getStringExtra("chat_id");
-            if (message != null && chatType != null && chatId != null) {
-                String payload = PayloadCompress.buildPayload(message, null, null);
-                sendMessage(payload, chatType, chatId);
+            loadConfigurableSettings();
+
+            if (!isServiceRunning) {
+                try {
+                    initializeBle();
+                    scheduleServiceRestarter();
+                    isServiceRunning = true;
+                } catch (SecurityException e) {
+                    Log.e(TAG, "SecurityException starting service", e);
+                    mainHandler.postDelayed(() -> stopSelf(), 1000);
+                    return START_NOT_STICKY;
+                } catch (Exception e) {
+                    Log.e(TAG, "Error starting service", e);
+                    mainHandler.postDelayed(() -> stopSelf(), 1000);
+                    return START_NOT_STICKY;
+                }
+            } else {
+                stopBleOperations();
+                mainHandler.postDelayed(this::initializeBle, 1000);
             }
+            if (intent != null && intent.hasExtra("message_to_send")) {
+                String message = intent.getStringExtra("message_to_send");
+                String chatType = intent.getStringExtra("chat_type");
+                String chatId = intent.getStringExtra("chat_id");
+                if (message != null && chatType != null && chatId != null) {
+                    String payload = PayloadCompress.buildPayload(message, null, null);
+                    sendMessage(payload, chatType, chatId);
+                }
+            }
+            return START_STICKY;
+        } catch (Exception e) {
+            Log.e(TAG, "Critical error in onStartCommand", e);
+            return START_NOT_STICKY;
         }
-        return START_STICKY;
     }
 
     private void scheduleServiceRestarter() {
@@ -305,6 +324,8 @@ public class BleMessagingService extends Service {
         }
     }
 
+    // BleMessagingService.java
+
     private void startForegroundService() {
         Intent notificationIntent = new Intent(this, MainActivity.class);
         notificationIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
@@ -318,13 +339,48 @@ public class BleMessagingService extends Service {
                 .setOngoing(true)
                 .setShowWhen(false);
         Notification notification = builder.build();
+
+        // --- START FIX ---
+        // সার্ভিস টাইপ উল্লেখ করার আগে অবশ্যই পারমিশন চেক করতে হবে।
+        // পারমিশন না থাকলে, আমরা কোনো টাইপ ছাড়াই startForeground() কল করবো
+        // যাতে ForegroundServiceDidNotStartInTimeException ক্র্যাশটি না হয়।
+
+        boolean hasLocation = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+
+        // Android 12 (S) বা তার উপরে BLUETOOTH_CONNECT পারমিশন লাগে
+        boolean hasBluetooth = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+                (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED);
+
         if (Build.VERSION.SDK_INT >= 34) {
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION | ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE);
+            // Android 14+
+            int serviceType = 0; // কোনো পারমিশন না থাকলে 0 (default) থাকবে
+
+            // Android 12+ (API 31) লজিক অনুযায়ী, আমাদের আর লোকেশন পারমিশন দরকার নেই,
+            // কিন্তু Android 11 বা তার নিচের জন্য লোকেশন দরকার হতে পারে।
+            // তাই, আমরা এখানে উভয় পারমিশন চেক করবো।
+            if (hasLocation) {
+                serviceType |= ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION;
+            }
+            if (hasBluetooth) {
+                serviceType |= ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE;
+            }
+
+            // serviceType যদি 0-ও হয়, তবুও এটি ক্র্যাশ করবে না।
+            startForeground(NOTIFICATION_ID, notification, serviceType);
+
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION);
+            // Android 10-13
+            if (hasLocation) {
+                startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION);
+            } else {
+                // পারমিশন নেই, তাই টাইপ ছাড়া কল করুন
+                startForeground(NOTIFICATION_ID, notification);
+            }
         } else {
+            // Android 9 (Pie) এবং এর নিচে
             startForeground(NOTIFICATION_ID, notification);
         }
+        // --- END FIX ---
     }
 
     private void createNotificationChannel() {
@@ -399,10 +455,29 @@ public class BleMessagingService extends Service {
             public void onReceive(Context context, Intent intent) {
                 if (BluetoothAdapter.ACTION_STATE_CHANGED.equals(intent.getAction())) {
                     int state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR);
-                    if (state == BluetoothAdapter.STATE_ON) {
-                        mainHandler.postDelayed(() -> initializeBle(), 500);
-                    } else if (state == BluetoothAdapter.STATE_OFF) {
+
+                    if (state == BluetoothAdapter.STATE_TURNING_OFF) {
+                        // ✅ Bluetooth is turning off - stop operations immediately
+                        Log.w(TAG, "Bluetooth turning off - stopping operations");
                         stopBleOperations();
+                        isServiceRunning = false;
+                        isCycleRunning = false;
+
+                    } else if (state == BluetoothAdapter.STATE_OFF) {
+                        // ✅ Bluetooth is off - clean up
+                        Log.w(TAG, "Bluetooth is off");
+                        stopBleOperations();
+                        isServiceRunning = false;
+                        isCycleRunning = false;
+
+                    } else if (state == BluetoothAdapter.STATE_ON) {
+                        // ✅ Bluetooth is on - restart after delay
+                        Log.d(TAG, "Bluetooth is on - restarting");
+                        mainHandler.postDelayed(() -> {
+                            if (!isServiceRunning) {
+                                initializeBle();
+                            }
+                        }, 1000);
                     }
                 }
             }
@@ -416,17 +491,46 @@ public class BleMessagingService extends Service {
     }
 
     private void initializeBle() {
-        bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
-        if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled()) return;
-        if (!hasRequiredPermissions()) return;
         try {
+            bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+
+            // ✅ ADD null check
+            if (bluetoothAdapter == null) {
+                Log.e(TAG, "Bluetooth adapter is null");
+                return;
+            }
+
+            // ✅ ADD enabled check with permission handling
+            if (!hasRequiredPermissions()) {
+                Log.w(TAG, "Missing Bluetooth permissions");
+                return;
+            }
+
+            if (!bluetoothAdapter.isEnabled()) {
+                Log.w(TAG, "Bluetooth is disabled");
+                return;
+            }
+
             advertiser = bluetoothAdapter.getBluetoothLeAdvertiser();
             scanner = bluetoothAdapter.getBluetoothLeScanner();
-            if (scanner != null && !isCycleRunning) {
+
+            // ✅ ADD null checks for advertiser/scanner
+            if (advertiser == null) {
+                Log.e(TAG, "BLE Advertiser not available");
+            }
+
+            if (scanner == null) {
+                Log.e(TAG, "BLE Scanner not available");
+                return;
+            }
+
+            if (!isCycleRunning) {
                 startBleCycle();
             }
         } catch (SecurityException e) {
             Log.e(TAG, "SecurityException in initializeBle", e);
+        } catch (Exception e) {
+            Log.e(TAG, "Unexpected error in initializeBle", e);
         }
     }
 
@@ -531,17 +635,18 @@ public class BleMessagingService extends Service {
     }
 
     private void stopAdvertising() {
-        if (advertiser != null && advertiseCallback != null) {
-            if (!hasRequiredPermissions()) return;
-            try {
+        try {
+            if (advertiser != null && advertiseCallback != null) {
+                if (!hasRequiredPermissions()) return;
+
                 advertiser.stopAdvertising(advertiseCallback);
                 isAdvertising = false;
                 Log.d(TAG, "Advertising stopped");
-            } catch (SecurityException se) {
-                Log.e(TAG, "Missing required Bluetooth permissions", se);
-            } catch (Exception e) {
-                Log.e(TAG, "Error stopping advertising", e);
             }
+        } catch (SecurityException se) {
+            Log.e(TAG, "Missing required Bluetooth permissions", se);
+        } catch (Exception e) {
+            Log.e(TAG, "Error stopping advertising", e);
         }
     }
 
@@ -573,14 +678,22 @@ public class BleMessagingService extends Service {
     }
 
     private void stopScanningInternal() {
-        if (scanner != null && isScanning) {
-            try {
+        try {
+            if (scanner != null && isScanning) {
+                if (!hasRequiredPermissions()) {
+                    isScanning = false;
+                    return;
+                }
                 scanner.stopScan(scanCallback);
                 isScanning = false;
                 Log.d(TAG, "Scanning stopped");
-            } catch (SecurityException e) {
-                Log.e(TAG, "Security exception stopping scan", e);
             }
+        } catch (SecurityException e) {
+            Log.e(TAG, "Security exception stopping scan", e);
+            isScanning = false;
+        } catch (Exception e) {
+            Log.e(TAG, "Error stopping scan", e);
+            isScanning = false;
         }
     }
 
@@ -733,8 +846,19 @@ public class BleMessagingService extends Service {
                 final boolean isLast = (i == allPackets.size() - 1);
 
                 mainHandler.postDelayed(() -> {
-                    startAdvertising(packet);
-                    Log.d(TAG, "Sent chunk " + (index + 1) + "/" + allPackets.size());
+                    // ✅ ADD Bluetooth check before advertising
+                    try {
+                        if (bluetoothAdapter != null && bluetoothAdapter.isEnabled()) {
+                            startAdvertising(packet);
+                            Log.d(TAG, "Sent chunk " + (index + 1) + "/" + allPackets.size());
+                        } else {
+                            Log.w(TAG, "Bluetooth disabled, skipping chunk " + (index + 1));
+                            failedChunksCount++;
+                        }
+                    } catch (Exception e) {
+                        Log.e(TAG, "Error advertising chunk " + (index + 1), e);
+                        failedChunksCount++;
+                    }
 
                     if (isLast && advertisingListener != null) {
                         mainHandler.postDelayed(() -> {
@@ -805,8 +929,12 @@ public class BleMessagingService extends Service {
     }
 
     private void stopBleOperations() {
-        stopAdvertising();
-        stopScanningInternal();
+        try {
+            stopAdvertising();
+            stopScanningInternal();
+        } catch (Exception e) {
+            Log.e(TAG, "Error stopping BLE operations", e);
+        }
     }
 
     private void addMessage(MessageModel msg) {
@@ -1235,6 +1363,7 @@ public class BleMessagingService extends Service {
     }
 
     private boolean hasAllRequiredServicePermissions() {
+        // Android 12+ (API 31)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED)
                 return false;
@@ -1242,8 +1371,13 @@ public class BleMessagingService extends Service {
                 return false;
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADVERTISE) != PackageManager.PERMISSION_GRANTED)
                 return false;
+        } else {
+            // Android 11 (API 30) এবং এর নিচে
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                return false;
+            }
         }
-        return ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+        return true; // সব প্রয়োজনীয় পারমিশন আছে
     }
 
     @Override

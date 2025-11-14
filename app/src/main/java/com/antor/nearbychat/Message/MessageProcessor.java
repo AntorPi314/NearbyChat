@@ -203,14 +203,21 @@ public class MessageProcessor {
         if ("N".equals(chatType)) {
             decryptedPayload = payload;
         } else {
-            String password = MessageHelper.getPasswordForChat(context, chatType, chatId, senderDisplayId);
-            decryptedPayload = CryptoUtils.decrypt(payload, password);
+            try {
+                String password = MessageHelper.getPasswordForChat(context, chatType, chatId, senderDisplayId);
+                decryptedPayload = CryptoUtils.decrypt(payload, password);
 
-            if (decryptedPayload == null) {
-                Log.w(TAG, "Decryption failed for message from " + senderDisplayId);
+                // ✅ Better validation
+                if (decryptedPayload == null || decryptedPayload.isEmpty()) {
+                    Log.w(TAG, "Decryption returned null/empty for message from " + senderDisplayId);
+                    decryptedPayload = "[Decryption Failed]";
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Exception during decryption", e);
                 decryptedPayload = "[Decryption Failed]";
             }
         }
+
         MessageModel newMsg = new MessageModel(
                 senderDisplayId,
                 decryptedPayload,

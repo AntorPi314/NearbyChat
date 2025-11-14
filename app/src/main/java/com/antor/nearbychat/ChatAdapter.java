@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.Dialog;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
@@ -156,14 +157,17 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
                 }
 
                 @Override
-                public void onError(String error) {
+                public void onError(String error) { // <--- 'error' স্ট্রিংটি এখানে আসে
                     if (context instanceof Activity) {
                         ((Activity) context).runOnUiThread(() -> {
                             // হোল্ডারটি রিসাইকেল হয়েছে কিনা চেক করুন
                             if (!gUrl.equals(holder.itemView.getTag())) {
                                 return; // রিসাইকেল হয়ে গেছে, আপডেট করবেন না
                             }
-                            bindText(holder, "[Failed to load JSON]");
+
+                            String displayError = "Failed to load JSON: " + error;
+                            bindText(holder, displayError);
+
                             bindImages(holder, "", false);
                             bindVideos(holder, "");
                         });
@@ -351,40 +355,83 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
     }
 
     private void setupVideoViews(LinearLayout videoContainer, ArrayList<String> videoUrls) {
-        int columns = 3;
+        videoContainer.setOrientation(LinearLayout.HORIZONTAL);
+        ImageCacheManager cacheManager = ImageCacheManager.getInstance(context); // Cache manager instance
+
+        int maxDisplayVideos = 3;
         int totalVideos = videoUrls.size();
-        int rows = (int) Math.ceil(totalVideos / (double) columns);
+        int displayCount = Math.min(totalVideos, maxDisplayVideos);
 
-        for (int row = 0; row < rows; row++) {
-            LinearLayout rowLayout = new LinearLayout(context);
-            rowLayout.setOrientation(LinearLayout.HORIZONTAL);
-            rowLayout.setLayoutParams(new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-            ));
-            for (int col = 0; col < columns; col++) {
-                int index = row * columns + col;
-                if (index >= totalVideos) break;
+        for (int i = 0; i < displayCount; i++) {
+            final int currentIndex = i;
+            String url = videoUrls.get(i);
 
-                final String videoUrl = videoUrls.get(index);
+            if (i == maxDisplayVideos - 1 && totalVideos > maxDisplayVideos) {
+                // LAST VIDEO WITH OVERLAY (+N)
+                FrameLayout overlayContainer = new FrameLayout(context);
+                LinearLayout.LayoutParams containerParams = new LinearLayout.LayoutParams(dpToPx(60), dpToPx(60));
+                overlayContainer.setLayoutParams(containerParams);
 
-                FrameLayout videoFrame = new FrameLayout(context);
-                LinearLayout.LayoutParams frameParams = new LinearLayout.LayoutParams(dpToPx(60), dpToPx(60));
-                if (col < columns - 1 && index < totalVideos - 1) {
-                    frameParams.setMarginEnd(dpToPx(6));
-                }
-                if (row < rows - 1) {
-                    frameParams.bottomMargin = dpToPx(6);
-                }
-                videoFrame.setLayoutParams(frameParams);
-
-                View blackBg = new View(context);
-                FrameLayout.LayoutParams bgParams = new FrameLayout.LayoutParams(
+                ImageView imageView = new ImageView(context);
+                FrameLayout.LayoutParams imageParams = new FrameLayout.LayoutParams(
                         FrameLayout.LayoutParams.MATCH_PARENT,
                         FrameLayout.LayoutParams.MATCH_PARENT
                 );
-                blackBg.setLayoutParams(bgParams);
-                blackBg.setBackgroundColor(0xFF000000);
+                imageView.setLayoutParams(imageParams);
+                imageView.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                imageView.setBackgroundColor(0xFF000000); // Black background
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    overlayContainer.setClipToOutline(true);
+                    overlayContainer.setOutlineProvider(new android.view.ViewOutlineProvider() {
+                        @Override
+                        public void getOutline(android.view.View view, android.graphics.Outline outline) {
+                            outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), dpToPx(8));
+                        }
+                    });
+                }
+                View scrimView = new View(context);
+                FrameLayout.LayoutParams scrimParams = new FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT
+                );
+                scrimView.setLayoutParams(scrimParams);
+                scrimView.setBackgroundColor(0x80000000);
+                TextView countText = new TextView(context);
+                FrameLayout.LayoutParams textParams = new FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.WRAP_CONTENT,
+                        FrameLayout.LayoutParams.WRAP_CONTENT
+                );
+                textParams.gravity = android.view.Gravity.CENTER;
+                countText.setLayoutParams(textParams);
+                countText.setTextColor(0xFFFFFFFF);
+                countText.setTextSize(16);
+                countText.setTypeface(null, android.graphics.Typeface.BOLD);
+
+                int remaining = totalVideos - (maxDisplayVideos - 1);
+                countText.setText(String.format("+%d", remaining));
+
+                overlayContainer.addView(imageView);
+                overlayContainer.addView(scrimView);
+                overlayContainer.addView(countText);
+
+                // ▼▼▼ ei line-ti add kora hoyeche (image grid-er moto) ▼▼▼
+                loadVideoThumbnail(imageView, url, false, null);
+                // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
+                // ei click-er target thik ache - openVideoViewer
+                overlayContainer.setOnClickListener(v -> openVideoViewer(videoUrls, currentIndex));
+                videoContainer.addView(overlayContainer);
+
+            } else {
+                // NORMAL VIDEO THUMBNAIL (Item 1 or 2)
+                FrameLayout videoFrame = new FrameLayout(context);
+                LinearLayout.LayoutParams frameParams = new LinearLayout.LayoutParams(dpToPx(60), dpToPx(60));
+                if (i < displayCount - 1) {
+                    frameParams.setMarginEnd(dpToPx(6));
+                }
+                videoFrame.setLayoutParams(frameParams);
+                videoFrame.setBackgroundResource(R.drawable.bg_round_image);
 
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                     videoFrame.setClipToOutline(true);
@@ -395,25 +442,135 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
                         }
                     });
                 }
-                ImageView playIcon = new ImageView(context);
-                FrameLayout.LayoutParams playParams = new FrameLayout.LayoutParams(
-                        dpToPx(30),
-                        dpToPx(30)
+
+                ImageView thumbnailView = new ImageView(context);
+                FrameLayout.LayoutParams thumbParams = new FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT
                 );
+                thumbnailView.setLayoutParams(thumbParams);
+                thumbnailView.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                thumbnailView.setBackgroundColor(0xFF000000);
+
+                ImageView playIcon = new ImageView(context);
+                FrameLayout.LayoutParams playParams = new FrameLayout.LayoutParams(dpToPx(30), dpToPx(30));
                 playParams.gravity = android.view.Gravity.CENTER;
                 playIcon.setLayoutParams(playParams);
                 playIcon.setImageResource(R.drawable.ic_play_video);
-                playIcon.setColorFilter(null); // Remove color filter to use original drawable colors
+                playIcon.setVisibility(View.VISIBLE);
 
-                videoFrame.addView(blackBg);
+                android.widget.ProgressBar progressBar = new android.widget.ProgressBar(context, null, android.R.attr.progressBarStyleSmall);
+                FrameLayout.LayoutParams progressParams = new FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.WRAP_CONTENT,
+                        FrameLayout.LayoutParams.WRAP_CONTENT
+                );
+                progressParams.gravity = android.view.Gravity.CENTER;
+                progressBar.setLayoutParams(progressParams);
+                progressBar.setVisibility(View.GONE);
+
+                videoFrame.addView(thumbnailView);
                 videoFrame.addView(playIcon);
+                videoFrame.addView(progressBar);
 
-                videoFrame.setOnClickListener(v -> openVideoPlayer(videoUrl));
-                rowLayout.addView(videoFrame);
+                // --- Cache check logic (oporibortito) ---
+                Bitmap cachedBitmap = cacheManager.getBitmap(url + "_video_thumb", true);
+
+                if (cachedBitmap != null) {
+                    thumbnailView.setImageBitmap(cachedBitmap);
+                    playIcon.setVisibility(View.VISIBLE);
+                    progressBar.setVisibility(View.GONE);
+                    videoFrame.setOnClickListener(v -> {
+                        openVideoPlayer(url);
+                    });
+                } else {
+                    thumbnailView.setBackgroundColor(0xFF000000);
+                    playIcon.setVisibility(View.VISIBLE);
+                    progressBar.setVisibility(View.GONE);
+                    videoFrame.setOnClickListener(v -> {
+                        openVideoPlayer(url);
+                        playIcon.setVisibility(View.GONE);
+                        progressBar.setVisibility(View.VISIBLE);
+                        loadVideoThumbnail(thumbnailView, url, false, () -> {
+                            progressBar.setVisibility(View.GONE);
+                        });
+                    });
+                }
+                videoContainer.addView(videoFrame);
             }
-            videoContainer.addView(rowLayout);
         }
     }
+
+
+    private void loadVideoThumbnail(ImageView thumbnailView, String videoUrl, boolean andPlay, Runnable onComplete) {
+        ImageCacheManager cacheManager = ImageCacheManager.getInstance(context);
+        Bitmap cachedBitmap = cacheManager.getBitmap(videoUrl + "_video_thumb", true);
+
+        if (cachedBitmap != null) {
+            thumbnailView.setImageBitmap(cachedBitmap);
+            if (andPlay) {
+                openVideoPlayer(videoUrl);
+            }
+            if (onComplete != null) {
+                onComplete.run();
+            }
+            return;
+        }
+
+        // Not cached, load in background
+        executor.execute(() -> {
+            try {
+                String fullUrl = videoUrl;
+                if (!fullUrl.startsWith("http://") && !fullUrl.startsWith("https://")) {
+                    fullUrl = "https://" + fullUrl;
+                }
+
+                android.media.MediaMetadataRetriever retriever = new android.media.MediaMetadataRetriever();
+                retriever.setDataSource(fullUrl, new HashMap<>());
+                Bitmap frame = retriever.getFrameAtTime(1000000); // 1 second
+                retriever.release();
+
+                if (frame != null) {
+                    Bitmap thumbnail = ImageConverter.resizeAndCrop(frame, dpToPx(60), dpToPx(60));
+                    cacheManager.putBitmap(videoUrl + "_video_thumb", thumbnail, true);
+
+                    ((Activity) context).runOnUiThread(() -> {
+                        thumbnailView.setImageBitmap(thumbnail);
+                        if (andPlay) {
+                            openVideoPlayer(videoUrl);
+                        }
+                    });
+                } else {
+                    // Load ব্যর্থ হলেও, andPlay true থাকলে চালানোর চেষ্টা করুন
+                    if (andPlay) {
+                        ((Activity) context).runOnUiThread(() -> {
+                            openVideoPlayer(videoUrl);
+                        });
+                    }
+                }
+            } catch (Exception e) {
+                Log.e("ChatAdapter", "Error loading video thumbnail", e);
+                // Load ব্যর্থ হলেও, andPlay true থাকলে চালানোর চেষ্টা করুন
+                if (andPlay) {
+                    ((Activity) context).runOnUiThread(() -> {
+                        openVideoPlayer(videoUrl);
+                    });
+                }
+            } finally {
+                if (onComplete != null) {
+                    ((Activity) context).runOnUiThread(onComplete);
+                }
+            }
+        });
+    }
+
+    private void openVideoViewer(ArrayList<String> urls, int position) {
+        Intent intent = new Intent(context, VideoViewerActivity.class);
+        intent.putStringArrayListExtra("video_urls", urls);
+        intent.putExtra("start_position", position);
+        context.startActivity(intent);
+    }
+
+    // Add this method to ChatAdapter.java
 
     private void openVideoPlayer(String videoUrl) {
         try {
@@ -437,6 +594,13 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
     }
 
     private void setupImageViews(LinearLayout imageContainer, final ArrayList<String> imageUrls, boolean isSelf) {
+        imageContainer.setOrientation(LinearLayout.HORIZONTAL);
+        ImageCacheManager cacheManager = ImageCacheManager.getInstance(context);
+
+        // ✅ CHECK SETTINGS
+        SharedPreferences prefs = context.getSharedPreferences("NearbyChatSettings", Context.MODE_PRIVATE);
+        boolean autoLoadThumbnails = prefs.getBoolean("AUTO_IMAGE_THUMBNAILS", true);
+
         int maxDisplayImages = 3;
         int totalImages = imageUrls.size();
         int displayCount = Math.min(totalImages, maxDisplayImages);
@@ -446,6 +610,7 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
             String url = imageUrls.get(i);
 
             if (i == maxDisplayImages - 1 && totalImages > maxDisplayImages) {
+                // ✅ LAST IMAGE WITH OVERLAY (+N)
                 FrameLayout overlayContainer = new FrameLayout(context);
                 LinearLayout.LayoutParams containerParams = new LinearLayout.LayoutParams(dpToPx(60), dpToPx(60));
                 overlayContainer.setLayoutParams(containerParams);
@@ -467,6 +632,7 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
                         }
                     });
                 }
+
                 View scrimView = new View(context);
                 FrameLayout.LayoutParams scrimParams = new FrameLayout.LayoutParams(
                         FrameLayout.LayoutParams.MATCH_PARENT,
@@ -493,11 +659,39 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
                 overlayContainer.addView(scrimView);
                 overlayContainer.addView(countText);
 
-                loadImageThumbnail(imageView, url, url);
-                overlayContainer.setOnClickListener(v -> openImageViewer(imageUrls, currentIndex));
+                // ✅ CONDITIONAL LOADING FOR +N IMAGE
+                if (autoLoadThumbnails) {
+                    // Auto-load ON: Load thumbnail immediately
+                    loadImageThumbnail(imageView, url, url);
+                    overlayContainer.setOnClickListener(v -> openImageViewer(imageUrls, currentIndex));
+
+                } else {
+                    // Auto-load OFF: Show placeholder
+                    imageView.setBackgroundColor(0xFF2D3748);
+
+                    // ✅ Click: Load thumbnail + Open viewer
+                    overlayContainer.setOnClickListener(v -> {
+                        // Check if already cached
+                        Bitmap cachedBitmap = cacheManager.getBitmap(url, true);
+
+                        if (cachedBitmap != null) {
+                            // Already cached, just open viewer
+                            openImageViewer(imageUrls, currentIndex);
+                        } else {
+                            // Not cached, load it in background
+                            imageView.setBackgroundColor(0xFF4A5568); // Loading state
+                            loadImageThumbnail(imageView, url, url);
+
+                            // Open viewer immediately (viewer will load full image)
+                            openImageViewer(imageUrls, currentIndex);
+                        }
+                    });
+                }
+
                 imageContainer.addView(overlayContainer);
 
             } else {
+                // NORMAL IMAGE THUMBNAIL (1st and 2nd images)
                 ImageView imageView = new ImageView(context);
                 LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dpToPx(60), dpToPx(60));
                 if (i < displayCount - 1) {
@@ -516,8 +710,44 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
                         }
                     });
                 }
-                loadImageThumbnail(imageView, url, url);
-                imageView.setOnClickListener(v -> openImageViewer(imageUrls, currentIndex));
+
+                // ✅ CHECK IF AUTO-LOAD IS ENABLED
+                if (autoLoadThumbnails) {
+                    // OLD BEHAVIOR: Load immediately
+                    Bitmap cachedBitmap = cacheManager.getBitmap(url, true);
+                    if (cachedBitmap != null) {
+                        imageView.setImageBitmap(cachedBitmap);
+                    } else {
+                        imageView.setBackgroundColor(0xFF2D3748);
+                        loadImageThumbnail(imageView, url, url);
+                    }
+                    imageView.setOnClickListener(v -> openImageViewer(imageUrls, currentIndex));
+
+                } else {
+                    // ✅ NEW BEHAVIOR: Don't load, show placeholder with icon
+                    imageView.setBackgroundColor(0xFF2D3748);
+
+                    imageView.setImageResource(R.drawable.image);
+                    imageView.setColorFilter(0x80FFFFFF);
+
+                    imageView.setOnClickListener(v -> {
+                        imageView.setImageDrawable(null);
+                        imageView.clearColorFilter();
+
+                        Bitmap cachedBitmap = cacheManager.getBitmap(url, true);
+                        if (cachedBitmap != null) {
+                            openImageViewer(imageUrls, currentIndex);
+                        } else {
+                            imageView.setBackgroundColor(0xFF4A5568);
+                            loadImageThumbnail(imageView, url, url);
+
+                            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                                openImageViewer(imageUrls, currentIndex);
+                            }, 500);
+                        }
+                    });
+                }
+
                 imageContainer.addView(imageView);
             }
         }

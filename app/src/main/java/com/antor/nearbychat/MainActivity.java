@@ -203,6 +203,12 @@ public class MainActivity extends BaseActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        try {
+            bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+        } catch (Exception e) {
+            Log.e(TAG, "Bluetooth adapter initialization failed", e);
+        }
+
         String chatKey = activeChatType + ":" + activeChatId;
         getSharedPreferences("NotificationMessages", MODE_PRIVATE)
                 .edit()
@@ -215,7 +221,7 @@ public class MainActivity extends BaseActivity {
         mainHandler = new Handler(Looper.getMainLooper());
         handleNotificationIntent(getIntent());
 
-        loadChunkSettings(); // <-- ADD THIS LINE
+        loadChunkSettings();
 
         setupUI();
         initializeData();
@@ -224,10 +230,9 @@ public class MainActivity extends BaseActivity {
         observeTotalUnreadCount();
         checkBatteryOptimization();
         checkPermissionsAndStartService();
+
         scheduleServiceWatchdog();
     }
-
-    // In MainActivity.java
 
     private void setupUI() {
         final View rootView = findViewById(android.R.id.content);
@@ -275,7 +280,13 @@ public class MainActivity extends BaseActivity {
 
         chunkCountView = findViewById(R.id.chunkCount); // <-- ADD THIS LINE
 
-        sendButtonContainer.setOnClickListener(this::onSendButtonClick);
+        sendButtonContainer.setOnClickListener(v -> {
+            if (!hasAllPermissionsAndServicesReady()) {
+                handlePermissionIssueClick();
+            } else {
+                onSendButtonClick(v);
+            }
+        });
 
         setupAppIconClick();
 
@@ -407,7 +418,6 @@ public class MainActivity extends BaseActivity {
                 searchHandler.postDelayed(searchRunnable[0], 300);
             }
         });
-        debugDatabaseContent();
     }
 
     private void toggleInputMode() {
@@ -518,38 +528,6 @@ public class MainActivity extends BaseActivity {
                 Log.d(TAG, "🔍 Showing " + foundCount + " results out of " + messages.size() + " total messages");
             }
         });
-    }
-
-    // Add this method for debugging
-    private void debugDatabaseContent() {
-        new Thread(() -> {
-            try {
-                List<com.antor.nearbychat.Database.MessageEntity> allMsgs = messageDao.getAllMessages();
-                Log.d(TAG, "🔍 Total messages in DB: " + allMsgs.size());
-
-                for (com.antor.nearbychat.Database.MessageEntity msg : allMsgs) {
-                    Log.d(TAG, "🔍 DB Message: chatType=" + msg.chatType +
-                            ", chatId=" + msg.chatId +
-                            ", message=" + msg.message.substring(0, Math.min(100, msg.message.length())));
-                }
-
-                // Now test manual search
-                String testQuery = "test"; // Change this to a word you know exists
-                runOnUiThread(() -> {
-                    messageDao.searchMessagesInChat(activeChatType, activeChatId, testQuery)
-                            .observe(this, results -> {
-                                Log.d(TAG, "🔍 Manual search results: " + (results != null ? results.size() : "null"));
-                                if (results != null) {
-                                    for (com.antor.nearbychat.Database.MessageEntity r : results) {
-                                        Log.d(TAG, "🔍 Result: " + r.message);
-                                    }
-                                }
-                            });
-                });
-            } catch (Exception e) {
-                Log.e(TAG, "🔍 Debug error", e);
-            }
-        }).start();
     }
 
     private void restoreNormalChatView() {
@@ -713,15 +691,6 @@ public class MainActivity extends BaseActivity {
         Button btnSave = dialog.findViewById(R.id.btnAdd);
         ImageView qrCodeShow = dialog.findViewById(R.id.qrCodeShow);
 
-        // ▼▼▼ এই লেআউটে কোনো ডিলিট বাটন নেই, তাই XML অনুযায়ী এটি ঠিক আছে ▼▼▼
-        // dialog_add_edit_groups.xml-এ 'btnDelete' নামের কোনো আইডি নেই।
-        // যদি থাকতো, তাহলে আমরা নিচের লাইনটি যোগ করতাম:
-        // Button btnDelete = dialog.findViewById(R.id.btnDelete);
-        // if (btnDelete != null) {
-        //     btnDelete.setVisibility(View.GONE);
-        // }
-        // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
-
         title.setText("Edit Group");
         btnSave.setText("Save");
         editName.setText(g.getName());
@@ -734,19 +703,31 @@ public class MainActivity extends BaseActivity {
             groupIdText.setText(displayId);
         }
 
+        // ✅ ===== এখানে নতুন কোড যোগ করুন =====
+        TextView groupCreatedDate = dialog.findViewById(R.id.groupCreatedDate);
+        if (groupCreatedDate != null) {
+            try {
+                long bits = MessageHelper.asciiIdToTimestamp(g.getId());
+                long fullTimestamp = MessageHelper.reconstructFullTimestamp(bits);
+                String formattedDate = MessageHelper.formatTimestamp(fullTimestamp);
+                groupCreatedDate.setText("Created: " + formattedDate);
+            } catch (Exception e) {
+                groupCreatedDate.setText("Created: Unknown");
+            }
+        }
+        // ✅ ===== নতুন কোড শেষ =====
+
         ImageView dialogProfilePic = dialog.findViewById(R.id.profilePicRound);
         if (dialogProfilePic != null) {
-            // গ্রুপ প্রোফাইল পিক লোড করার জন্য সঠিক মেথড কল করুন
             long bits = MessageHelper.asciiIdToTimestamp(g.getId());
             String displayId = getUserIdString(bits);
             ProfilePicLoader.loadGroupProfilePicture(this, displayId, dialogProfilePic);
 
             dialogProfilePic.setOnClickListener(v -> {
-                // গ্রুপের ডিসপ্লে আইডি পাস করুন
                 long bitsId = MessageHelper.asciiIdToTimestamp(g.getId());
                 String displayIdForPic = getUserIdString(bitsId);
 
-                currentUserId = displayIdForPic; // এখানে ডিসপ্লে আইডি ব্যবহার করুন
+                currentUserId = displayIdForPic;
                 currentProfilePic = dialogProfilePic;
                 showImagePickerDialog(displayIdForPic, dialogProfilePic);
             });
@@ -802,7 +783,6 @@ public class MainActivity extends BaseActivity {
             updateChatUIForSelection();
             dialog.dismiss();
         });
-
         dialog.show();
     }
 
@@ -834,10 +814,9 @@ public class MainActivity extends BaseActivity {
             }
         }
 
-        // যদি ফ্রেন্ড লিস্টে না থাকে (যেমন, ব্লক করার পর ডায়লগ খোলা)
         if (friendToEdit == null) {
-            String name = getDisplayName(displayIdToFind); // নাম ম্যাপ চেক করবে
-            if (name.equals(displayIdToFind)) name = ""; // নাম না পেলে খালি রাখুন
+            String name = getDisplayName(displayIdToFind);
+            if (name.equals(displayIdToFind)) name = "";
             friendToEdit = new FriendModel(displayIdToFind, name, "");
             friendPosition = -1;
         }
@@ -857,9 +836,7 @@ public class MainActivity extends BaseActivity {
         EditText editId = dialog.findViewById(R.id.editFriendId);
         EditText editKey = dialog.findViewById(R.id.editEncryptionKey);
 
-        // ▼▼▼ এখান থেকে পরিবর্তন শুরু ▼▼▼
-        Button btnBlockUnblock = dialog.findViewById(R.id.btnDelete); // XML-এর btnDelete আইডি ব্যবহার করা হচ্ছে
-        // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+        Button btnBlockUnblock = dialog.findViewById(R.id.btnDelete);
 
         Button btnCancel = dialog.findViewById(R.id.btnCancel);
         Button btnSave = dialog.findViewById(R.id.btnAdd);
@@ -872,8 +849,21 @@ public class MainActivity extends BaseActivity {
         editKey.setText(f.getEncryptionKey());
         editId.setEnabled(false);
 
-        // ▼▼▼ এখান থেকে পরিবর্তন শুরু ▼▼▼
-        btnBlockUnblock.setVisibility(View.VISIBLE); // বাটনটি সবসময় দেখান
+        btnBlockUnblock.setVisibility(View.VISIBLE);
+
+        // ✅ ===== এখানে নতুন কোড যোগ করুন =====
+        TextView userJoinedDate = dialog.findViewById(R.id.userJoinedDate);
+        if (userJoinedDate != null) {
+            try {
+                long userBits = MessageHelper.displayIdToTimestamp(displayId);
+                long fullTimestamp = MessageHelper.reconstructFullTimestamp(userBits);
+                String formattedDate = MessageHelper.formatTimestamp(fullTimestamp);
+                userJoinedDate.setText("Joined: " + formattedDate);
+            } catch (Exception e) {
+                userJoinedDate.setText("Joined: Unknown");
+            }
+        }
+        // ✅ ===== নতুন কোড শেষ =====
 
         ImageView dialogProfilePic = dialog.findViewById(R.id.profilePicRound);
         ProfilePicLoader.loadProfilePicture(this, displayId, dialogProfilePic);
@@ -885,11 +875,9 @@ public class MainActivity extends BaseActivity {
             });
         }
 
-        // (বাকি কোড যেমন qrCodeShow, switchNotification অপরিবর্তিত)
         if (qrCodeShow != null) {
             qrCodeShow.setVisibility(View.VISIBLE);
             qrCodeShow.setOnClickListener(v -> {
-                // নামের জন্য EditText থেকে বর্তমান ভ্যালু নিন
                 String currentName = editName.getText().toString().trim();
                 if (currentName.isEmpty()) currentName = f.getName();
 
@@ -926,20 +914,19 @@ public class MainActivity extends BaseActivity {
 
         btnCancel.setOnClickListener(v -> dialog.dismiss());
 
-        // --- নতুন Block/Unblock লজিক ---
         final boolean isBlocked = isUserBlocked(displayId);
         if (isBlocked) {
             btnBlockUnblock.setText("Unblock");
-            btnBlockUnblock.setBackgroundColor(Color.parseColor("#007BFF")); // Blue
+            btnBlockUnblock.setBackgroundColor(Color.parseColor("#007BFF"));
         } else {
             btnBlockUnblock.setText("Block");
-            btnBlockUnblock.setBackgroundColor(Color.parseColor("#DC3545")); // Red
+            btnBlockUnblock.setBackgroundColor(Color.parseColor("#DC3545"));
         }
 
         btnBlockUnblock.setOnClickListener(v -> {
             String currentName = editName.getText().toString().trim();
-            if (currentName.isEmpty()) currentName = f.getName(); // স্টোর করা নাম
-            if (currentName.isEmpty()) currentName = displayId;  // ফলব্যাক
+            if (currentName.isEmpty()) currentName = f.getName();
+            if (currentName.isEmpty()) currentName = displayId;
 
             if (isBlocked) {
                 unblockUser(displayId, currentName);
@@ -948,16 +935,11 @@ public class MainActivity extends BaseActivity {
             }
             dialog.dismiss();
 
-            // UI আপডেট করুন (GroupsFriendsActivity-তে যাওয়ার জন্য)
             Intent intent = new Intent(this, GroupsFriendsActivity.class);
             intent.putExtra("currentChatType", activeChatType);
             intent.putExtra("currentChatId", activeChatId);
             startActivityForResult(intent, REQUEST_CODE_SELECT_CHAT);
         });
-
-        // --- পুরনো ডিলিট লজিক সরিয়ে ফেলা হয়েছে ---
-
-        // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
         btnSave.setOnClickListener(v -> {
             String name = editName.getText().toString().trim();
@@ -1047,6 +1029,18 @@ public class MainActivity extends BaseActivity {
                 currentProfilePic = dialogProfilePic;
                 showImagePickerDialog(displayId, dialogProfilePic);
             });
+        }
+
+        TextView userJoinedDate = dialog.findViewById(R.id.userJoinedDate);
+        if (userJoinedDate != null) {
+            try {
+                long userBits = MessageHelper.displayIdToTimestamp(displayId);
+                long fullTimestamp = MessageHelper.reconstructFullTimestamp(userBits);
+                String formattedDate = MessageHelper.formatTimestamp(fullTimestamp);
+                userJoinedDate.setText("Joined: " + formattedDate);
+            } catch (Exception e) {
+                userJoinedDate.setText("Joined: Unknown");
+            }
         }
 
         if (qrCodeShow != null) {
@@ -1570,30 +1564,48 @@ public class MainActivity extends BaseActivity {
     }
 
     private void checkPermissionsAndStartService() {
-        bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
-        if (bluetoothAdapter == null) {
-            Toast.makeText(this, "Bluetooth not available", Toast.LENGTH_LONG).show();
-            return;
-        }
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+
+            if (bluetoothAdapter == null) {
+                Toast.makeText(this, "Bluetooth not available", Toast.LENGTH_LONG).show();
+                // ✅ UPDATE send button color even if Bluetooth unavailable
+                updateSendButtonColor();
+                return;
+            }
+
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                        ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                    checkAndRequestPermissionsSequentially();
+                    return;
+                }
+
+                if (!bluetoothAdapter.isEnabled()) {
+                    Toast.makeText(this, "Please turn on Bluetooth", Toast.LENGTH_LONG).show();
+                    startActivityForResult(new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE), 101);
+                    // ✅ UPDATE send button color
+                    updateSendButtonColor();
+                    return;
+                }
+
                 checkAndRequestPermissionsSequentially();
-                return;
+            } catch (SecurityException se) {
+                Log.e(TAG, "Bluetooth permission missing", se);
+                Toast.makeText(this, "Bluetooth permission required", Toast.LENGTH_SHORT).show();
+                checkAndRequestPermissionsSequentially();
             }
-            if (!bluetoothAdapter.isEnabled()) {
-                Toast.makeText(this, "Please turn on Bluetooth", Toast.LENGTH_LONG).show();
-                startActivityForResult(new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE), 101);
-                return;
-            }
-            checkAndRequestPermissionsSequentially();
-        } catch (SecurityException se) {
-            Log.e(TAG, "Bluetooth permission missing", se);
-            Toast.makeText(this, "Bluetooth permission required", Toast.LENGTH_SHORT).show();
-            checkAndRequestPermissionsSequentially();
+        } catch (Exception e) {
+            Log.e(TAG, "Error in checkPermissionsAndStartService", e);
+            Toast.makeText(this, "Error initializing Bluetooth", Toast.LENGTH_SHORT).show();
+            // ✅ UPDATE send button color even on error
+            updateSendButtonColor();
         }
     }
 
     private void checkAndRequestPermissionsSequentially() {
+
+        // Android 12+ (API 31)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
                 requestSinglePermission(Manifest.permission.BLUETOOTH_CONNECT, "Bluetooth connection required for messaging");
@@ -1607,17 +1619,23 @@ public class MainActivity extends BaseActivity {
                 requestSinglePermission(Manifest.permission.BLUETOOTH_ADVERTISE, "Bluetooth advertising required to be discoverable");
                 return;
             }
+        } else {
+            // Android 11 (API 30) এবং এর নিচে
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                showLocationPermissionDialog(); // লোকেশন ডায়ালগ দেখান
+                return;
+            }
         }
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            showLocationPermissionDialog();
-            return;
-        }
+
+        // Android 13+ (API 33)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 requestSinglePermission(Manifest.permission.POST_NOTIFICATIONS, "Notifications required for background service alerts");
                 return;
             }
         }
+
+        // সব পারমিশন থাকলে সার্ভিস চালু করুন
         new Handler(Looper.getMainLooper()).postDelayed(this::startBleService, 500);
     }
 
@@ -1625,7 +1643,10 @@ public class MainActivity extends BaseActivity {
         if (ActivityCompat.shouldShowRequestPermissionRationale(this, permission)) {
             new AlertDialog.Builder(this).setTitle("Permission Required").setMessage(reason)
                     .setPositiveButton("Grant", (dialog, which) -> ActivityCompat.requestPermissions(this, new String[]{permission}, PERMISSION_REQUEST_CODE))
-                    .setNegativeButton("Cancel", (dialog, which) -> Toast.makeText(this, "Permission denied. App may not work properly.", Toast.LENGTH_LONG).show())
+                    .setNegativeButton("Cancel", (dialog, which) -> {
+                        dialog.dismiss();
+                        updateSendButtonColor();
+                    })
                     .show();
         } else {
             ActivityCompat.requestPermissions(this, new String[]{permission}, PERMISSION_REQUEST_CODE);
@@ -1643,14 +1664,30 @@ public class MainActivity extends BaseActivity {
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+
         if (requestCode == PERMISSION_REQUEST_CODE) {
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                checkAndRequestPermissionsSequentially();
+            // --- START FIX: "Permission Denied" Toast Fix ---
+            if (grantResults.length > 0) {
+                // রিকোয়েস্টের একটি ফলাফল আছে
+                if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    // একটি পারমিশন পেয়েছে, পরেরটির জন্য আবার চেক করুন
+                    checkAndRequestPermissionsSequentially();
+                } else {
+                    // ইউজার স্পষ্টভাবে "Deny" ক্লিক করেছে
+                    Toast.makeText(this, "Permission denied. App may not work properly.", Toast.LENGTH_LONG).show();
+                }
             } else {
-                Toast.makeText(this, "Permission denied: " + (permissions.length > 0 ? permissions[0] : "Unknown"), Toast.LENGTH_LONG).show();
-                new Handler().postDelayed(this::checkAndRequestPermissionsSequentially, 1000);
+                // রিকোয়েস্ট ক্যানসেল হয়েছে (grantResults.length == 0)
+                // কোনো টোস্ট দেখাবেন না।
+                Log.w(TAG, "Permission request was cancelled or interrupted.");
             }
+            // --- END FIX ---
+
+            // বাটনটির রঙ আপডেটের জন্য কল করুন
+            updateSendButtonColor();
+
         } else if (requestCode == REQUEST_STORAGE_PERMISSION) {
+            // ... (বাকি কোড অপরিবর্তিত) ...
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 if (currentUserId != null && currentProfilePic != null)
                     showImagePickerDialogInternal(currentUserId, currentProfilePic);
@@ -1660,6 +1697,7 @@ public class MainActivity extends BaseActivity {
                     openCamera(currentUserId, currentProfilePic);
             }
         } else if (requestCode == REQUEST_CAMERA_PERMISSION) {
+            // ... (বাকি কোড অপরিবর্তিত) ...
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 if (currentUserId != null && currentProfilePic != null)
                     openCameraInternal(currentUserId, currentProfilePic);
@@ -1670,21 +1708,31 @@ public class MainActivity extends BaseActivity {
     }
 
     private boolean hasAllRequiredPermissions() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED)
-                return false;
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED)
-                return false;
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADVERTISE) != PackageManager.PERMISSION_GRANTED)
-                return false;
-        }
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED)
-            return false;
+        // Android 13+ (API 33) এর জন্য নোটিফিকেশন
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 return false;
+            }
         }
-        return true;
+
+        // Android 12+ (API 31) এর জন্য নতুন Bluetooth পারমিশন
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                return false;
+            }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
+                return false;
+            }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADVERTISE) != PackageManager.PERMISSION_GRANTED) {
+                return false;
+            }
+        } else {
+            // Android 11 (API 30) এবং এর নিচের জন্য লোকেশন পারমিশন
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                return false;
+            }
+        }
+        return true; // সব প্রয়োজনীয় পারমিশন আছে
     }
 
     private void startBleService() {
@@ -1964,11 +2012,6 @@ public class MainActivity extends BaseActivity {
 
         if (requestCode == REQUEST_CODE_SELECT_CHAT) {
             if (resultCode == RESULT_OK && data != null) {
-                // একটি নতুন চ্যাট সিলেক্ট করা হয়েছে।
-                // আমরা শুধু activeChatType এবং activeChatId আপডেট করবো।
-                // onResume() মেথডটি এরপর নিজে থেকেই কল হবে এবং
-                // সেখানের নতুন লজিকটি পরিবর্তনটি সনাক্ত করে UI রিলোড করবে।
-
                 activeChatType = data.getStringExtra("chatType");
                 activeChatId = data.getStringExtra("chatId");
                 saveActiveChat();
@@ -1982,24 +2025,19 @@ public class MainActivity extends BaseActivity {
                         savedMessagesLiveData = null;
                     }
                 }
-
-                // updateChatUIForSelection(); // <-- আমরা এখান থেকে রিলোড কলটি সরিয়ে দিয়েছি
             } else {
-                // resultCode == RESULT_CANCELED (অর্থাৎ Back বা outside-click)
-                // কিছুই করার দরকার নেই। onResume() কল হবে,
-                // এবং এটি দেখবে যে চ্যাট পরিবর্তন হয়নি, তাই রিলোড স্কিপ করবে।
                 Log.d(TAG, "onActivityResult: Chat selection canceled (Back pressed). No reload.");
             }
-            return; // REQUEST_CODE_SELECT_CHAT হ্যান্ডল করা হয়েছে
+            return;
         }
-
-        // অন্যান্য onActivityResult লজিক (Location, Gallery, Camera, etc.)
         if (requestCode == REQUEST_ENABLE_LOCATION) {
             if (isLocationEnabled()) requestAllPermissions();
             else Toast.makeText(this, "Location is required", Toast.LENGTH_LONG).show();
+            updateSendButtonColor();
         } else if (requestCode == 101) {
             if (bluetoothAdapter != null && bluetoothAdapter.isEnabled()) requestAllPermissions();
             else Toast.makeText(this, "Bluetooth is required", Toast.LENGTH_LONG).show();
+            updateSendButtonColor();
         } else if (requestCode == REQUEST_BATTERY_OPTIMIZATION) {
             if (((PowerManager) getSystemService(Context.POWER_SERVICE)).isIgnoringBatteryOptimizations(getPackageName()))
                 Toast.makeText(this, "Battery optimization disabled", Toast.LENGTH_SHORT).show();
@@ -2022,6 +2060,8 @@ public class MainActivity extends BaseActivity {
             Log.e(TAG, "Error processing gallery image", e);
         }
     }
+
+
 
     private void handleCameraResult(Intent data) {
         try {
@@ -2821,27 +2861,113 @@ public class MainActivity extends BaseActivity {
         if (bluetoothAdapter != null && bluetoothAdapter.isEnabled() && hasAllRequiredPermissions()) {
             startBleService();
         }
-
-        // ▼▼▼ মূল পরিবর্তন এখানে ▼▼▼
-        // ২. চেক করুন: বর্তমান চ্যাটটিই কি সর্বশেষ রিলোড করা চ্যাট?
         if (activeChatType.equals(lastRefreshedChatType) && activeChatId.equals(lastRefreshedChatId)) {
-            // যদি একই হয়, তাহলে সম্পূর্ণ UI রিলোড করার দরকার নেই।
-            // ব্যবহারকারী শুধু অন্য স্ক্রিন থেকে ফিরে এসেছে।
+
             Log.d(TAG, "onResume: Same chat (" + activeChatType + "/" + activeChatId + "), skipping full reload.");
 
-            // শুধু মেসেজগুলো 'read' হিসেবে মার্ক করুন
             markCurrentChatAsRead();
         } else {
-            // যদি এটি ভিন্ন চ্যাট হয় (অথবা অ্যাপ প্রথমবার লোড হয়),
-            // তাহলে সম্পূর্ণ UI রিলোড করুন।
             Log.d(TAG, "onResume: New chat (" + activeChatType + "/" + activeChatId + "), performing full reload.");
             updateChatUIForSelection();
 
-            // ৩. মনে রাখুন যে এই চ্যাটটি রিলোড করা হয়েছে
             lastRefreshedChatType = activeChatType;
             lastRefreshedChatId = activeChatId;
         }
-        // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+        updateSendButtonColor();
+    }
+
+    private boolean hasAllPermissionsAndServicesReady() {
+        if (bluetoothAdapter == null) {
+            return false;
+        }
+        try {
+            if (!bluetoothAdapter.isEnabled()) {
+                return false;
+            }
+        } catch (SecurityException e) {
+            Log.e(TAG, "Security exception checking Bluetooth", e);
+            return false;
+        }
+
+        // Android 13+ (API 33) নোটিফিকেশন চেক
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                return false;
+            }
+        }
+
+        // Android 12+ (API 31) নতুন বিটি পারমিশন চেক
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                return false;
+            }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
+                return false;
+            }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADVERTISE) != PackageManager.PERMISSION_GRANTED) {
+                return false;
+            }
+        } else {
+            // Android 11 (API 30) এবং এর নিচের জন্য লোকেশন পারমিশন এবং লোকেশন সেটিং চেক
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                return false;
+            }
+            if (!isLocationEnabled()) {
+                return false; // লোকেশন সেটিং (GPS) বন্ধ
+            }
+        }
+        return true; // সব ঠিক আছে
+    }
+
+    private void updateSendButtonColor() {
+        if (sendButton == null) return;
+
+        if (hasAllPermissionsAndServicesReady()) {
+            // ✅ সব ঠিক আছে - নীল রঙ
+            sendButton.setImageResource(R.drawable.sent);
+            sendButton.clearColorFilter();
+        } else {
+            // ❌ সমস্যা আছে - লাল রঙ
+            sendButton.setImageResource(R.drawable.sent);
+            sendButton.setColorFilter(Color.parseColor("#E92C2C"), android.graphics.PorterDuff.Mode.SRC_ATOP);
+        }
+    }
+
+    private void handlePermissionIssueClick() {
+        // Check what's wrong and fix it
+
+        // 1. Check Bluetooth
+        if (bluetoothAdapter == null) {
+            Toast.makeText(this, "Bluetooth not available on this device", Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        try {
+            if (!bluetoothAdapter.isEnabled()) {
+                Toast.makeText(this, "Please turn on Bluetooth", Toast.LENGTH_SHORT).show();
+                startActivityForResult(new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE), 101);
+                return;
+            }
+        } catch (SecurityException se) {
+            // Permission missing, will be handled below
+        }
+
+        // 2. Check Location
+        if (!isLocationEnabled()) {
+            new AlertDialog.Builder(this)
+                    .setTitle("Location Required")
+                    .setMessage("Please enable Location to use Bluetooth features")
+                    .setPositiveButton("Enable", (dialog, which) -> {
+                        Intent intent = new Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS);
+                        startActivityForResult(intent, REQUEST_ENABLE_LOCATION);
+                    })
+                    .setNegativeButton("Cancel", null)
+                    .show();
+            return;
+        }
+
+        // 3. Check Permissions
+        checkAndRequestPermissionsSequentially();
     }
 
     @Override
