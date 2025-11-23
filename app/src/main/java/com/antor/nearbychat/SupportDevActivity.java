@@ -111,8 +111,6 @@ public class SupportDevActivity extends Activity {
             }
             @Override public void onNothingSelected(AdapterView<?> parent) {}
         });
-
-        // set selection to default
         for (int i = 0; i < cryptoNames.length; i++) {
             if (cryptoNames[i].equals(defaultName)) {
                 cryptoSpinner.setSelection(i);
@@ -149,12 +147,6 @@ public class SupportDevActivity extends Activity {
             Toast.makeText(this, "Cannot open link", Toast.LENGTH_SHORT).show();
         }
     }
-
-    // -----------------------
-    // Key handling (obfuscated in-code)
-    // -----------------------
-    // The original AES-256 key bytes were XOR'd with mask 0xAA and stored as hex.
-    // We reconstruct by hex->bytes then XOR with 0xAA again.
     private static final String OBFUSCATED_KEY_HEX = "90d5b87302e6bbf4318ac522ab69d7e090d5b87302e6bbf4318ac522ab69d7e0";
     private static final byte KEY_MASK = (byte)0xAA;
 

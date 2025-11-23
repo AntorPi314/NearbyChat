@@ -39,7 +39,7 @@ public class VideoViewerActivity extends Activity {
     private VideoGridAdapter adapter;
     private ArrayList<String> videoUrls;
     private ImageCacheManager cacheManager;
-    private SharedPreferences metadataPrefs; // Duration cache korar jonno
+    private SharedPreferences metadataPrefs;
 
     private boolean autoLoadThumbnails = false;
 
@@ -62,7 +62,7 @@ public class VideoViewerActivity extends Activity {
         }
 
         cacheManager = ImageCacheManager.getInstance(this);
-        metadataPrefs = getSharedPreferences("VideoMetadata", MODE_PRIVATE); // Prefs initialize
+        metadataPrefs = getSharedPreferences("VideoMetadata", MODE_PRIVATE);
 
         titleText.setText("All Videos");
 
@@ -83,7 +83,6 @@ public class VideoViewerActivity extends Activity {
         findViewById(R.id.btnClose).setOnClickListener(v -> finish());
     }
 
-    // Milliseconds-ke m:ss format-e convert korar helper
     private String formatDuration(long millis) {
         long totalSeconds = millis / 1000;
         long minutes = (totalSeconds % 3600) / 60;
@@ -125,17 +124,16 @@ public class VideoViewerActivity extends Activity {
 
         class VideoViewHolder extends RecyclerView.ViewHolder {
             ImageView thumbnailView;
-            TextView durationView; // playIcon-er bodole
+            TextView durationView;
             ProgressBar progressBar;
             private boolean canPlay = false;
 
             VideoViewHolder(@NonNull View itemView) {
                 super(itemView);
                 thumbnailView = itemView.findViewById(R.id.videoThumbnail);
-                durationView = itemView.findViewById(R.id.videoDuration); // notun ID
+                durationView = itemView.findViewById(R.id.videoDuration);
                 progressBar = itemView.findViewById(R.id.progressBar);
 
-                // item square korar logic
                 itemView.getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
                     @Override
                     public boolean onPreDraw() {
@@ -195,10 +193,8 @@ public class VideoViewerActivity extends Activity {
                     android.media.MediaMetadataRetriever retriever = new android.media.MediaMetadataRetriever();
                     retriever.setDataSource(fullUrl, new HashMap<>());
 
-                    // Thumbnail
                     Bitmap frame = retriever.getFrameAtTime(1000000);
 
-                    // Duration
                     String durationStr = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION);
                     retriever.release();
 
@@ -251,14 +247,11 @@ public class VideoViewerActivity extends Activity {
                     if (canPlay) {
                         playVideo(videoUrl);
                     } else {
-                        // 1. Play video
                         playVideo(videoUrl);
 
-                        // 2. Show loading UI
                         progressBar.setVisibility(View.VISIBLE);
                         durationView.setVisibility(View.GONE);
 
-                        // 3. Load metadata
                         executor.execute(() -> loadThumbnail(videoUrl));
                     }
                 });

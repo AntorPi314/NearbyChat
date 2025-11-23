@@ -69,7 +69,7 @@ public class WelcomeActivity extends Activity {
 
     private void navigateToMain() {
         Intent intent = new Intent(this, MainActivity.class);
-        // ✅ ADD these flags to prevent crash
+
         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
         startActivity(intent);
         finish();

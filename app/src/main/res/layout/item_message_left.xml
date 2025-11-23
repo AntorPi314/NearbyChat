@@ -43,6 +43,34 @@
                 android:textColor="#555555"
                 android:textSize="10sp" />
 
+            <!-- ✅ NEW: Reply Container -->
+            <LinearLayout
+                android:id="@+id/replyContainer"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:layout_marginEnd="80dp"
+                android:layout_marginBottom="-11dp"
+                android:background="@drawable/bg_reply_left"
+                android:orientation="horizontal"
+                android:paddingStart="8dp"
+                android:paddingTop="4dp"
+                android:paddingEnd="8dp"
+                android:paddingBottom="12dp"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/replyText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:text="Replying to: Message..."
+                    android:textColor="#555555"
+                    android:textSize="11sp"
+                    android:textStyle="italic" />
+            </LinearLayout>
+
             <TextView
                 android:id="@+id/textMessage"
                 android:layout_width="wrap_content"

@@ -6,6 +6,7 @@ import android.util.SparseArray;
 
 import com.antor.nearbychat.CryptoUtils;
 import com.antor.nearbychat.MessageModel;
+import com.antor.nearbychat.PayloadCompress;
 
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -199,28 +200,47 @@ public class MessageProcessor {
     private MessageModel buildMessageModelFromPayload(String payload, String senderDisplayId, String messageDisplayId,
                                                       long senderIdBits, long messageIdBits, int totalChunks,
                                                       boolean isComplete, String chatType, String chatId) {
-        String decryptedPayload;
-        if ("N".equals(chatType)) {
-            decryptedPayload = payload;
-        } else {
+
+        String workingPayload = payload;
+
+        if (!"N".equals(chatType)) {
             try {
                 String password = MessageHelper.getPasswordForChat(context, chatType, chatId, senderDisplayId);
-                decryptedPayload = CryptoUtils.decrypt(payload, password);
-
-                // ✅ Better validation
-                if (decryptedPayload == null || decryptedPayload.isEmpty()) {
-                    Log.w(TAG, "Decryption returned null/empty for message from " + senderDisplayId);
-                    decryptedPayload = "[Decryption Failed]";
+                String decrypted = CryptoUtils.decrypt(payload, password);
+                if (decrypted != null && !decrypted.isEmpty()) {
+                    workingPayload = decrypted;
                 }
             } catch (Exception e) {
-                Log.e(TAG, "Exception during decryption", e);
-                decryptedPayload = "[Decryption Failed]";
+                Log.e(TAG, "Decryption error", e);
             }
         }
+        String replyToUserId = "";
+        String replyToMessageId = "";
+        String finalContent = workingPayload;
 
+        //
+        if (workingPayload.startsWith("[r>") && workingPayload.length() >= 13) {
+            try {
+                String replyUserAscii = workingPayload.substring(3, 8);
+                String replyMsgAscii = workingPayload.substring(8, 13);
+
+                long replyUserBits = MessageHelper.asciiIdToTimestamp(replyUserAscii);
+                replyToUserId = MessageHelper.timestampToDisplayId(replyUserBits);
+
+                long replyMsgBits = MessageHelper.asciiIdToTimestamp(replyMsgAscii);
+                replyToMessageId = MessageHelper.timestampToDisplayId(replyMsgBits);
+
+                finalContent = workingPayload.substring(13);
+
+                Log.d(TAG, "♻️ Reply Parsed! To: " + replyToUserId + " Msg: " + replyToMessageId);
+            } catch (Exception e) {
+                Log.e(TAG, "Error parsing reply header", e);
+                finalContent = workingPayload;
+            }
+        }
         MessageModel newMsg = new MessageModel(
                 senderDisplayId,
-                decryptedPayload,
+                finalContent,
                 false,
                 createFormattedTimestamp(totalChunks, messageIdBits),
                 senderIdBits,
@@ -231,10 +251,11 @@ public class MessageProcessor {
         newMsg.setChatType(chatType);
         newMsg.setChatId(chatId != null ? chatId : "");
 
-        Log.d(TAG, "✓ Message model created: from=" + senderDisplayId +
-                " | chatType=" + chatType + " | chatId=" + newMsg.getChatId() +
-                " | complete=" + isComplete);
-
+        if (!replyToUserId.isEmpty()) {
+            newMsg.setReplyToUserId(replyToUserId);
+            newMsg.setReplyToMessageId(replyToMessageId);
+            newMsg.setReplyToMessagePreview("Loading preview...");
+        }
         return newMsg;
     }
 

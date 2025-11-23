@@ -104,14 +104,11 @@ public class GroupsFriendsActivity extends Activity {
             }
         });
         recyclerView.setLayoutManager(new LinearLayoutManager(this));
-        // loadAndDisplayAllChats(); // <-- REMOVED (onResume will handle it)
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        // This is now the ONLY place that loads the list,
-        // ensuring it's always up-to-date when the dialog is shown/resumed.
         loadData();
         loadAndDisplayAllChats();
     }
@@ -143,32 +140,29 @@ public class GroupsFriendsActivity extends Activity {
             List<ChatItem> loadedChats = new ArrayList<>();
             com.antor.nearbychat.Database.MessageDao dao = AppDatabase.getInstance(this).messageDao();
 
-            // Nearby Chat item
             com.antor.nearbychat.Database.MessageEntity nearbyLastMsg = dao.getLastMessageForChat("N", "");
             int nearbyUnreadCount = dao.getUnreadMessageCountForChat("N", "");
             loadedChats.add(new ChatItem(
                     "", "Nearby Chat", "N",
-                    nearbyLastMsg != null ? formatLastMessage(nearbyLastMsg) : "No recent messages", // ✅ এখানে change
+                    nearbyLastMsg != null ? formatLastMessage(nearbyLastMsg) : "No recent messages",
                     getLastMessageTime(nearbyLastMsg), "",
                     nearbyLastMsg != null ? nearbyLastMsg.timestampMillis : 0,
                     nearbyUnreadCount > 0
             ));
 
-            // Load groups from cache
             List<GroupModel> groups = DataCache.getGroups(this);
             for (GroupModel g : groups) {
                 com.antor.nearbychat.Database.MessageEntity lastMsg = dao.getLastMessageForChat("G", g.getId());
                 int unreadCount = dao.getUnreadMessageCountForChat("G", g.getId());
                 loadedChats.add(new ChatItem(
                         g.getId(), g.getName(), "G",
-                        lastMsg != null ? formatLastMessage(lastMsg) : "No messages yet", // ✅ এখানে change
+                        lastMsg != null ? formatLastMessage(lastMsg) : "No messages yet",
                         getLastMessageTime(lastMsg), "",
                         lastMsg != null ? lastMsg.timestampMillis : 0,
                         unreadCount > 0
                 ));
             }
 
-            // Load friends from cache
             List<FriendModel> friends = DataCache.getFriends(this);
             for (FriendModel f : friends) {
                 String asciiId = MessageHelper.timestampToAsciiId(
@@ -178,14 +172,13 @@ public class GroupsFriendsActivity extends Activity {
                 int unreadCount = dao.getUnreadMessageCountForChat("F", asciiId);
                 loadedChats.add(new ChatItem(
                         asciiId, f.getName(), "F",
-                        lastMsg != null ? formatLastMessage(lastMsg) : "No messages yet", // ✅ এখানে change
+                        lastMsg != null ? formatLastMessage(lastMsg) : "No messages yet",
                         getLastMessageTime(lastMsg), f.getDisplayId(),
                         lastMsg != null ? lastMsg.timestampMillis : 0,
                         unreadCount > 0
                 ));
             }
 
-            // Sort chats (except Nearby Chat)
             if (loadedChats.size() > 1) {
                 ChatItem nearbyItem = loadedChats.get(0);
                 List<ChatItem> rest = new ArrayList<>(loadedChats.subList(1, loadedChats.size()));
@@ -211,7 +204,6 @@ public class GroupsFriendsActivity extends Activity {
         }
 
         try {
-            // Parse the payload using PayloadCompress
             PayloadCompress.ParsedPayload parsed = PayloadCompress.parsePayload(lastMsg.message);
 
             boolean hasText = !parsed.message.isEmpty();
@@ -220,26 +212,21 @@ public class GroupsFriendsActivity extends Activity {
             String prefix = lastMsg.isSelf ? "You: " : "";
 
             if (hasText && hasMedia) {
-                // Text + Media both exist
                 String truncatedText = parsed.message.length() > 30
                         ? parsed.message.substring(0, 30) + "..."
                         : parsed.message;
                 return prefix + truncatedText;
             } else if (hasText) {
-                // Only text
                 String truncatedText = parsed.message.length() > 30
                         ? parsed.message.substring(0, 30) + "..."
                         : parsed.message;
                 return prefix + truncatedText;
             } else if (hasMedia) {
-                // Only media
                 return lastMsg.isSelf ? "You sent a media" : "Sent a media";
             } else {
-                // Empty message (shouldn't happen normally)
                 return "No content";
             }
         } catch (Exception e) {
-            // If parsing fails, return raw message (fallback)
             String rawMsg = lastMsg.message;
             if (rawMsg.length() > 30) {
                 rawMsg = rawMsg.substring(0, 30) + "...";
@@ -324,34 +311,31 @@ public class GroupsFriendsActivity extends Activity {
 
     private void onChatLongClick(ChatItem chat) {
         if (chat.type.equals("N")) {
-            // "Nearby Chat" long click: Only show "Clear History"
             String[] options = {"Clear History"};
 
             new AlertDialog.Builder(this)
                     .setTitle("Chat Options")
                     .setItems(options, (dialog, which) -> {
-                        if (which == 0) { // Clear History
+                        if (which == 0) {
                             clearHistory(chat);
                         }
                     })
                     .show();
             return;
         }
-
-        // --- Other chats (Friends/Groups) ---
         String[] options = {"Block", "Clear History", "Delete Chat"};
 
         new AlertDialog.Builder(this)
                 .setTitle("Chat Options")
                 .setItems(options, (dialog, which) -> {
                     switch (which) {
-                        case 0: // Block
+                        case 0:
                             blockChat(chat);
                             break;
-                        case 1: // Clear History
+                        case 1:
                             clearHistory(chat);
                             break;
-                        case 2: // Delete Chat
+                        case 2:
                             deleteChat(chat);
                             break;
                     }
@@ -392,7 +376,6 @@ public class GroupsFriendsActivity extends Activity {
                     friends.removeIf(f -> f.getDisplayId().equals(userIdToBlock));
                     DataCache.saveFriends(this, friends);
 
-//                    loadAndDisplayAllChats();
                     Toast.makeText(this, "User blocked", Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Cancel", null)
@@ -407,7 +390,6 @@ public class GroupsFriendsActivity extends Activity {
                     executor.execute(() -> {
                         AppDatabase.getInstance(this).messageDao().deleteMessagesForChat(chat.type, chat.id);
                         runOnUiThread(() -> {
-//                            loadAndDisplayAllChats();
                             Toast.makeText(this, "History cleared", Toast.LENGTH_SHORT).show();
                         });
                     });
@@ -441,7 +423,6 @@ public class GroupsFriendsActivity extends Activity {
                     executor.execute(() -> {
                         AppDatabase.getInstance(this).messageDao().deleteMessagesForChat(chat.type, chat.id);
                         runOnUiThread(() -> {
-//                            loadAndDisplayAllChats();
                             Toast.makeText(this, chat.name + " deleted", Toast.LENGTH_SHORT).show();
                         });
                     });
@@ -518,7 +499,7 @@ public class GroupsFriendsActivity extends Activity {
                 qrCodeShow.setOnClickListener(v -> {
                     long bits = asciiIdToTimestamp(group.getId());
                     String displayId = getUserIdString(bits);
-                    String qrData = "GROUP:" + displayId + "|" + group.getName() + "|" + group.getEncryptionKey();  // <-- এখানে পরিবর্তন
+                    String qrData = "GROUP:" + displayId + "|" + group.getName() + "|" + group.getEncryptionKey();
                     Intent intent = new Intent(this, QRCodeActivity.class);
                     intent.putExtra("qr_data", qrData);
                     intent.putExtra("qr_type", "group");
@@ -553,7 +534,6 @@ public class GroupsFriendsActivity extends Activity {
                 groupsList.add(new GroupModel(MessageHelper.timestampToAsciiId(System.currentTimeMillis()), name, editKey.getText().toString().trim()));
             }
             saveGroups();
-//            loadAndDisplayAllChats();
             dialog.dismiss();
         });
         dialog.show();
@@ -582,7 +562,6 @@ public class GroupsFriendsActivity extends Activity {
             blockedList.add(displayId);
             prefs.edit().putString("blockedList", gson.toJson(blockedList)).apply();
         }
-        // Remove from friends list
         List<FriendModel> friends = DataCache.getFriends(this);
         friends.removeIf(f -> f.getDisplayId().equals(displayId));
         DataCache.saveFriends(this, friends);
@@ -590,7 +569,6 @@ public class GroupsFriendsActivity extends Activity {
         String toastName = (name == null || name.isEmpty()) ? displayId : name;
         Toast.makeText(this, "User " + toastName + " blocked", Toast.LENGTH_SHORT).show();
 
-        // Refresh the chat list in this activity
         loadAndDisplayAllChats();
     }
 
@@ -602,13 +580,12 @@ public class GroupsFriendsActivity extends Activity {
             Type type = new TypeToken<List<String>>(){}.getType();
             blockedList = gson.fromJson(json, type);
         } else {
-            return; // Not blocked anyway
+            return;
         }
         if (blockedList.contains(displayId)) {
             blockedList.remove(displayId);
             prefs.edit().putString("blockedList", gson.toJson(blockedList)).apply();
         }
-        // Add back to friends list
         List<FriendModel> friends = DataCache.getFriends(this);
         boolean exists = friends.stream().anyMatch(f -> f.getDisplayId().equals(displayId));
         if (!exists) {
@@ -619,7 +596,6 @@ public class GroupsFriendsActivity extends Activity {
         String toastName = (name == null || name.isEmpty()) ? displayId : name;
         Toast.makeText(this, "User " + toastName + " unblocked", Toast.LENGTH_SHORT).show();
 
-        // Refresh the chat list in this activity
         loadAndDisplayAllChats();
     }
 
@@ -645,9 +621,7 @@ public class GroupsFriendsActivity extends Activity {
         EditText editId = dialog.findViewById(R.id.editFriendId);
         EditText editKey = dialog.findViewById(R.id.editEncryptionKey);
 
-        // ▼▼▼ এখান থেকে পরিবর্তন শুরু ▼▼▼
-        Button btnBlockUnblock = dialog.findViewById(R.id.btnDelete); // XML-এর btnDelete আইডি
-        // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+        Button btnBlockUnblock = dialog.findViewById(R.id.btnDelete);
 
         Button btnAdd = dialog.findViewById(R.id.btnAdd);
         ImageView switchNotification = dialog.findViewById(R.id.switchNotification);
@@ -662,17 +636,14 @@ public class GroupsFriendsActivity extends Activity {
             editKey.setText(friend.getEncryptionKey());
             editId.setEnabled(false);
 
-            // ▼▼▼ এখান থেকে পরিবর্তন শুরু ▼▼▼
-            btnBlockUnblock.setVisibility(View.VISIBLE); // বাটনটি দেখান
-
-            // --- নতুন Block/Unblock লজিক ---
+            btnBlockUnblock.setVisibility(View.VISIBLE);
             final boolean isBlocked = isUserBlocked(friend.getDisplayId());
             if (isBlocked) {
                 btnBlockUnblock.setText("Unblock");
-                btnBlockUnblock.setBackgroundColor(Color.parseColor("#007BFF")); // Blue
+                btnBlockUnblock.setBackgroundColor(Color.parseColor("#007BFF"));
             } else {
                 btnBlockUnblock.setText("Block");
-                btnBlockUnblock.setBackgroundColor(Color.parseColor("#DC3545")); // Red
+                btnBlockUnblock.setBackgroundColor(Color.parseColor("#DC3545"));
             }
 
             btnBlockUnblock.setOnClickListener(v -> {
@@ -687,8 +658,6 @@ public class GroupsFriendsActivity extends Activity {
                 }
                 dialog.dismiss();
             });
-            // --- পুরনো ডিলিট লজিক সরিয়ে ফেলা হয়েছে ---
-            // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
             if (profilePic != null) {
                 profilePic.setVisibility(View.VISIBLE);
@@ -711,8 +680,6 @@ public class GroupsFriendsActivity extends Activity {
                     startActivity(intent);
                 });
             }
-
-            // নোটিফিকেশন টগল (friend != null কন্ডিশনের ভিতরে)
             String friendChatId = MessageHelper.timestampToAsciiId(
                     MessageHelper.displayIdToTimestamp(friend.getDisplayId())
             );
@@ -732,7 +699,6 @@ public class GroupsFriendsActivity extends Activity {
             });
 
         } else {
-            // Add New Friend মোড
             if (switchNotification != null) {
                 switchNotification.setVisibility(View.GONE);
             }
@@ -742,12 +708,10 @@ public class GroupsFriendsActivity extends Activity {
             if (qrCodeShow != null) {
                 qrCodeShow.setVisibility(View.GONE);
             }
-            btnBlockUnblock.setVisibility(View.GONE); // Add New মোডে বাটনটি দেখাবেন না
+            btnBlockUnblock.setVisibility(View.GONE);
         }
 
         dialog.findViewById(R.id.btnCancel).setOnClickListener(v -> dialog.dismiss());
-
-        // পুরনো ডিলিট বাটন লিসেনারটি সরিয়ে ফেলা হয়েছে (এটি এখন Block/Unblock লিসেনার)
 
         btnAdd.setOnClickListener(v -> {
             String name = editName.getText().toString().trim();
@@ -765,16 +729,13 @@ public class GroupsFriendsActivity extends Activity {
             if (friend != null) {
                 friend.setName(name);
                 friend.setEncryptionKey(key);
-                // পজিশন অনুযায়ী লিস্ট আপডেট করুন
                 if (position != -1 && position < friendsList.size()) {
                     friendsList.set(position, friend);
                 }
             } else {
-                // নতুন ফ্রেন্ড যোগ করুন
                 friendsList.add(new FriendModel(id, name, key));
             }
             saveFriends();
-//            loadAndDisplayAllChats();
             dialog.dismiss();
         });
         dialog.show();
@@ -783,7 +744,7 @@ public class GroupsFriendsActivity extends Activity {
     private boolean getNotificationState(String chatType, String chatId) {
         SharedPreferences prefs = getSharedPreferences("NearbyChatPrefs", MODE_PRIVATE);
         String key = chatType + ":" + chatId;
-        return prefs.getBoolean("notification_" + key, false); // Default: false (disabled)
+        return prefs.getBoolean("notification_" + key, false);
     }
 
     private void saveNotificationState(String chatType, String chatId, boolean enabled) {

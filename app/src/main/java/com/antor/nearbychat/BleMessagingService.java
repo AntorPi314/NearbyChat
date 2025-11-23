@@ -197,17 +197,13 @@ public class BleMessagingService extends Service {
         Log.d(TAG, "Service onStartCommand");
 
         try {
-            // ✅ ALWAYS start foreground FIRST, even if permissions missing
             try {
                 startForegroundService();
             } catch (Exception e) {
                 Log.e(TAG, "Error starting foreground service", e);
             }
-
-            // ✅ THEN check permissions
             if (!hasAllRequiredServicePermissions()) {
                 Log.e(TAG, "Missing required permissions");
-                // Don't stop service immediately, wait a bit
                 mainHandler.postDelayed(() -> stopSelf(), 1000);
                 return START_NOT_STICKY;
             }
@@ -248,7 +244,6 @@ public class BleMessagingService extends Service {
     }
 
     private void scheduleServiceRestarter() {
-        // ✅ Restart service every 15 minutes to prevent system kill
         mainHandler.postDelayed(new Runnable() {
             @Override
             public void run() {
@@ -263,7 +258,7 @@ public class BleMessagingService extends Service {
                     scheduleServiceRestarter();
                 }
             }
-        }, 15 * 60 * 1000); // 15 minutes
+        }, 15 * 60 * 1000);
     }
 
     private void loadConfigurableSettings() {
@@ -310,10 +305,8 @@ public class BleMessagingService extends Service {
         }
 
         try {
-            // Extract: chatType(1) + senderId(5) + messageId(5) + totalChunks(1) + chunkIndex(1) = 13 bytes
             StringBuilder key = new StringBuilder();
 
-            // Append first 13 bytes as hex string (this includes the chunkIndex)
             for (int i = 0; i < Math.min(13, data.length); i++) {
                 key.append(String.format("%02x", data[i]));
             }
@@ -323,8 +316,6 @@ public class BleMessagingService extends Service {
             return "";
         }
     }
-
-    // BleMessagingService.java
 
     private void startForegroundService() {
         Intent notificationIntent = new Intent(this, MainActivity.class);
@@ -340,24 +331,13 @@ public class BleMessagingService extends Service {
                 .setShowWhen(false);
         Notification notification = builder.build();
 
-        // --- START FIX ---
-        // সার্ভিস টাইপ উল্লেখ করার আগে অবশ্যই পারমিশন চেক করতে হবে।
-        // পারমিশন না থাকলে, আমরা কোনো টাইপ ছাড়াই startForeground() কল করবো
-        // যাতে ForegroundServiceDidNotStartInTimeException ক্র্যাশটি না হয়।
-
         boolean hasLocation = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
 
-        // Android 12 (S) বা তার উপরে BLUETOOTH_CONNECT পারমিশন লাগে
         boolean hasBluetooth = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
                 (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED);
 
         if (Build.VERSION.SDK_INT >= 34) {
-            // Android 14+
-            int serviceType = 0; // কোনো পারমিশন না থাকলে 0 (default) থাকবে
-
-            // Android 12+ (API 31) লজিক অনুযায়ী, আমাদের আর লোকেশন পারমিশন দরকার নেই,
-            // কিন্তু Android 11 বা তার নিচের জন্য লোকেশন দরকার হতে পারে।
-            // তাই, আমরা এখানে উভয় পারমিশন চেক করবো।
+            int serviceType = 0;
             if (hasLocation) {
                 serviceType |= ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION;
             }
@@ -365,26 +345,20 @@ public class BleMessagingService extends Service {
                 serviceType |= ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE;
             }
 
-            // serviceType যদি 0-ও হয়, তবুও এটি ক্র্যাশ করবে না।
             startForeground(NOTIFICATION_ID, notification, serviceType);
 
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            // Android 10-13
             if (hasLocation) {
                 startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION);
             } else {
-                // পারমিশন নেই, তাই টাইপ ছাড়া কল করুন
                 startForeground(NOTIFICATION_ID, notification);
             }
         } else {
-            // Android 9 (Pie) এবং এর নিচে
             startForeground(NOTIFICATION_ID, notification);
         }
-        // --- END FIX ---
     }
 
     private void createNotificationChannel() {
-        // Service channel (silent)
         NotificationChannel serviceChannel = new NotificationChannel(
                 CHANNEL_ID,
                 "Nearby Chat Service",
@@ -394,7 +368,6 @@ public class BleMessagingService extends Service {
         serviceChannel.setSound(null, null);
         serviceChannel.enableVibration(false);
 
-        // ✅ Message notification channel (with sound + popup)
         Uri soundUri = Uri.parse("android.resource://" + getPackageName() + "/" + R.raw.notification_sound);
         android.media.AudioAttributes audioAttributes = new android.media.AudioAttributes.Builder()
                 .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
@@ -404,7 +377,7 @@ public class BleMessagingService extends Service {
         NotificationChannel messageChannel = new NotificationChannel(
                 "message_notifications",
                 "New Messages",
-                NotificationManager.IMPORTANCE_HIGH  // ✅ HIGH for popup
+                NotificationManager.IMPORTANCE_HIGH
         );
         messageChannel.setShowBadge(true);
         messageChannel.enableVibration(true);
@@ -419,7 +392,6 @@ public class BleMessagingService extends Service {
     }
 
     private void acquireWakeLock() {
-        // CPU WakeLock
         PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
         if (pm != null) {
             wakeLock = pm.newWakeLock(
@@ -457,21 +429,19 @@ public class BleMessagingService extends Service {
                     int state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR);
 
                     if (state == BluetoothAdapter.STATE_TURNING_OFF) {
-                        // ✅ Bluetooth is turning off - stop operations immediately
+
                         Log.w(TAG, "Bluetooth turning off - stopping operations");
                         stopBleOperations();
                         isServiceRunning = false;
                         isCycleRunning = false;
 
                     } else if (state == BluetoothAdapter.STATE_OFF) {
-                        // ✅ Bluetooth is off - clean up
                         Log.w(TAG, "Bluetooth is off");
                         stopBleOperations();
                         isServiceRunning = false;
                         isCycleRunning = false;
 
                     } else if (state == BluetoothAdapter.STATE_ON) {
-                        // ✅ Bluetooth is on - restart after delay
                         Log.d(TAG, "Bluetooth is on - restarting");
                         mainHandler.postDelayed(() -> {
                             if (!isServiceRunning) {
@@ -494,18 +464,14 @@ public class BleMessagingService extends Service {
         try {
             bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
 
-            // ✅ ADD null check
             if (bluetoothAdapter == null) {
                 Log.e(TAG, "Bluetooth adapter is null");
                 return;
             }
-
-            // ✅ ADD enabled check with permission handling
             if (!hasRequiredPermissions()) {
                 Log.w(TAG, "Missing Bluetooth permissions");
                 return;
             }
-
             if (!bluetoothAdapter.isEnabled()) {
                 Log.w(TAG, "Bluetooth is disabled");
                 return;
@@ -514,7 +480,6 @@ public class BleMessagingService extends Service {
             advertiser = bluetoothAdapter.getBluetoothLeAdvertiser();
             scanner = bluetoothAdapter.getBluetoothLeScanner();
 
-            // ✅ ADD null checks for advertiser/scanner
             if (advertiser == null) {
                 Log.e(TAG, "BLE Advertiser not available");
             }
@@ -703,19 +668,13 @@ public class BleMessagingService extends Service {
         byte[] data = record.getServiceData(new ParcelUuid(SERVICE_UUID));
         if (data == null) return;
 
-        // ✅ NEW: Check chunk-level deduplication first
         String chunkKey = generateChunkKey(data);
         if (!chunkKey.isEmpty() && receivedChunks.get(chunkKey) != null) {
-            // This exact chunk already processed, skip
             return;
         }
-
-        // Mark chunk as received
         if (!chunkKey.isEmpty()) {
             receivedChunks.put(chunkKey, true);
         }
-
-        // Keep message-level deduplication for backward compatibility
         String messageId = Arrays.toString(data);
         if (receivedMessages.get(messageId) != null) return;
         receivedMessages.put(messageId, true);
@@ -846,7 +805,6 @@ public class BleMessagingService extends Service {
                 final boolean isLast = (i == allPackets.size() - 1);
 
                 mainHandler.postDelayed(() -> {
-                    // ✅ ADD Bluetooth check before advertising
                     try {
                         if (bluetoothAdapter != null && bluetoothAdapter.isEnabled()) {
                             startAdvertising(packet);
@@ -943,8 +901,6 @@ public class BleMessagingService extends Service {
             if ("F".equals(msg.getChatType())) {
                 autoAddFriendIfNeeded(msg.getSenderId());
             }
-
-            // ✅ Show notification for new message
             if (msg.isComplete() && !msg.isFailed()) {
                 showNewMessageNotification(msg);
             }
@@ -985,40 +941,31 @@ public class BleMessagingService extends Service {
 
     private void showNewMessageNotification(MessageModel msg) {
         try {
-            // ধাপ ১: নোটিফিকেশন এই চ্যাটের জন্য সক্রিয় আছে কি না তা পরীক্ষা করুন
             SharedPreferences prefs = getSharedPreferences("NearbyChatPrefs", MODE_PRIVATE);
             String key = msg.getChatType() + ":" + msg.getChatId();
-            // ডিফল্ট 'false' (সক্রিয় করা না থাকলে নোটিফিকেশন দেখাবে না)
             boolean isNotificationEnabled = prefs.getBoolean("notification_" + key, false);
 
             if (!isNotificationEnabled) {
                 Log.d(TAG, "Notification disabled for chat: " + key);
-                return; // নোটিফিকেশন সক্রিয় না থাকলে, এখান থেকেই প্রস্থান করুন
+                return;
             }
-
-            // ধাপ ২: ব্যবহারকারী বর্তমানে এই চ্যাটে সক্রিয় আছে কি না তা পরীক্ষা করুন
             SharedPreferences activePrefs = getSharedPreferences("ActiveChatInfo", MODE_PRIVATE);
             String activeChatType = activePrefs.getString("chatType", "N");
             String activeChatId = activePrefs.getString("chatId", "");
 
             if (msg.getChatType().equals(activeChatType) && msg.getChatId().equals(activeChatId)) {
                 Log.d(TAG, "User is in the chat, skipping notification");
-                return; // ব্যবহারকারী এই চ্যাটেই থাকলে নোটিফিকেশন দেখাবেন না
+                return;
             }
-
-            // --- পুরনো কোড শুরু ---
             String chatKey = msg.getChatType() + ":" + msg.getChatId();
             String senderName = getSenderDisplayName(msg.getSenderId());
             String chatTitle;
 
-            // Determine notification title
             if ("G".equals(msg.getChatType())) {
                 chatTitle = getGroupName(msg.getChatId());
             } else {
                 chatTitle = senderName;
             }
-
-            // Parse message preview
             String newMessageText = "New message";
             try {
                 PayloadCompress.ParsedPayload parsed = PayloadCompress.parsePayload(msg.getMessage());
@@ -1032,29 +979,23 @@ public class BleMessagingService extends Service {
             } catch (Exception e) {
                 Log.e(TAG, "Error parsing message for notification", e);
             }
-
-            // ✅ Build stacked notification text
             SharedPreferences notifPrefs = getSharedPreferences("NotificationMessages", MODE_PRIVATE);
             String existingMessages = notifPrefs.getString(chatKey, "");
 
             String updatedMessages;
             if (existingMessages.isEmpty()) {
-                // First message
                 if ("G".equals(msg.getChatType())) {
                     updatedMessages = senderName + ": " + newMessageText;
                 } else {
                     updatedMessages = newMessageText;
                 }
             } else {
-                // Append new message
                 if ("G".equals(msg.getChatType())) {
                     updatedMessages = existingMessages + "\n" + senderName + ": " + newMessageText;
                 } else {
                     updatedMessages = existingMessages + "\n" + newMessageText;
                 }
             }
-
-            // Limit to last 5 messages
             String[] lines = updatedMessages.split("\n");
             if (lines.length > 5) {
                 StringBuilder limited = new StringBuilder();
@@ -1064,11 +1005,8 @@ public class BleMessagingService extends Service {
                 }
                 updatedMessages = limited.toString();
             }
-
-            // Save updated messages
             notifPrefs.edit().putString(chatKey, updatedMessages).apply();
 
-            // ✅ Load profile picture
             Bitmap largeIcon = null;
             try {
                 if ("G".equals(msg.getChatType())) {
@@ -1081,8 +1019,6 @@ public class BleMessagingService extends Service {
             } catch (Exception e) {
                 Log.e(TAG, "Error loading profile picture for notification", e);
             }
-
-            // Create intent
             Intent notificationIntent = new Intent(this, MainActivity.class);
             notificationIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
             notificationIntent.putExtra("chatType", msg.getChatType());
@@ -1094,12 +1030,10 @@ public class BleMessagingService extends Service {
                     notificationIntent,
                     PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
             );
-
-            // ✅ Build notification with BigTextStyle
             NotificationCompat.Builder builder = new NotificationCompat.Builder(this, "message_notifications")
                     .setSmallIcon(R.drawable.notify)
                     .setContentTitle(chatTitle)
-                    .setContentText(updatedMessages.split("\n")[updatedMessages.split("\n").length - 1]) // Last line
+                    .setContentText(updatedMessages.split("\n")[updatedMessages.split("\n").length - 1])
                     .setStyle(new NotificationCompat.BigTextStyle()
                             .bigText(updatedMessages)
                             .setBigContentTitle(chatTitle))
@@ -1108,14 +1042,11 @@ public class BleMessagingService extends Service {
                     .setPriority(NotificationCompat.PRIORITY_HIGH)
                     .setCategory(NotificationCompat.CATEGORY_MESSAGE)
                     .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                    .setGroup(NOTIFICATION_GROUP_KEY); // মেসেঞ্জার-স্টাইল গ্রুপিং
+                    .setGroup(NOTIFICATION_GROUP_KEY);
 
-            // ✅ Add profile picture if available
             if (largeIcon != null) {
                 builder.setLargeIcon(largeIcon);
             }
-
-            // ✅ Show notification
             NotificationManager notificationManager =
                     (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
 
@@ -1124,18 +1055,15 @@ public class BleMessagingService extends Service {
                 notificationManager.notify(notificationId, builder.build());
                 Log.d(TAG, "📬 Notification updated for: " + chatTitle);
 
-                // --- সারাংশ (Summary) নোটিফিকেশন তৈরি করুন ---
-
                 NotificationCompat.Builder summaryBuilder = new NotificationCompat.Builder(this, "message_notifications")
                         .setSmallIcon(R.drawable.notify)
                         .setContentTitle("Nearby Chat")
-                        .setContentText("New messages received") // এটি সাধারণত দেখা যায় না
+                        .setContentText("New messages received")
                         .setGroup(NOTIFICATION_GROUP_KEY)
-                        .setGroupSummary(true) // এটিই মূল কাজ
+                        .setGroupSummary(true)
                         .setPriority(NotificationCompat.PRIORITY_HIGH)
                         .setAutoCancel(true);
 
-                // সারাংশ নোটিফিকেশনটি পোস্ট করুন
                 notificationManager.notify(SUMMARY_NOTIFICATION_ID, summaryBuilder.build());
             }
         } catch (Exception e) {
@@ -1173,7 +1101,6 @@ public class BleMessagingService extends Service {
     }
 
     private Bitmap generateProfilePicBitmap(String userId) {
-        // Same logic as ProfilePicLoader.generateProfilePic()
         if (userId == null || userId.length() < 8) {
             return createTextBitmapForNotification("??", 0xFF95A5A6);
         }
@@ -1206,7 +1133,7 @@ public class BleMessagingService extends Service {
     }
 
     private Bitmap createTextBitmapForNotification(String text, int bgColor) {
-        int size = 128; // Notification icon size
+        int size = 128;
         Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
         android.graphics.Canvas canvas = new android.graphics.Canvas(bitmap);
 
@@ -1283,7 +1210,6 @@ public class BleMessagingService extends Service {
 
     private String getSenderDisplayName(String senderId) {
         try {
-            // First check name map
             SharedPreferences prefs = getSharedPreferences("NearbyChatPrefs", MODE_PRIVATE);
             String nameMapJson = prefs.getString("nameMap", null);
 
@@ -1299,8 +1225,6 @@ public class BleMessagingService extends Service {
                     }
                 }
             }
-
-            // Then check friends list
             String friendsJson = prefs.getString("friendsList", null);
             if (friendsJson != null) {
                 Gson gson = new Gson();
@@ -1363,7 +1287,6 @@ public class BleMessagingService extends Service {
     }
 
     private boolean hasAllRequiredServicePermissions() {
-        // Android 12+ (API 31)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED)
                 return false;
@@ -1372,12 +1295,11 @@ public class BleMessagingService extends Service {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADVERTISE) != PackageManager.PERMISSION_GRANTED)
                 return false;
         } else {
-            // Android 11 (API 30) এবং এর নিচে
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
                 return false;
             }
         }
-        return true; // সব প্রয়োজনীয় পারমিশন আছে
+        return true;
     }
 
     @Override

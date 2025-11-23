@@ -78,7 +78,6 @@ public class ImageCacheManager {
 
     private void saveToDisk(String key, Bitmap bitmap, boolean isThumbnail) {
         try {
-            // ✅ NEW: Check and evict old files if needed
             evictIfNeeded();
 
             File cacheDir = isThumbnail ? thumbnailCacheDir : diskCacheDir;
@@ -141,7 +140,6 @@ public class ImageCacheManager {
         long totalSize = 0;
 
         try {
-            // Calculate disk cache size
             if (diskCacheDir.exists()) {
                 File[] files = diskCacheDir.listFiles();
                 if (files != null) {
@@ -150,8 +148,6 @@ public class ImageCacheManager {
                     }
                 }
             }
-
-            // Calculate thumbnail cache size
             if (thumbnailCacheDir.exists()) {
                 File[] files = thumbnailCacheDir.listFiles();
                 if (files != null) {
@@ -171,7 +167,6 @@ public class ImageCacheManager {
         List<File> allFiles = new ArrayList<>();
 
         try {
-            // Collect disk cache files
             if (diskCacheDir.exists()) {
                 File[] files = diskCacheDir.listFiles();
                 if (files != null) {
@@ -180,8 +175,6 @@ public class ImageCacheManager {
                     }
                 }
             }
-
-            // Collect thumbnail cache files
             if (thumbnailCacheDir.exists()) {
                 File[] files = thumbnailCacheDir.listFiles();
                 if (files != null) {
@@ -190,8 +183,6 @@ public class ImageCacheManager {
                     }
                 }
             }
-
-            // Sort by last modified (oldest first)
             Collections.sort(allFiles, new Comparator<File>() {
                 @Override
                 public int compare(File f1, File f2) {
@@ -211,7 +202,7 @@ public class ImageCacheManager {
             long totalSize = calculateCacheSize();
 
             if (totalSize <= MAX_CACHE_SIZE_BYTES) {
-                return; // Cache size is OK
+                return;
             }
 
             Log.d(TAG, "Cache size exceeded: " + (totalSize / 1024 / 1024) + " MB. Starting smart eviction...");
@@ -219,7 +210,6 @@ public class ImageCacheManager {
             List<CacheEntry> entries = getSmartSortedCacheFiles();
             int deletedCount = 0;
 
-            // Delete least valuable files until we reach target size
             for (CacheEntry entry : entries) {
                 if (totalSize <= TARGET_CACHE_SIZE_BYTES) {
                     break;
@@ -239,25 +229,20 @@ public class ImageCacheManager {
         }
     }
 
-    // ✅ NEW helper class
     private static class CacheEntry {
         File file;
-        long score; // Lower score = delete first
+        long score;
 
         CacheEntry(File file, long lastModified, int accessCount) {
             this.file = file;
-            // Score combines recency + frequency
-            // More recent = higher score, more accessed = higher score
-            this.score = lastModified + (accessCount * 3600000L); // 1 access = 1 hour bonus
+            this.score = lastModified + (accessCount * 3600000L);
         }
     }
 
-    // ✅ NEW method
     private List<CacheEntry> getSmartSortedCacheFiles() {
         List<File> allFiles = new ArrayList<>();
-        Map<String, Integer> accessCounts = new HashMap<>(); // You can track this in SharedPreferences
+        Map<String, Integer> accessCounts = new HashMap<>();
 
-        // Collect files
         if (diskCacheDir.exists()) {
             File[] files = diskCacheDir.listFiles();
             if (files != null) {
@@ -272,14 +257,12 @@ public class ImageCacheManager {
             }
         }
 
-        // Create scored entries
         List<CacheEntry> entries = new ArrayList<>();
         for (File file : allFiles) {
             int accessCount = accessCounts.getOrDefault(file.getName(), 0);
             entries.add(new CacheEntry(file, file.lastModified(), accessCount));
         }
 
-        // Sort by score (lowest first = delete first)
         Collections.sort(entries, (e1, e2) -> Long.compare(e1.score, e2.score));
 
         return entries;

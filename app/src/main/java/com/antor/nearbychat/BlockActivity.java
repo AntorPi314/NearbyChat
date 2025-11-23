@@ -140,8 +140,6 @@ public class BlockActivity extends Activity {
                         lastMsg != null ? lastMsg.timestampMillis : 0
                 ));
             }
-
-            // Sort by last message time
             Collections.sort(loadedChats, (a, b) ->
                     Long.compare(b.lastMessageTimestamp, a.lastMessageTimestamp));
 
@@ -161,7 +159,6 @@ public class BlockActivity extends Activity {
     private String getUserDisplayName(String userId) {
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
 
-        // Check name map
         String nameMapJson = prefs.getString("nameMap", null);
         if (nameMapJson != null) {
             Type type = new TypeToken<java.util.Map<String, String>>(){}.getType();
@@ -173,8 +170,6 @@ public class BlockActivity extends Activity {
                 }
             }
         }
-
-        // Check friends list
         String friendsJson = prefs.getString("friendsList", null);
         if (friendsJson != null) {
             Type type = new TypeToken<List<FriendModel>>(){}.getType();
@@ -272,7 +267,6 @@ public class BlockActivity extends Activity {
     }
 
     private void onChatClick(BlockedChatItem chat) {
-        // Open MainActivity with this blocked chat
         Intent intent = new Intent(this, MainActivity.class);
         intent.putExtra("chatType", chat.type);
         intent.putExtra("chatId", chat.id);
@@ -288,13 +282,13 @@ public class BlockActivity extends Activity {
                 .setTitle("Chat Options")
                 .setItems(options, (dialog, which) -> {
                     switch (which) {
-                        case 0: // Unblock
+                        case 0:
                             unblockUser(chat);
                             break;
-                        case 1: // Clear History
+                        case 1:
                             clearHistory(chat);
                             break;
-                        case 2: // Delete Chat
+                        case 2:
                             deleteChat(chat);
                             break;
                     }
@@ -310,7 +304,6 @@ public class BlockActivity extends Activity {
                     blockedUserIds.remove(chat.displayId);
                     saveBlockedList();
 
-                    // ===== START: Add user back to friends list and switch activity =====
                     SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
                     String friendsJson = prefs.getString("friendsList", null);
                     Type type = new TypeToken<List<FriendModel>>(){}.getType();
@@ -328,24 +321,19 @@ public class BlockActivity extends Activity {
                     }
 
                     if (!exists) {
-                        // Use the name stored in the chat item, which is the display name
                         friends.add(new FriendModel(chat.displayId, chat.name, ""));
                         prefs.edit().putString("friendsList", gson.toJson(friends)).apply();
-                        DataCache.invalidate(); // Invalidate cache so GroupsFriendsActivity re-reads
+                        DataCache.invalidate();
                     }
 
                     Toast.makeText(this, "User unblocked", Toast.LENGTH_SHORT).show();
 
-                    // Close this activity
                     finish();
 
-                    // Open GroupsFriendsActivity
                     Intent intent = new Intent(BlockActivity.this, GroupsFriendsActivity.class);
                     intent.putExtra("currentChatType", activeChatType);
                     intent.putExtra("currentChatId", activeChatId);
                     startActivity(intent);
-                    // ===== END: Add user back to friends list and switch activity =====
-
                 })
                 .setNegativeButton("Cancel", null)
                 .show();

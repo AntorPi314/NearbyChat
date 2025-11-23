@@ -25,6 +25,10 @@ public class MessageModel {
 
     public MessageModel() {}
 
+    private String replyToUserId = "";
+    private String replyToMessageId = "";
+    private String replyToMessagePreview = "";
+
     public MessageModel(String senderId, String message, boolean isSelf, String timestamp) {
         this.senderId = senderId;
         this.message = message;
@@ -87,4 +91,17 @@ public class MessageModel {
 
     public boolean isSaved() { return isSaved; }
     public void setSaved(boolean saved) { isSaved = saved; }
+
+    public String getReplyToUserId() { return replyToUserId; }
+    public void setReplyToUserId(String replyToUserId) { this.replyToUserId = replyToUserId; }
+
+    public String getReplyToMessageId() { return replyToMessageId; }
+    public void setReplyToMessageId(String replyToMessageId) { this.replyToMessageId = replyToMessageId; }
+
+    public String getReplyToMessagePreview() { return replyToMessagePreview; }
+    public void setReplyToMessagePreview(String preview) { this.replyToMessagePreview = preview; }
+
+    public boolean isReply() {
+        return replyToUserId != null && !replyToUserId.isEmpty();
+    }
 }

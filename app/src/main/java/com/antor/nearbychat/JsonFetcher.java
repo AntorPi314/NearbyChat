@@ -5,7 +5,6 @@ import android.util.Log;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-// ▼▼▼ Import changes ▼▼▼
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -13,8 +12,7 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
-import java.io.BufferedReader; // <-- This is needed for readFromDiskCache
-// ▲▲▲ Import changes ▲▲▲
+import java.io.BufferedReader;
 
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -27,7 +25,6 @@ public class JsonFetcher {
 
     private static final int MAX_JSON_SIZE_BYTES = 20 * 1024; // 20KB
 
-    // In-memory cache (fastest)
     private static final LruCache<String, ParsedJson> jsonCache = new LruCache<>(20);
 
     public interface JsonCallback {
@@ -61,8 +58,6 @@ public class JsonFetcher {
         }
         return true;
     }
-
-    // MD5 helper to create safe filenames
     private static String md5(String s) {
         try {
             MessageDigest digest = MessageDigest.getInstance("MD5");
@@ -79,35 +74,24 @@ public class JsonFetcher {
             return String.valueOf(s.hashCode());
         }
     }
-
-    // Gets the cache file for a given URL
     private static File getCacheFile(Context context, String urlPart) {
         String fileName = md5(urlPart);
         return new File(context.getCacheDir(), "json_cache_" + fileName);
     }
-
-    // Reads the raw JSON string from the disk cache
-    // This method remains unchanged
     private static String readFromDiskCache(File cacheFile) {
         if (!cacheFile.exists()) {
             return null;
         }
-
-        // ▼▼▼ সমাধান: এখানে যোগ করা হয়েছে ▼▼▼
-        // ফাইলটি পড়ার আগেই এর সাইজ পরীক্ষা করুন
         try {
             if (cacheFile.length() > MAX_JSON_SIZE_BYTES) {
                 Log.e(TAG, "❌ Cached JSON too large: " + cacheFile.length() + " bytes. Deleting cache.");
-                cacheFile.delete(); // ত্রুটিপূর্ণ ক্যাশ ফাইলটি ডিলিট করুন
-                return null; // ক্যাশে নেই বলে গণ্য করুন
+                cacheFile.delete();
+                return null;
             }
         } catch (Exception e) {
             Log.e(TAG, "Error checking cache file length", e);
             return null;
         }
-        // ▲▲▲ সমাধান: শেষ ▲▲▲
-
-
         try (FileInputStream fis = new FileInputStream(cacheFile);
              BufferedReader reader = new BufferedReader(new InputStreamReader(fis))) {
             StringBuilder sb = new StringBuilder();
@@ -122,9 +106,6 @@ public class JsonFetcher {
             return null;
         }
     }
-
-    // Saves the raw JSON string to the disk cache
-    // This method remains unchanged
     private static void saveToDiskCache(File cacheFile, String jsonString) {
         try (FileOutputStream fos = new FileOutputStream(cacheFile);
              OutputStreamWriter writer = new OutputStreamWriter(fos)) {
@@ -135,7 +116,6 @@ public class JsonFetcher {
         }
     }
 
-    // ▼▼▼ REPLACED METHOD ▼▼▼
     public static void fetchJson(Context context, String gUrl, JsonCallback callback) {
         String urlPart;
         try {
@@ -145,7 +125,6 @@ public class JsonFetcher {
             return;
         }
 
-        // 1. Check in-memory cache (fastest)
         ParsedJson cachedData = jsonCache.get(urlPart);
         if (cachedData != null) {
             Log.d(TAG, "✅ JSON loaded from MEMORY cache: " + urlPart);
@@ -153,7 +132,6 @@ public class JsonFetcher {
             return;
         }
 
-        // 2. Check disk cache
         File cacheFile = getCacheFile(context.getApplicationContext(), urlPart);
         String diskJson = readFromDiskCache(cacheFile);
         if (diskJson != null) {
@@ -163,12 +141,9 @@ public class JsonFetcher {
             return;
         }
 
-        // 3. Not in any cache, go to network
         Log.d(TAG, "⚠️ Cache miss, going to NETWORK: " + urlPart);
         new Thread(() -> {
             HttpURLConnection connection = null;
-
-            // Use InputStream for raw bytes and ByteArrayOutputStream to store them
             InputStream in = null;
             ByteArrayOutputStream baos = null;
 
@@ -205,7 +180,6 @@ public class JsonFetcher {
                 }
 
                 if (responseCode == HttpURLConnection.HTTP_OK) {
-                    // ✅ CHECK CONTENT LENGTH BEFORE DOWNLOADING
                     int contentLength = connection.getContentLength();
 
                     if (contentLength > MAX_JSON_SIZE_BYTES) {
@@ -213,39 +187,29 @@ public class JsonFetcher {
                         callback.onError("JSON too large (" + (contentLength / 1024) + "KB, max 20KB)");
                         return;
                     }
-
-                    // Read raw bytes to accurately check size limit
                     in = connection.getInputStream();
                     baos = new ByteArrayOutputStream();
                     byte[] buffer = new byte[4096]; // 4KB buffer
                     int bytesRead;
-                    int totalBytesRead = 0; // TRACK SIZE WHILE READING
+                    int totalBytesRead = 0;
 
-                    // Loop while (bytesRead = in.read(buffer)) is not -1
                     while ((bytesRead = in.read(buffer)) != -1) {
 
                         totalBytesRead += bytesRead;
 
-                        // ✅ CHECK SIZE DURING READING
                         if (totalBytesRead > MAX_JSON_SIZE_BYTES) {
                             Log.e(TAG, "❌ JSON exceeded size limit during reading: " + totalBytesRead + " bytes");
                             callback.onError("JSON too large (>20KB)");
 
-                            // Clean up and exit thread
                             try {
                                 baos.close();
                                 in.close();
                             } catch (Exception e) { /* ignore */ }
 
-                            return; // Stop downloading
+                            return;
                         }
-
-                        // If size is ok, write bytes to our output stream
                         baos.write(buffer, 0, bytesRead);
                     }
-
-                    // If loop finished, file is within size limit
-                    // Determine charset, default to UTF-8
                     String charset = "UTF-8";
                     String contentType = connection.getContentType();
                     if (contentType != null) {
@@ -256,8 +220,6 @@ public class JsonFetcher {
                             }
                         }
                     }
-
-                    // Convert the downloaded bytes to a String using the correct charset
                     jsonString = baos.toString(charset);
 
                     Log.d(TAG, "✅ JSON received (" + (jsonString.getBytes().length / 1024) + "KB): " +
@@ -265,7 +227,6 @@ public class JsonFetcher {
 
                     ParsedJson parsed = parseJsonResponse(jsonString);
 
-                    // Save to both caches
                     saveToDiskCache(cacheFile, jsonString);
                     jsonCache.put(urlPart, parsed);
 
@@ -279,7 +240,6 @@ public class JsonFetcher {
                 callback.onError("Failed to fetch: " + e.getMessage());
             } finally {
                 try {
-                    // Clean up all resources
                     if (in != null) in.close();
                     if (baos != null) baos.close();
                     if (connection != null) connection.disconnect();
@@ -289,8 +249,6 @@ public class JsonFetcher {
             }
         }).start();
     }
-    // ▲▲▲ END OF REPLACED METHOD ▲▲▲
-
 
     private static ParsedJson parseJsonResponse(String jsonString) {
         ParsedJson result = new ParsedJson();
@@ -298,14 +256,11 @@ public class JsonFetcher {
         try {
             JSONObject json = new JSONObject(jsonString);
 
-            // 1. Check for Message ( "message" or "text" )
             if (json.has("message")) {
                 result.message = json.getString("message");
             } else if (json.has("text")) {
                 result.message = json.getString("text");
             }
-
-            // 2. Check for Images ( "images" or "image_urls" )
             if (json.has("images")) {
                 JSONArray imagesArray = json.getJSONArray("images");
                 result.images = jsonArrayToString(imagesArray);
@@ -313,8 +268,6 @@ public class JsonFetcher {
                 JSONArray imagesArray = json.getJSONArray("image_urls");
                 result.images = jsonArrayToString(imagesArray);
             }
-
-            // 3. Check for Videos ( "videos" or "video_urls" )
             if (json.has("videos")) {
                 JSONArray videosArray = json.getJSONArray("videos");
                 result.videos = jsonArrayToString(videosArray);

@@ -10,7 +10,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase;
 
 @Database(
         entities = {MessageEntity.class, SavedMessageEntity.class},
-        version = 12,
+        version = 13,
         exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -22,15 +22,26 @@ public abstract class AppDatabase extends RoomDatabase {
     static final Migration MIGRATION_10_11 = new Migration(10, 11) {
         @Override
         public void migrate(@NonNull SupportSQLiteDatabase database) {
-            // Add index on message column for better search performance
             database.execSQL("CREATE INDEX IF NOT EXISTS index_messages_message ON messages(message)");
+        }
+    };
+
+    static final Migration MIGRATION_12_13 = new Migration(12, 13) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase database) {
+            database.execSQL("ALTER TABLE messages ADD COLUMN replyToUserId TEXT NOT NULL DEFAULT ''");
+            database.execSQL("ALTER TABLE messages ADD COLUMN replyToMessageId TEXT NOT NULL DEFAULT ''");
+            database.execSQL("ALTER TABLE messages ADD COLUMN replyToMessagePreview TEXT NOT NULL DEFAULT ''");
+
+            database.execSQL("ALTER TABLE saved_messages ADD COLUMN replyToUserId TEXT NOT NULL DEFAULT ''");
+            database.execSQL("ALTER TABLE saved_messages ADD COLUMN replyToMessageId TEXT NOT NULL DEFAULT ''");
+            database.execSQL("ALTER TABLE saved_messages ADD COLUMN replyToMessagePreview TEXT NOT NULL DEFAULT ''");
         }
     };
 
     static final Migration MIGRATION_9_10 = new Migration(9, 10) {
         @Override
         public void migrate(@NonNull SupportSQLiteDatabase database) {
-            // Add isRead column to messages table
             database.execSQL("ALTER TABLE messages ADD COLUMN isRead INTEGER NOT NULL DEFAULT 1");
         }
     };
@@ -38,7 +49,6 @@ public abstract class AppDatabase extends RoomDatabase {
     static final Migration MIGRATION_11_12 = new Migration(11, 12) {
         @Override
         public void migrate(@NonNull SupportSQLiteDatabase database) {
-            // Add timestamp bits to saved_messages
             database.execSQL("ALTER TABLE saved_messages ADD COLUMN senderTimestampBits INTEGER NOT NULL DEFAULT 0");
             database.execSQL("ALTER TABLE saved_messages ADD COLUMN messageTimestampBits INTEGER NOT NULL DEFAULT 0");
         }
@@ -65,7 +75,6 @@ public abstract class AppDatabase extends RoomDatabase {
         @Override
         public void migrate(@NonNull SupportSQLiteDatabase database) {
             // This migration was for savedTimestamp in messages table
-            // Since we're not using it anymore, just skip
         }
     };
 
@@ -125,7 +134,8 @@ public abstract class AppDatabase extends RoomDatabase {
                                     MIGRATION_8_9,
                                     MIGRATION_9_10,
                                     MIGRATION_10_11,
-                                    MIGRATION_11_12
+                                    MIGRATION_11_12,
+                                    MIGRATION_12_13
                             )
                             .fallbackToDestructiveMigration()
                             .build();

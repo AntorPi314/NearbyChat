@@ -76,12 +76,10 @@ public class MessageConverterForBle {
         if ("N".equals(chatType)) {
             messagePayload = payloadToSend;
         } else {
-            // ✅ ADD null check for encryption
             try {
                 String password = MessageHelper.getPasswordForChat(context, chatType, chatId, senderDisplayId);
                 messagePayload = CryptoUtils.encrypt(payloadToSend, password);
 
-                // ✅ Check if encryption failed
                 if (messagePayload == null || messagePayload.isEmpty()) {
                     Log.e("MessageConverter", "Encryption failed, using original payload");
                     messagePayload = payloadToSend;
@@ -91,8 +89,6 @@ public class MessageConverterForBle {
                 messagePayload = payloadToSend;
             }
         }
-
-        // ✅ ADD validation
         if (messagePayload == null) {
             messagePayload = "";
         }
@@ -114,9 +110,33 @@ public class MessageConverterForBle {
         int totalChunks = dataChunks.size();
 
         if (existingMessageIdBits == -1) {
+            String contentToSave = payloadToSend;
+            String rUserId = "";
+            String rMsgId = "";
+            boolean isReplyDetected = false;
+
+            if (payloadToSend.startsWith("[r>") && payloadToSend.length() >= 13) {
+                try {
+                    String replyUserAscii = payloadToSend.substring(3, 8);
+                    String replyMsgAscii = payloadToSend.substring(8, 13);
+
+                    long replyUserBits = MessageHelper.asciiIdToTimestamp(replyUserAscii);
+                    rUserId = MessageHelper.timestampToDisplayId(replyUserBits);
+
+                    long replyMsgBits = MessageHelper.asciiIdToTimestamp(replyMsgAscii);
+                    rMsgId = MessageHelper.timestampToDisplayId(replyMsgBits);
+
+                    contentToSave = payloadToSend.substring(13);
+                    isReplyDetected = true;
+
+                } catch (Exception e) {
+                    Log.e("MsgConverter", "Error parsing reply tag", e);
+                }
+            }
+
             this.messageToSave = new MessageModel(
                     senderDisplayId,
-                    payloadToSend,
+                    contentToSave,
                     true,
                     createFormattedTimestamp(totalChunks, messageIdBits),
                     senderIdBits,
@@ -125,13 +145,18 @@ public class MessageConverterForBle {
             this.messageToSave.setMessageId(MessageHelper.timestampToDisplayId(messageIdBits));
             this.messageToSave.setChatType(chatType);
             this.messageToSave.setChatId(chatId);
+
+            if (isReplyDetected) {
+                this.messageToSave.setReplyToUserId(rUserId);
+                this.messageToSave.setReplyToMessageId(rMsgId);
+                this.messageToSave.setReplyToMessagePreview("Loading reply...");
+            }
         }
         this.blePacketsToSend = new ArrayList<>();
 
-        // ✅ ADD null/empty check for chatId
         String paddedChatId;
         if (chatId == null || chatId.isEmpty()) {
-            paddedChatId = "     "; // 5 spaces
+            paddedChatId = "     ";
         } else {
             paddedChatId = String.format("%-5s", chatId).substring(0, 5);
         }

@@ -22,6 +22,10 @@ public class SavedMessageEntity {
 
     public SavedMessageEntity() {}
 
+    public String replyToUserId = "";
+    public String replyToMessageId = "";
+    public String replyToMessagePreview = "";
+
     public static SavedMessageEntity fromMessageEntity(MessageEntity entity) {
         SavedMessageEntity saved = new SavedMessageEntity();
         saved.chatType = entity.chatType;
@@ -36,6 +40,10 @@ public class SavedMessageEntity {
 
         saved.senderTimestampBits = entity.senderTimestampBits;
         saved.messageTimestampBits = entity.messageTimestampBits;
+
+        saved.replyToUserId = entity.replyToUserId;
+        saved.replyToMessageId = entity.replyToMessageId;
+        saved.replyToMessagePreview = entity.replyToMessagePreview;
         return saved;
     }
 
@@ -52,6 +60,10 @@ public class SavedMessageEntity {
         model.setChatType(chatType);
         model.setChatId(chatId);
         model.setSaved(true);
+
+        model.setReplyToUserId(replyToUserId);
+        model.setReplyToMessageId(replyToMessageId);
+        model.setReplyToMessagePreview(replyToMessagePreview);
         return model;
     }
 }

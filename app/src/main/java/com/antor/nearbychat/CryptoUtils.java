@@ -44,7 +44,7 @@ public class CryptoUtils {
             return textToDecrypt;
         }
         try {
-            byte[] key = getCachedKey(password); // ✅ CHANGED: Use cached key
+            byte[] key = getCachedKey(password);
             byte[] textBytes = textToDecrypt.getBytes(ISO_8859_1);
             byte[] result = new byte[textBytes.length];
 
@@ -66,11 +66,11 @@ public class CryptoUtils {
 
     private static class CacheEntry {
         byte[] key;
-        long expiry; // milliseconds
+        long expiry;
 
         CacheEntry(byte[] key) {
             this.key = key;
-            this.expiry = System.currentTimeMillis() + (30 * 60 * 1000); // 30 minutes
+            this.expiry = System.currentTimeMillis() + (30 * 60 * 1000);
         }
 
         boolean isExpired() {
@@ -84,8 +84,6 @@ public class CryptoUtils {
         if (entry != null && !entry.isExpired()) {
             return entry.key;
         }
-
-        // Generate new key
         byte[] key = generateKey(password);
 
         if (keyCache.size() < 50) {
@@ -108,7 +106,7 @@ public class CryptoUtils {
         Thread cleanupThread = new Thread(() -> {
             while (true) {
                 try {
-                    Thread.sleep(60000); // Every minute
+                    Thread.sleep(60000);
 
                     synchronized (keyCache) {
                         keyCache.entrySet().removeIf(e -> e.getValue().isExpired());

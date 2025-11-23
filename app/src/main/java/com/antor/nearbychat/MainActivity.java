@@ -23,12 +23,6 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
-import com.antor.nearbychat.CryptoUtils;
-
-import androidx.work.PeriodicWorkRequest;
-import androidx.work.WorkManager;
-import androidx.work.ExistingPeriodicWorkPolicy;
-import java.util.concurrent.TimeUnit;
 
 import java.util.Map;
 import android.os.PowerManager;
@@ -110,7 +104,7 @@ public class MainActivity extends BaseActivity {
     private TextView unseenMsgCountView;
 
     private TextView chunkCountView;
-    private int currentMaxPayloadSize = 27; // Default value
+    private int currentMaxPayloadSize = 27;
     private static final int MAX_CHUNKS_LIMIT = 250;
 
     private SharedPreferences prefs;
@@ -159,6 +153,14 @@ public class MainActivity extends BaseActivity {
 
     private boolean isKeyboardVisible = false;
     private String currentSearchQuery = "";
+
+    private MessageModel replyingToMessage = null;
+    private LinearLayout replyPreviewContainer;
+    private TextView replyPreviewText;
+    private ImageView closeReplyButton;
+
+    private TextView textReplyTitle;
+    private TextView textReplyMessage;
 
     private final ServiceConnection serviceConnection = new ServiceConnection() {
         @Override
@@ -253,11 +255,8 @@ public class MainActivity extends BaseActivity {
         inputImageURL = findViewById(R.id.inputImageURL);
         inputVideoURL = findViewById(R.id.inputVideoURL);
 
-        // ▼▼▼ ADD LISTENER FOR CHUNK COUNT ▼▼▼
         inputImageURL.addTextChangedListener(chunkCalculatorWatcher);
         inputVideoURL.addTextChangedListener(chunkCalculatorWatcher);
-        // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
-
         textStatus = findViewById(R.id.textStatus);
         setupMessageInput();
         setupSearchUI();
@@ -273,12 +272,25 @@ public class MainActivity extends BaseActivity {
         unseenMsgCountView = findViewById(R.id.unseenMsg);
         unseenMsgCountView.setVisibility(View.GONE);
 
+        textReplyTitle = findViewById(R.id.textReplyTitle);
+        textReplyMessage = findViewById(R.id.textReplyMessage);
+
         sendButton = findViewById(R.id.sendButton);
         loadingContainer = findViewById(R.id.loadingContainer);
         sendProgressBar = findViewById(R.id.sendProgressBar);
         sendButtonContainer = findViewById(R.id.sendButtonContainer);
 
-        chunkCountView = findViewById(R.id.chunkCount); // <-- ADD THIS LINE
+        replyPreviewContainer = findViewById(R.id.replyPreviewContainer);
+        closeReplyButton = findViewById(R.id.closeReplyButton);
+
+        closeReplyButton.setOnClickListener(v -> cancelReply());
+
+        chunkCountView = findViewById(R.id.chunkCount);
+
+        replyPreviewContainer = findViewById(R.id.replyPreviewContainer);
+
+        closeReplyButton = findViewById(R.id.closeReplyButton);
+        closeReplyButton.setOnClickListener(v -> cancelReply());
 
         sendButtonContainer.setOnClickListener(v -> {
             if (!hasAllPermissionsAndServicesReady()) {
@@ -309,7 +321,109 @@ public class MainActivity extends BaseActivity {
             }
         });
         updateChatUIForSelection();
-        updateChunkCountUI(); // <-- ADD THIS LINE to initialize count
+        updateChunkCountUI();
+
+        setupSwipeToReply();
+    }
+
+    public void scrollToAndHighlight(int position) {
+        if (position < 0 || position >= messageList.size()) return;
+
+        LinearLayoutManager layoutManager = (LinearLayoutManager) recyclerView.getLayoutManager();
+        if (layoutManager != null) {
+            layoutManager.scrollToPositionWithOffset(position, 200);
+
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                RecyclerView.ViewHolder holder = recyclerView.findViewHolderForAdapterPosition(position);
+                if (holder != null) {
+                    animateHighlight(holder.itemView);
+                }
+            }, 300);
+        }
+    }
+
+    private void animateHighlight(View view) {
+        int colorFrom = Color.TRANSPARENT;
+        int colorTo = Color.parseColor("#400D80E0");
+
+        android.animation.ObjectAnimator animator = android.animation.ObjectAnimator.ofObject(
+                view,
+                "backgroundColor",
+                new android.animation.ArgbEvaluator(),
+                colorFrom, colorTo, colorFrom
+        );
+        animator.setDuration(1500);
+        animator.start();
+    }
+
+    private void setupSwipeToReply() {
+        androidx.recyclerview.widget.ItemTouchHelper.SimpleCallback simpleCallback =
+                new androidx.recyclerview.widget.ItemTouchHelper.SimpleCallback(0,
+                        androidx.recyclerview.widget.ItemTouchHelper.LEFT | androidx.recyclerview.widget.ItemTouchHelper.RIGHT) {
+
+                    @Override
+                    public boolean onMove(@NonNull RecyclerView recyclerView, @NonNull RecyclerView.ViewHolder viewHolder, @NonNull RecyclerView.ViewHolder target) {
+                        return false;
+                    }
+
+                    @Override
+                    public void onSwiped(@NonNull RecyclerView.ViewHolder viewHolder, int direction) {
+                        int position = viewHolder.getAdapterPosition();
+                        if (position == RecyclerView.NO_POSITION || position >= messageList.size()) return;
+
+                        MessageModel msg = messageList.get(position);
+                        boolean isSelf = msg.isSelf();
+
+                        if (!isSelf && direction == androidx.recyclerview.widget.ItemTouchHelper.RIGHT) {
+                            setReplyTo(msg);
+                        } else if (isSelf && direction == androidx.recyclerview.widget.ItemTouchHelper.LEFT) {
+                            setReplyTo(msg);
+                        }
+                        chatAdapter.notifyItemChanged(position);
+                    }
+
+                    @Override
+                    public void onChildDraw(@NonNull android.graphics.Canvas c, @NonNull RecyclerView recyclerView,
+                                            @NonNull RecyclerView.ViewHolder viewHolder, float dX, float dY,
+                                            int actionState, boolean isCurrentlyActive) {
+
+                        float maxSwipeDistance = 150f;
+                        if (dX > maxSwipeDistance) dX = maxSwipeDistance;
+                        if (dX < -maxSwipeDistance) dX = -maxSwipeDistance;
+
+                        super.onChildDraw(c, recyclerView, viewHolder, dX, dY, actionState, isCurrentlyActive);
+                    }
+                };
+        new androidx.recyclerview.widget.ItemTouchHelper(simpleCallback).attachToRecyclerView(recyclerView);
+    }
+
+    private void setReplyTo(MessageModel msg) {
+        replyingToMessage = msg;
+
+        PayloadCompress.ParsedPayload parsed = PayloadCompress.parsePayload(msg.getMessage());
+        String preview = parsed.message;
+
+        if (preview.isEmpty() && (!parsed.imageUrls.isEmpty() || !parsed.videoUrls.isEmpty())) {
+            preview = "Media";
+        }
+
+        String senderName = getDisplayName(msg.getSenderId());
+
+        textReplyTitle.setText("Replying to " + senderName);
+        textReplyMessage.setText(preview);
+
+        replyPreviewContainer.setVisibility(View.VISIBLE);
+        inputMessage.requestFocus();
+
+        android.view.inputmethod.InputMethodManager imm = (android.view.inputmethod.InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (imm != null) {
+            imm.showSoftInput(inputMessage, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
+        }
+    }
+
+    private void cancelReply() {
+        replyingToMessage = null;
+        replyPreviewContainer.setVisibility(View.GONE);
     }
 
     private void handleNotificationIntent(Intent intent) {
@@ -324,7 +438,6 @@ public class MainActivity extends BaseActivity {
                 activeChatId = notifChatId;
                 saveActiveChat();
 
-                // UI update করার জন্য delay দিন
                 new Handler(Looper.getMainLooper()).postDelayed(() -> {
                     updateChatUIForSelection();
                 }, 500);
@@ -343,7 +456,6 @@ public class MainActivity extends BaseActivity {
         }
         @Override
         public void afterTextChanged(Editable s) {
-            // Update the chunk count UI whenever text changes in any input
             updateChunkCountUI();
         }
     };
@@ -391,8 +503,6 @@ public class MainActivity extends BaseActivity {
 
         searchIcon.setOnClickListener(v -> showSearchMode());
         closeSearchOptionIcon.setOnClickListener(v -> hideSearchMode());
-
-        // Real-time search with debouncing
         final Handler searchHandler = new Handler(Looper.getMainLooper());
         final Runnable[] searchRunnable = new Runnable[1];
 
@@ -458,14 +568,12 @@ public class MainActivity extends BaseActivity {
             return;
         }
 
-        // ✅ CHANGED: Get ALL messages from current chat, then filter locally
         if (searchLiveData != null) {
             searchLiveData.removeObservers(this);
         }
 
         Log.d(TAG, "🔍 Starting search in chat: " + activeChatType + "/" + activeChatId);
 
-        // Get all messages from current chat
         searchLiveData = messageDao.getMessagesForChat(activeChatType, activeChatId);
 
         searchLiveData.observe(this, messages -> {
@@ -478,14 +586,11 @@ public class MainActivity extends BaseActivity {
             String lowerQuery = query.toLowerCase();
             int foundCount = 0;
 
-            // ✅ Filter messages by decompressing and searching
             for (com.antor.nearbychat.Database.MessageEntity entity : messages) {
                 try {
-                    // Decompress the message
                     PayloadCompress.ParsedPayload parsed =
                             PayloadCompress.parsePayload(entity.message);
 
-                    // Search in decompressed text, image URLs, and video URLs
                     boolean matches = false;
 
                     if (!parsed.message.isEmpty() &&
@@ -702,8 +807,6 @@ public class MainActivity extends BaseActivity {
             String displayId = getUserIdString(bits);
             groupIdText.setText(displayId);
         }
-
-        // ✅ ===== এখানে নতুন কোড যোগ করুন =====
         TextView groupCreatedDate = dialog.findViewById(R.id.groupCreatedDate);
         if (groupCreatedDate != null) {
             try {
@@ -715,7 +818,6 @@ public class MainActivity extends BaseActivity {
                 groupCreatedDate.setText("Created: Unknown");
             }
         }
-        // ✅ ===== নতুন কোড শেষ =====
 
         ImageView dialogProfilePic = dialog.findViewById(R.id.profilePicRound);
         if (dialogProfilePic != null) {
@@ -789,7 +891,7 @@ public class MainActivity extends BaseActivity {
     private boolean getNotificationState(String chatType, String chatId) {
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         String key = chatType + ":" + chatId;
-        return prefs.getBoolean("notification_" + key, false); // Default: false (disabled)
+        return prefs.getBoolean("notification_" + key, false);
     }
 
     private void saveNotificationState(String chatType, String chatId, boolean enabled) {
@@ -851,7 +953,6 @@ public class MainActivity extends BaseActivity {
 
         btnBlockUnblock.setVisibility(View.VISIBLE);
 
-        // ✅ ===== এখানে নতুন কোড যোগ করুন =====
         TextView userJoinedDate = dialog.findViewById(R.id.userJoinedDate);
         if (userJoinedDate != null) {
             try {
@@ -863,7 +964,6 @@ public class MainActivity extends BaseActivity {
                 userJoinedDate.setText("Joined: Unknown");
             }
         }
-        // ✅ ===== নতুন কোড শেষ =====
 
         ImageView dialogProfilePic = dialog.findViewById(R.id.profilePicRound);
         ProfilePicLoader.loadProfilePicture(this, displayId, dialogProfilePic);
@@ -967,8 +1067,6 @@ public class MainActivity extends BaseActivity {
         dialog.show();
     }
 
-    // In MainActivity.java, add this NEW public method:
-
     public void showEditFriendDialogForSender(String senderDisplayId) {
         List<FriendModel> friendsList = DataCache.getFriends(this);
 
@@ -981,23 +1079,20 @@ public class MainActivity extends BaseActivity {
                 break;
             }
         }
-
-        // If friend isn't in the list, create a temporary model
         if (friendToEdit == null) {
-            // Use getDisplayName to check nameMap AND friends list
             String name = getDisplayName(senderDisplayId);
-            if (name.equals(senderDisplayId)) { // If name is just the ID
+            if (name.equals(senderDisplayId)) {
                 friendToEdit = new FriendModel(senderDisplayId, "", "");
             } else {
                 friendToEdit = new FriendModel(senderDisplayId, name, "");
             }
-            friendPosition = -1; // Not in the list
+            friendPosition = -1;
         }
 
         final FriendModel f = friendToEdit;
         final int pos = friendPosition;
         final List<FriendModel> listRef = friendsList;
-        final String displayId = senderDisplayId; // Use the passed-in ID
+        final String displayId = senderDisplayId;
 
         Dialog dialog = new Dialog(this);
         dialog.setContentView(R.layout.dialog_add_edit_friend);
@@ -1019,7 +1114,7 @@ public class MainActivity extends BaseActivity {
         editId.setText(f.getDisplayId());
         editKey.setText(f.getEncryptionKey());
         editId.setEnabled(false);
-        btnBlockUnblock.setVisibility(View.VISIBLE); // Always show
+        btnBlockUnblock.setVisibility(View.VISIBLE);
 
         ImageView dialogProfilePic = dialog.findViewById(R.id.profilePicRound);
         ProfilePicLoader.loadProfilePicture(this, displayId, dialogProfilePic);
@@ -1078,21 +1173,19 @@ public class MainActivity extends BaseActivity {
             Toast.makeText(this, newState ? "Notifications enabled" : "Notifications disabled",
                     Toast.LENGTH_SHORT).show();
         });
-
-        // BLOCK/UNBLOCK LOGIC
         final boolean isBlocked = isUserBlocked(displayId);
         if (isBlocked) {
             btnBlockUnblock.setText("Unblock");
-            btnBlockUnblock.setBackgroundColor(Color.parseColor("#007BFF")); // Blue
+            btnBlockUnblock.setBackgroundColor(Color.parseColor("#007BFF"));
         } else {
             btnBlockUnblock.setText("Block");
-            btnBlockUnblock.setBackgroundColor(Color.parseColor("#DC3545")); // Red
+            btnBlockUnblock.setBackgroundColor(Color.parseColor("#DC3545"));
         }
 
         btnBlockUnblock.setOnClickListener(v -> {
             String currentName = editName.getText().toString().trim();
-            if (currentName.isEmpty()) currentName = f.getName(); // use stored name
-            if (currentName.isEmpty()) currentName = displayId;  // use ID as fallback
+            if (currentName.isEmpty()) currentName = f.getName();
+            if (currentName.isEmpty()) currentName = displayId;
 
             if (isBlocked) {
                 unblockUser(displayId, currentName);
@@ -1123,7 +1216,6 @@ public class MainActivity extends BaseActivity {
 
             DataCache.saveFriends(this, listRef);
 
-            // If this is the active chat, update the title bar
             if (isChatWithUser(activeChatType, activeChatId, displayId)) {
                 updateChatUIForSelection();
             }
@@ -1158,7 +1250,6 @@ public class MainActivity extends BaseActivity {
             blockedList.add(displayId);
             prefs.edit().putString("blockedList", gson.toJson(blockedList)).apply();
         }
-        // Remove from friends list
         List<FriendModel> friends = DataCache.getFriends(this);
         friends.removeIf(f -> f.getDisplayId().equals(displayId));
         DataCache.saveFriends(this, friends);
@@ -1166,7 +1257,6 @@ public class MainActivity extends BaseActivity {
         String toastName = (name == null || name.isEmpty()) ? displayId : name;
         Toast.makeText(this, "User " + toastName + " blocked", Toast.LENGTH_SHORT).show();
 
-        // If the blocked user is the current chat, switch to Nearby
         if (isChatWithUser(activeChatType, activeChatId, displayId)) {
             activeChatType = "N";
             activeChatId = "";
@@ -1183,13 +1273,12 @@ public class MainActivity extends BaseActivity {
             Type type = new TypeToken<List<String>>(){}.getType();
             blockedList = gson.fromJson(json, type);
         } else {
-            return; // Not blocked anyway
+            return;
         }
         if (blockedList.contains(displayId)) {
             blockedList.remove(displayId);
             prefs.edit().putString("blockedList", gson.toJson(blockedList)).apply();
         }
-        // Add back to friends list
         List<FriendModel> friends = DataCache.getFriends(this);
         boolean exists = friends.stream().anyMatch(f -> f.getDisplayId().equals(displayId));
         if (!exists) {
@@ -1200,8 +1289,6 @@ public class MainActivity extends BaseActivity {
         String toastName = (name == null || name.isEmpty()) ? displayId : name;
         Toast.makeText(this, "User " + toastName + " unblocked", Toast.LENGTH_SHORT).show();
     }
-
-    // Helper to check if current chat is the user being blocked
     private boolean isChatWithUser(String chatType, String chatId, String displayId) {
         if (!"F".equals(chatType)) return false;
         try {
@@ -1214,8 +1301,6 @@ public class MainActivity extends BaseActivity {
     }
 
     private void updateChatUIForSelection() {
-
-        // ===== START: ইনপুট কন্ট্রোল লজিক আপডেট করুন =====
         boolean inputEnabled = true;
         String hint = "Type your message...";
 
@@ -1244,7 +1329,7 @@ public class MainActivity extends BaseActivity {
             String displayId = getUserIdString(bits);
             List<FriendModel> friends = DataCache.getFriends(this);
 
-            String friendName = displayId; // default fallback
+            String friendName = displayId;
             for (FriendModel f : friends) {
                 if (f.getDisplayId().equals(displayId)) {
                     if (f.getName() != null && !f.getName().isEmpty()) {
@@ -1257,7 +1342,6 @@ public class MainActivity extends BaseActivity {
             appTitle.setText(friendName);
             ProfilePicLoader.loadProfilePicture(this, displayId, appIcon);
 
-            // ফ্রেন্ড চ্যাটে চেক করুন ইউজার ব্লকড কিনা
             if (isCurrentUserBlocked()) {
                 inputEnabled = false;
                 hint = "This user is blocked";
@@ -1265,26 +1349,21 @@ public class MainActivity extends BaseActivity {
         }
 
         if (isShowingSavedMessages) {
-            inputEnabled = true;  // ✅ CHANGE from false
-            hint = "Type to save locally...";  // ✅ NEW hint
+            inputEnabled = true;
+            hint = "Type to save locally...";
         }
 
-        // ইনপুট বক্সের state সেট করুন
         if (inputEnabled) {
             enableInputContainer();
         } else {
             disableInputContainer();
-            inputMessage.setHint(hint); // কাস্টম hint সেট করুন
+            inputMessage.setHint(hint);
         }
-        // ===== END: ইনপুট কন্ট্রোল লজিক আপডেট করুন =====
-
-        // ===== START: চ্যাট সুইচ করলে ইনপুট মোড রিসেট করুন =====
         inputMode = 0;
         inputMessage.setVisibility(View.VISIBLE);
         inputImageURL.setVisibility(View.GONE);
         inputVideoURL.setVisibility(View.GONE);
         switchInputImage.setImageResource(R.drawable.text);
-        // ===== END: চ্যাট সুইচ করলে ইনপুট মোড রিসেট করুন =====
 
         messageList.clear();
         chatAdapter.notifyDataSetChanged();
@@ -1294,13 +1373,9 @@ public class MainActivity extends BaseActivity {
             markCurrentChatAsRead();
         }, 100);
 
-
-        // ▼▼▼ এই দুটি লাইন শেষে যোগ করা হয়েছে ▼▼▼
-        // মনে রাখুন যে এই চ্যাটটি সর্বশেষ রিলোড করা হয়েছে
         lastRefreshedChatType = activeChatType;
         lastRefreshedChatId = activeChatId;
         Log.d(TAG, "updateChatUIForSelection: Refreshed trackers to " + activeChatType + "/" + activeChatId);
-        // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
     }
 
 
@@ -1460,10 +1535,6 @@ public class MainActivity extends BaseActivity {
     }
 
     private void setupMessageInput() {
-        // Remove old listener
-        // inputMessage.addTextChangedListener(new TextWatcher() { ... });
-
-        // Add the new listener
         inputMessage.addTextChangedListener(chunkCalculatorWatcher);
     }
 
@@ -1569,7 +1640,6 @@ public class MainActivity extends BaseActivity {
 
             if (bluetoothAdapter == null) {
                 Toast.makeText(this, "Bluetooth not available", Toast.LENGTH_LONG).show();
-                // ✅ UPDATE send button color even if Bluetooth unavailable
                 updateSendButtonColor();
                 return;
             }
@@ -1584,7 +1654,6 @@ public class MainActivity extends BaseActivity {
                 if (!bluetoothAdapter.isEnabled()) {
                     Toast.makeText(this, "Please turn on Bluetooth", Toast.LENGTH_LONG).show();
                     startActivityForResult(new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE), 101);
-                    // ✅ UPDATE send button color
                     updateSendButtonColor();
                     return;
                 }
@@ -1598,14 +1667,11 @@ public class MainActivity extends BaseActivity {
         } catch (Exception e) {
             Log.e(TAG, "Error in checkPermissionsAndStartService", e);
             Toast.makeText(this, "Error initializing Bluetooth", Toast.LENGTH_SHORT).show();
-            // ✅ UPDATE send button color even on error
             updateSendButtonColor();
         }
     }
 
     private void checkAndRequestPermissionsSequentially() {
-
-        // Android 12+ (API 31)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
                 requestSinglePermission(Manifest.permission.BLUETOOTH_CONNECT, "Bluetooth connection required for messaging");
@@ -1620,22 +1686,17 @@ public class MainActivity extends BaseActivity {
                 return;
             }
         } else {
-            // Android 11 (API 30) এবং এর নিচে
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-                showLocationPermissionDialog(); // লোকেশন ডায়ালগ দেখান
+                showLocationPermissionDialog();
                 return;
             }
         }
-
-        // Android 13+ (API 33)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 requestSinglePermission(Manifest.permission.POST_NOTIFICATIONS, "Notifications required for background service alerts");
                 return;
             }
         }
-
-        // সব পারমিশন থাকলে সার্ভিস চালু করুন
         new Handler(Looper.getMainLooper()).postDelayed(this::startBleService, 500);
     }
 
@@ -1666,28 +1727,18 @@ public class MainActivity extends BaseActivity {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
 
         if (requestCode == PERMISSION_REQUEST_CODE) {
-            // --- START FIX: "Permission Denied" Toast Fix ---
             if (grantResults.length > 0) {
-                // রিকোয়েস্টের একটি ফলাফল আছে
                 if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                    // একটি পারমিশন পেয়েছে, পরেরটির জন্য আবার চেক করুন
                     checkAndRequestPermissionsSequentially();
                 } else {
-                    // ইউজার স্পষ্টভাবে "Deny" ক্লিক করেছে
                     Toast.makeText(this, "Permission denied. App may not work properly.", Toast.LENGTH_LONG).show();
                 }
             } else {
-                // রিকোয়েস্ট ক্যানসেল হয়েছে (grantResults.length == 0)
-                // কোনো টোস্ট দেখাবেন না।
                 Log.w(TAG, "Permission request was cancelled or interrupted.");
             }
-            // --- END FIX ---
-
-            // বাটনটির রঙ আপডেটের জন্য কল করুন
             updateSendButtonColor();
 
         } else if (requestCode == REQUEST_STORAGE_PERMISSION) {
-            // ... (বাকি কোড অপরিবর্তিত) ...
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 if (currentUserId != null && currentProfilePic != null)
                     showImagePickerDialogInternal(currentUserId, currentProfilePic);
@@ -1697,7 +1748,6 @@ public class MainActivity extends BaseActivity {
                     openCamera(currentUserId, currentProfilePic);
             }
         } else if (requestCode == REQUEST_CAMERA_PERMISSION) {
-            // ... (বাকি কোড অপরিবর্তিত) ...
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 if (currentUserId != null && currentProfilePic != null)
                     openCameraInternal(currentUserId, currentProfilePic);
@@ -1708,14 +1758,11 @@ public class MainActivity extends BaseActivity {
     }
 
     private boolean hasAllRequiredPermissions() {
-        // Android 13+ (API 33) এর জন্য নোটিফিকেশন
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 return false;
             }
         }
-
-        // Android 12+ (API 31) এর জন্য নতুন Bluetooth পারমিশন
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
                 return false;
@@ -1727,12 +1774,11 @@ public class MainActivity extends BaseActivity {
                 return false;
             }
         } else {
-            // Android 11 (API 30) এবং এর নিচের জন্য লোকেশন পারমিশন
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
                 return false;
             }
         }
-        return true; // সব প্রয়োজনীয় পারমিশন আছে
+        return true;
     }
 
     private void startBleService() {
@@ -1755,13 +1801,7 @@ public class MainActivity extends BaseActivity {
         }
     }
 
-    // In MainActivity.java
 
-    // ▼▼▼ ADD THESE THREE NEW METHODS ▼▼▼
-
-    /**
-     * Loads chunk-related settings from SharedPreferences.
-     */
     private void loadChunkSettings() {
         SharedPreferences prefs = getSharedPreferences("NearbyChatSettings", MODE_PRIVATE);
         currentMaxPayloadSize = prefs.getInt("MAX_PAYLOAD_SIZE", 27);
@@ -1770,43 +1810,37 @@ public class MainActivity extends BaseActivity {
         }
     }
 
-    /**
-     * Calculates the estimated number of chunks for the current message.
-     * This logic mirrors MessageConverterForBle.
-     */
     private int calculateCurrentChunkCount() {
         if (inputMessage == null || inputImageURL == null || inputVideoURL == null) {
-            return 0; // UI not ready
+            return 0;
         }
 
         String textMsg = inputMessage.getText().toString().trim();
         String imageUrlsRaw = inputImageURL.getText().toString().trim();
         String videoUrlsRaw = inputVideoURL.getText().toString().trim();
 
-        // 1. Build the payload
         String compressedPayload = PayloadCompress.buildPayload(textMsg, imageUrlsRaw, videoUrlsRaw);
 
-        // 2. Encrypt if necessary
+        if (replyingToMessage != null) {
+            compressedPayload = "1234567890123" + compressedPayload;
+        }
         String messagePayload;
         if ("N".equals(activeChatType)) {
             messagePayload = compressedPayload;
         } else {
-            // Need 'userId' (my display ID) for friend chat key fallback
             String password = MessageHelper.getPasswordForChat(this, activeChatType, activeChatId, userId);
             messagePayload = CryptoUtils.encrypt(compressedPayload, password);
         }
 
         if (messagePayload == null || messagePayload.isEmpty()) {
-            return 0; // Empty message
+            return 0;
         }
 
         byte[] messageBytes = messagePayload.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1);
 
-        // 3. Define header sizes
-        final int BASE_HEADER_SIZE = 13; // CHAT_TYPE(1) + USER_ID(5) + MSG_ID(5) + CHUNKS(2)
-        final int FIRST_CHUNK_GF_HEADER_SIZE = 18; // BASE_HEADER_SIZE + CHAT_ID(5)
+        final int BASE_HEADER_SIZE = 13;
+        final int FIRST_CHUNK_GF_HEADER_SIZE = 18;
 
-        // 4. Define data sizes per chunk
         int firstChunkDataSize;
         int nextChunkDataSize;
 
@@ -1819,13 +1853,10 @@ public class MainActivity extends BaseActivity {
         }
 
         if (firstChunkDataSize <= 0 || nextChunkDataSize <= 0) {
-            // Failsafe if MAX_PAYLOAD_SIZE is set ridiculously low
             return 999;
         }
-
-        // 5. Calculate total chunks
         if (messageBytes.length == 0) {
-            return 1; // Empty message is still 1 chunk
+            return 1;
         }
 
         int totalChunks = 0;
@@ -1842,12 +1873,9 @@ public class MainActivity extends BaseActivity {
         return totalChunks;
     }
 
-    /**
-     * Updates the chunk count TextView and its color.
-     */
     private void updateChunkCountUI() {
         if (chunkCountView == null) {
-            return; // View not initialized yet
+            return;
         }
 
         int chunkCount = calculateCurrentChunkCount();
@@ -1859,7 +1887,6 @@ public class MainActivity extends BaseActivity {
             chunkCountView.setBackgroundResource(R.drawable.bg_round_chunk);
         }
     }
-    // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
     private void onSendButtonClick(View v) {
         if (isAdvertising) {
@@ -1867,73 +1894,6 @@ public class MainActivity extends BaseActivity {
                 bleService.cancelAdvertising();
             }
             return;
-        }
-        if (isShowingSavedMessages) {
-            // ✅ NEW: Allow sending but DON'T broadcast, just save locally
-            String textMsg = inputMessage.getText().toString().trim();
-            String imageUrlsRaw = inputImageURL.getText().toString().trim();
-            String videoUrlsRaw = inputVideoURL.getText().toString().trim();
-
-            if (textMsg.isEmpty() && imageUrlsRaw.isEmpty() && videoUrlsRaw.isEmpty()) {
-                Toast.makeText(this, "Message cannot be empty!", Toast.LENGTH_SHORT).show();
-                return;
-            }
-
-            if (!validateAllLinks(imageUrlsRaw, videoUrlsRaw)) {
-                Toast.makeText(this, "Invalid link format. Please check URLs.", Toast.LENGTH_LONG).show();
-                return;
-            }
-
-            int chunkCount = calculateCurrentChunkCount();
-            if (chunkCount > MAX_CHUNKS_LIMIT) {
-                Toast.makeText(this, "Message too large (" + chunkCount + "/" + MAX_CHUNKS_LIMIT + " chunks)", Toast.LENGTH_LONG).show();
-                return;
-            }
-
-            // ✅ Build the message but DON'T broadcast
-            String compressedPayload = PayloadCompress.buildPayload(textMsg, imageUrlsRaw, videoUrlsRaw);
-
-            // ✅ Create MessageModel
-            long currentTimeBits = System.currentTimeMillis() & ((1L << 40) - 1);
-            String messageId = MessageHelper.timestampToDisplayId(currentTimeBits);
-            String timestamp = MessageHelper.formatTimestamp(System.currentTimeMillis()) + " | 1C";
-
-            MessageModel newMsg = new MessageModel(
-                    userId,
-                    compressedPayload,
-                    true,  // isSelf = true
-                    timestamp,
-                    userIdBits,
-                    currentTimeBits
-            );
-            newMsg.setMessageId(messageId);
-            newMsg.setChatType("N");  // Treat as Nearby for simplicity
-            newMsg.setChatId("");
-            newMsg.setSaved(true);  // Mark as saved
-
-            // ✅ Save to saved_messages table
-            new Thread(() -> {
-                try {
-                    com.antor.nearbychat.Database.MessageEntity tempEntity =
-                            com.antor.nearbychat.Database.MessageEntity.fromMessageModel(newMsg);
-
-                    com.antor.nearbychat.Database.SavedMessageEntity savedEntity =
-                            com.antor.nearbychat.Database.SavedMessageEntity.fromMessageEntity(tempEntity);
-
-                    database.savedMessageDao().insertSavedMessage(savedEntity);
-
-                    runOnUiThread(() -> {
-                        Toast.makeText(this, "Message saved locally (not broadcasted)", Toast.LENGTH_SHORT).show();
-                        inputMessage.setText("");
-                        inputImageURL.setText("");
-                        inputVideoURL.setText("");
-                    });
-                } catch (Exception e) {
-                    runOnUiThread(() -> Toast.makeText(this, "Error saving message", Toast.LENGTH_SHORT).show());
-                }
-            }).start();
-
-            return;  // ✅ DON'T proceed to broadcast
         }
 
         String textMsg = inputMessage.getText().toString().trim();
@@ -1945,27 +1905,89 @@ public class MainActivity extends BaseActivity {
             return;
         }
 
-        // Validation + send logic (existing code continues...)
         if (!validateAllLinks(imageUrlsRaw, videoUrlsRaw)) {
-            Toast.makeText(this, "Invalid link format. Please check URLs.", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "Invalid link format.", Toast.LENGTH_LONG).show();
             return;
         }
+        String basePayload = PayloadCompress.buildPayload(textMsg, imageUrlsRaw, videoUrlsRaw);
 
-        // ▼▼▼ REPLACE LENGTH CHECK WITH CHUNK CHECK ▼▼▼
+        String compressedPayload;
+
+        boolean isReply = false;
+        String rUserId = "";
+        String rMsgId = "";
+
+        if (replyingToMessage != null) {
+            long senderBits = replyingToMessage.getSenderTimestampBits();
+            long msgBits = replyingToMessage.getMessageTimestampBits();
+
+            if (senderBits == 0) senderBits = MessageHelper.displayIdToTimestamp(replyingToMessage.getSenderId());
+            if (msgBits == 0) msgBits = MessageHelper.displayIdToTimestamp(replyingToMessage.getMessageId());
+
+            String replyUserAscii = MessageHelper.timestampToAsciiId(senderBits);
+            String replyMsgAscii = MessageHelper.timestampToAsciiId(msgBits);
+
+            compressedPayload = "[r>" + replyUserAscii + replyMsgAscii + basePayload;
+
+            isReply = true;
+            rUserId = MessageHelper.timestampToDisplayId(senderBits);
+            rMsgId = MessageHelper.timestampToDisplayId(msgBits);
+
+            cancelReply();
+        } else {
+            compressedPayload = basePayload;
+        }
+        if (isShowingSavedMessages) {
+            long currentTimeBits = System.currentTimeMillis() & ((1L << 40) - 1);
+            String messageId = MessageHelper.timestampToDisplayId(currentTimeBits);
+            String timestamp = MessageHelper.formatTimestamp(System.currentTimeMillis()) + " | 1C";
+
+            MessageModel newMsg = new MessageModel(
+                    userId,
+                    basePayload,
+                    true,
+                    timestamp,
+                    userIdBits,
+                    currentTimeBits
+            );
+            newMsg.setMessageId(messageId);
+            newMsg.setChatType("N");
+            newMsg.setChatId("");
+            newMsg.setSaved(true);
+
+            if (isReply) {
+                newMsg.setReplyToUserId(rUserId);
+                newMsg.setReplyToMessageId(rMsgId);
+                newMsg.setReplyToMessagePreview("Loading reply...");
+            }
+
+            new Thread(() -> {
+                try {
+                    com.antor.nearbychat.Database.MessageEntity tempEntity =
+                            com.antor.nearbychat.Database.MessageEntity.fromMessageModel(newMsg);
+                    com.antor.nearbychat.Database.SavedMessageEntity savedEntity =
+                            com.antor.nearbychat.Database.SavedMessageEntity.fromMessageEntity(tempEntity);
+                    database.savedMessageDao().insertSavedMessage(savedEntity);
+
+                    runOnUiThread(() -> {
+                        Toast.makeText(this, "Message saved locally", Toast.LENGTH_SHORT).show();
+                        inputMessage.setText("");
+                        inputImageURL.setText("");
+                        inputVideoURL.setText("");
+                    });
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }).start();
+            return;
+        }
         int chunkCount = calculateCurrentChunkCount();
         if (chunkCount > MAX_CHUNKS_LIMIT) {
-            Toast.makeText(this, "Message too large (" + chunkCount + "/" + MAX_CHUNKS_LIMIT + " chunks)", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "Message too large", Toast.LENGTH_LONG).show();
             return;
         }
-        // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
-        String compressedPayload = PayloadCompress.buildPayload(textMsg, imageUrlsRaw, videoUrlsRaw);
-
-        // REMOVED old MAX_MESSAGE_LENGTH check
-
-        if (!validateBluetoothAndService()) {
-            return;
-        }
+        if (!validateBluetoothAndService()) return;
 
         if (isServiceBound && bleService != null) {
             bleService.sendMessage(compressedPayload, activeChatType, activeChatId);
@@ -1980,7 +2002,7 @@ public class MainActivity extends BaseActivity {
                 }
             });
         } else {
-            Toast.makeText(this, "Service not ready. Please try again.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Service not ready.", Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -2118,6 +2140,10 @@ public class MainActivity extends BaseActivity {
 
         final List<String> options = new ArrayList<>();
 
+        if (!msg.isFailed()) {
+            options.add("Reply");
+        }
+
         if (isShowingSavedMessages) {
             options.add("Copy");
             options.add("Edit");
@@ -2140,15 +2166,17 @@ public class MainActivity extends BaseActivity {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle("Message Options");
 
-        // এটি (শর্ট) ক্লিকের হ্যান্ডলার
         builder.setItems(options.toArray(new String[0]), (dialog, which) -> {
             String selectedOption = options.get(which);
             switch (selectedOption) {
+                case "Reply":
+                    setReplyTo(msg);
+                    break;
                 case "Copy":
-                    copyMessageToClipboard(msg); // এটি স্বাভাবিক (শর্ট) ক্লিক
+                    copyMessageToClipboard(msg);
                     break;
                 case "Edit":
-                    editMessage(msg); // এটি স্বাভাবিক (শর্ট) ক্লিক
+                    editMessage(msg);
                     break;
                 case "Save":
                     saveMessage(msg);
@@ -2169,65 +2197,44 @@ public class MainActivity extends BaseActivity {
                     break;
             }
         });
-
-        // ডায়ালগটি .show() না করে .create() করুন
         AlertDialog dialog = builder.create();
-
-        // ডায়ালগ থেকে ListView টি নিন
         ListView listView = dialog.getListView();
         if (listView != null) {
-            // লং-প্রেস লিসেনার সেট করুন
             listView.setOnItemLongClickListener((parent, view, position, id) -> {
                 String selectedOption = options.get(position);
 
-                // ✅ যদি "Copy" অপশনে লং-প্রেস করা হয়
                 if (selectedOption.equals("Copy")) {
-                    copyMessageAsJson(msg); // JSON কপি করার মেথড
-                    dialog.dismiss();       // ডায়ালগটি বন্ধ করুন
-                    return true;            // আমরা লং-প্রেসটি সফলভাবে হ্যান্ডল করেছি
+                    copyMessageAsJson(msg);
+                    dialog.dismiss();
+                    return true;
                 }
 
-                // ✅ নতুন: যদি "Edit" অপশনে লং-প্রেস করা হয়
                 if (selectedOption.equals("Edit")) {
-                    // এটি g// URL কিনা তা পরীক্ষা করুন
                     PayloadCompress.ParsedPayload parsed = PayloadCompress.parsePayload(msg.getMessage());
                     if (JsonFetcher.isJsonUrl(parsed.message) && parsed.imageUrls.isEmpty() && parsed.videoUrls.isEmpty()) {
-                        // এটি একটি g// URL, তাই কন্টেন্ট লোড করুন
-                        loadJsonForEditing(parsed.message); // নতুন হেল্পার মেথড
+                        loadJsonForEditing(parsed.message);
                         dialog.dismiss();
-                        return true; // আমরা লং-প্রেসটি সফলভাবে হ্যান্ডল করেছি
+                        return true;
                     }
-                    // যদি এটি g// URL না হয়, তবে কিছুই করবেন না (return false)
                 }
-
-                // অন্য কোনো আইটেমে লং-প্রেস করলে কিছু করবেন না
                 return false;
             });
         }
-
-        // এবার ডায়ালগটি দেখান
         dialog.show();
     }
 
     private void loadJsonForEditing(String gUrl) {
-        // ১. লোডিং টোস্ট দেখান
         Toast.makeText(this, "Fetching JSON for editing...", Toast.LENGTH_SHORT).show();
 
-        // ২. JsonFetcher ব্যবহার করে কন্টেন্ট আনুন (এটি cache থেকেও আনতে পারে)
         JsonFetcher.fetchJson(this, gUrl, new JsonFetcher.JsonCallback() {
             @Override
             public void onSuccess(JsonFetcher.ParsedJson fetchedData) {
-                // UI থ্রেডে ইনপুট ফিল্ডগুলো আপডেট করুন
                 runOnUiThread(() -> {
-                    // ৩. ফিল্ডগুলো সেট করুন
                     inputMessage.setText(fetchedData.message);
-                    // কমা-কে নতুন লাইন দিয়ে প্রতিস্থাপন করুন, যাতে এডিট করা সহজ হয়
                     inputImageURL.setText(fetchedData.images.replace(",", "\n"));
                     inputVideoURL.setText(fetchedData.videos.replace(",", "\n"));
 
-                    // ৪. সঠিক ইনপুট মোডটি দেখান (editMessage মেথডের লজিক অনুযায়ী)
                     if (fetchedData.message != null && !fetchedData.message.isEmpty()) {
-                        // টেক্সট ইনপুট দেখান
                         inputMode = 0;
                         inputMessage.setVisibility(View.VISIBLE);
                         inputImageURL.setVisibility(View.GONE);
@@ -2236,7 +2243,6 @@ public class MainActivity extends BaseActivity {
                         inputMessage.requestFocus();
                         inputMessage.setSelection(inputMessage.getText().length());
                     } else if (fetchedData.images != null && !fetchedData.images.isEmpty()) {
-                        // ইমেজ ইনপুট দেখান
                         inputMode = 1;
                         inputMessage.setVisibility(View.GONE);
                         inputImageURL.setVisibility(View.VISIBLE);
@@ -2245,7 +2251,6 @@ public class MainActivity extends BaseActivity {
                         inputImageURL.requestFocus();
                         inputImageURL.setSelection(inputImageURL.getText().length());
                     } else if (fetchedData.videos != null && !fetchedData.videos.isEmpty()) {
-                        // ভিডিও ইনপুট দেখান
                         inputMode = 2;
                         inputMessage.setVisibility(View.GONE);
                         inputImageURL.setVisibility(View.GONE);
@@ -2260,11 +2265,9 @@ public class MainActivity extends BaseActivity {
 
             @Override
             public void onError(String error) {
-                // ব্যর্থ হলে, শুধু g// URL টিকেই এডিট বক্সে দিন (short-click এর মতো)
                 runOnUiThread(() -> {
                     Toast.makeText(MainActivity.this, "Fetch failed. Loading URL only.", Toast.LENGTH_LONG).show();
 
-                    // short-click এর ফলব্যাক
                     inputMessage.setText(gUrl);
                     inputMode = 0;
                     inputMessage.setVisibility(View.VISIBLE);
@@ -2279,52 +2282,41 @@ public class MainActivity extends BaseActivity {
     }
 
     private void copyMessageAsJson(MessageModel msg) {
-        // ১. কাঁচা মেসেজ কন্টেন্ট পার্স করুন
         PayloadCompress.ParsedPayload parsed = PayloadCompress.parsePayload(msg.getMessage());
 
-        // ২. চেক করুন এটি একটি g// URL কিনা
         if (JsonFetcher.isJsonUrl(parsed.message) && parsed.imageUrls.isEmpty() && parsed.videoUrls.isEmpty()) {
-            // এটি একটি g// URL, তাই এটি fetch করতে হবে
             Toast.makeText(this, "Fetching JSON...", Toast.LENGTH_SHORT).show();
 
-            // JsonFetcher ব্যবহার করে কন্টেন্ট আনুন (এটি cache থেকেও আনতে পারে)
             JsonFetcher.fetchJson(this, parsed.message, new JsonFetcher.JsonCallback() {
                 @Override
                 public void onSuccess(JsonFetcher.ParsedJson fetchedData) {
-                    // সফল হলে, fetched data থেকে একটি নতুন payload তৈরি করুন
                     PayloadCompress.ParsedPayload payloadToCopy = new PayloadCompress.ParsedPayload();
                     payloadToCopy.message = fetchedData.message;
                     payloadToCopy.imageUrls = fetchedData.images;
                     payloadToCopy.videoUrls = fetchedData.videos;
 
-                    // UI থ্রেডে JSON তৈরি এবং কপি করুন
                     runOnUiThread(() -> buildAndCopyJson(payloadToCopy));
                 }
 
                 @Override
                 public void onError(String error) {
-                    // ব্যর্থ হলে, আসল g// URL টিকেই JSON হিসেবে কপি করুন
                     runOnUiThread(() -> {
                         Toast.makeText(MainActivity.this, "Fetch failed. Copying g// URL as JSON.", Toast.LENGTH_LONG).show();
-                        buildAndCopyJson(parsed); // আসল 'parsed' payload কপি করুন
+                        buildAndCopyJson(parsed);
                     });
                 }
             });
         } else {
-            // এটি একটি সাধারণ মেসেজ, সরাসরি এটি থেকে JSON তৈরি করুন
             buildAndCopyJson(parsed);
         }
     }
 
     private void buildAndCopyJson(PayloadCompress.ParsedPayload payload) {
         try {
-            // ১. JSON অবজেক্ট তৈরি করুন
             JSONObject json = new JSONObject();
 
-            // ২. "message" কী (key) যোগ করুন
             json.put("message", payload.message);
 
-            // ৩. "images" অ্যারে (array) যোগ করুন
             JSONArray imagesArray = new JSONArray();
             if (payload.imageUrls != null && !payload.imageUrls.isEmpty()) {
                 String[] urls = payload.imageUrls.split(",");
@@ -2337,7 +2329,6 @@ public class MainActivity extends BaseActivity {
             }
             json.put("images", imagesArray);
 
-            // ৪. "videos" অ্যারে (array) যোগ করুন
             JSONArray videosArray = new JSONArray();
             if (payload.videoUrls != null && !payload.videoUrls.isEmpty()) {
                 String[] urls = payload.videoUrls.split(",");
@@ -2350,13 +2341,9 @@ public class MainActivity extends BaseActivity {
             }
             json.put("videos", videosArray);
 
-            // ৫. JSON অবজেক্টটিকে একটি সুন্দর ফরম্যাটেড স্ট্রিং-এ রূপান্তর করুন
-            String jsonString = json.toString(2); // ২ স্পেস ইন্ডেন্টেশন
-
-            // ✅ ৬. Escaped slashes (\/) ফিক্স করুন
+            String jsonString = json.toString(2);
             String cleanJsonString = jsonString.replace("\\/", "/");
 
-            // ৭. ক্লিপবোর্ডে কপি করুন
             ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
             if (clipboard != null) {
                 clipboard.setPrimaryClip(ClipData.newPlainText("Message JSON", cleanJsonString));
@@ -2372,21 +2359,16 @@ public class MainActivity extends BaseActivity {
     private void editMessage(MessageModel msg) {
         String messageText = msg.getMessage();
 
-        // Reset all inputs first
         inputMessage.setText("");
         inputImageURL.setText("");
         inputVideoURL.setText("");
 
-        // Parse the payload using PayloadCompress
         PayloadCompress.ParsedPayload parsed = PayloadCompress.parsePayload(messageText);
 
-        // ✅ NEW CHECK: If the DECOMPRESSED message is a g// URL,
-        // just put the URL in the text field and stop.
         if (JsonFetcher.isJsonUrl(parsed.message) && parsed.imageUrls.isEmpty() && parsed.videoUrls.isEmpty()) {
 
-            inputMessage.setText(parsed.message); // e.g., "g//mocki.io/v1/..."
+            inputMessage.setText(parsed.message);
 
-            // Switch to text mode
             inputMode = 0;
             inputMessage.setVisibility(View.VISIBLE);
             inputImageURL.setVisibility(View.GONE);
@@ -2397,29 +2379,20 @@ public class MainActivity extends BaseActivity {
             inputMessage.setSelection(inputMessage.getText().length());
 
             Toast.makeText(this, "JSON URL loaded for editing", Toast.LENGTH_SHORT).show();
-            return; // ✅ Stop here
+            return;
         }
-
-        // --- If it's a NORMAL message, do the old logic ---
-
-        // Set the extracted parts to respective EditTexts
         if (!parsed.message.isEmpty()) {
             inputMessage.setText(parsed.message);
         }
 
         if (!parsed.imageUrls.isEmpty()) {
-            // Replace commas with newlines for better editing
             inputImageURL.setText(parsed.imageUrls.replace(",", "\n"));
         }
 
         if (!parsed.videoUrls.isEmpty()) {
-            // Replace commas with newlines
             inputVideoURL.setText(parsed.videoUrls.replace(",", "\n"));
         }
-
-        // Switch to appropriate input mode based on what's available
         if (!parsed.message.isEmpty()) {
-            // Show text input
             inputMode = 0;
             inputMessage.setVisibility(View.VISIBLE);
             inputImageURL.setVisibility(View.GONE);
@@ -2429,7 +2402,6 @@ public class MainActivity extends BaseActivity {
             inputMessage.requestFocus();
             inputMessage.setSelection(inputMessage.getText().length());
         } else if (!parsed.imageUrls.isEmpty()) {
-            // Show image input
             inputMode = 1;
             inputMessage.setVisibility(View.GONE);
             inputImageURL.setVisibility(View.VISIBLE);
@@ -2439,7 +2411,6 @@ public class MainActivity extends BaseActivity {
             inputImageURL.requestFocus();
             inputImageURL.setSelection(inputImageURL.getText().length());
         } else if (!parsed.videoUrls.isEmpty()) {
-            // Show video input
             inputMode = 2;
             inputMessage.setVisibility(View.GONE);
             inputImageURL.setVisibility(View.GONE);
@@ -2453,36 +2424,25 @@ public class MainActivity extends BaseActivity {
         Toast.makeText(this, "Message loaded for editing", Toast.LENGTH_SHORT).show();
     }
 
-    /**
-     * Checks if a single link string has a basic valid format.
-     * We are lenient here: just checking for no spaces and at least one '.' or '/'.
-     */
     private boolean isValidLinkFormat(String link) {
         if (link == null || link.isEmpty()) {
             return false;
         }
-        // Rule 1: No spaces allowed in a URL
         if (link.contains(" ")) {
             return false;
         }
-        // Rule 2: Must contain at least one dot OR one slash
         if (!link.contains(".") && !link.contains("/")) {
             return false;
         }
-        // Rule 3: Must be at least 3 chars long (e.g., 'a.b' or '/a')
         if (link.length() < 3) {
             return false;
         }
         return true;
     }
 
-    /**
-     * Validates all links from both Image and Video input fields.
-     */
     private boolean validateAllLinks(String imageUrlsRaw, String videoUrlsRaw) {
         java.util.List<String> allLinks = new java.util.ArrayList<>();
 
-        // Use the same splitting logic as PayloadCompress
         if (imageUrlsRaw != null && !imageUrlsRaw.isEmpty()) {
             String[] imageLinks = imageUrlsRaw.trim().split("[\\n\\r,]+");
             Collections.addAll(allLinks, imageLinks);
@@ -2494,19 +2454,18 @@ public class MainActivity extends BaseActivity {
         }
 
         if (allLinks.isEmpty()) {
-            return true; // No links to validate, so it's valid.
+            return true;
         }
 
         for (String link : allLinks) {
             String trimmedLink = link.trim();
-            // We only validate non-empty strings.
             if (!trimmedLink.isEmpty() && !isValidLinkFormat(trimmedLink)) {
                 Log.w(TAG, "Invalid link detected: '" + trimmedLink + "'");
-                return false; // Found an invalid link
+                return false;
             }
         }
 
-        return true; // All links passed validation
+        return true;
     }
 
 
@@ -2537,17 +2496,14 @@ public class MainActivity extends BaseActivity {
     private void saveMessage(MessageModel msg) {
         new Thread(() -> {
             try {
-                // Get MessageEntity from database
                 com.antor.nearbychat.Database.MessageEntity entity =
                         messageDao.getMessageEntity(msg.getSenderId(), msg.getMessageId(), msg.getTimestamp());
 
                 if (entity != null) {
-                    // Check if already saved
                     SavedMessageDao savedDao = database.savedMessageDao();
                     int exists = savedDao.savedMessageExists(msg.getSenderId(), msg.getMessageId(), msg.getTimestamp());
 
                     if (exists == 0) {
-                        // Create copy in saved_messages table
                         SavedMessageEntity savedEntity = SavedMessageEntity.fromMessageEntity(entity);
                         savedDao.insertSavedMessage(savedEntity);
                         runOnUiThread(() -> Toast.makeText(this, "Message saved", Toast.LENGTH_SHORT).show());
@@ -2567,8 +2523,8 @@ public class MainActivity extends BaseActivity {
         appTitle.setText("Saved");
         appIcon.setImageResource(R.drawable.saved_blue);
 
-        enableInputContainer();  // ✅ Allow typing
-        inputMessage.setHint("Type to save locally...");  // ✅ Custom hint
+        enableInputContainer();
+        inputMessage.setHint("Type to save locally...");
 
         if (currentMessagesLiveData != null) {
             currentMessagesLiveData.removeObservers(this);
@@ -2613,7 +2569,7 @@ public class MainActivity extends BaseActivity {
         inputMessage.setEnabled(false);
         inputImageURL.setEnabled(false);
         inputVideoURL.setEnabled(false);
-        switchInputImage.setEnabled(false); // ✅ এখানে যোগ করা হয়েছে
+        switchInputImage.setEnabled(false);
 
         inputMessage.setHintTextColor(Color.parseColor("#CCCCCC"));
         inputImageURL.setHintTextColor(Color.parseColor("#CCCCCC"));
@@ -2624,20 +2580,18 @@ public class MainActivity extends BaseActivity {
         inputVideoURL.setTextColor(Color.parseColor("#CCCCCC"));
 
         sendButtonContainer.setAlpha(0.6f);
-        switchInputImage.setAlpha(0.6f); // ✅ এখানে যোগ করা হয়েছে
+        switchInputImage.setAlpha(0.6f);
     }
 
     private void enableInputContainer() {
         inputMessage.setEnabled(true);
         inputImageURL.setEnabled(true);
         inputVideoURL.setEnabled(true);
-        switchInputImage.setEnabled(true); // ✅ এখানে যোগ করা হয়েছে
+        switchInputImage.setEnabled(true);
 
-        // ===== START: ডিফল্ট hint গুলো রিসেট করুন =====
         inputMessage.setHint("Type your message...");
         inputImageURL.setHint("Paste your image link here...");
         inputVideoURL.setHint("Paste your video link here...");
-        // ===== END: ডিফল্ট hint গুলো রিসেট করুন =====
 
         inputMessage.setHintTextColor(Color.parseColor("#787878"));
         inputImageURL.setHintTextColor(Color.parseColor("#787878"));
@@ -2648,7 +2602,7 @@ public class MainActivity extends BaseActivity {
         inputVideoURL.setTextColor(Color.parseColor("#000000"));
 
         sendButtonContainer.setAlpha(1.0f);
-        switchInputImage.setAlpha(1.0f); // ✅ এখানে যোগ করা হয়েছে
+        switchInputImage.setAlpha(1.0f);
     }
 
     private void copyMessageToClipboard(MessageModel msg) {
@@ -2656,7 +2610,6 @@ public class MainActivity extends BaseActivity {
         if (clipboard != null) {
             String messageText = msg.getMessage();
 
-            // Parse the message using PayloadCompress
             PayloadCompress.ParsedPayload parsed = PayloadCompress.parsePayload(messageText);
 
             StringBuilder result = new StringBuilder();
@@ -2848,7 +2801,6 @@ public class MainActivity extends BaseActivity {
     protected void onResume() {
         super.onResume();
 
-        // ১. লোড করুন কোন চ্যাটটি সক্রিয় থাকা উচিত
         activeChatType = prefs.getString(KEY_CHAT_TYPE, "N");
         activeChatId = prefs.getString(KEY_CHAT_ID, "");
 
@@ -2889,14 +2841,12 @@ public class MainActivity extends BaseActivity {
             return false;
         }
 
-        // Android 13+ (API 33) নোটিফিকেশন চেক
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 return false;
             }
         }
 
-        // Android 12+ (API 31) নতুন বিটি পারমিশন চেক
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
                 return false;
@@ -2908,35 +2858,29 @@ public class MainActivity extends BaseActivity {
                 return false;
             }
         } else {
-            // Android 11 (API 30) এবং এর নিচের জন্য লোকেশন পারমিশন এবং লোকেশন সেটিং চেক
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
                 return false;
             }
             if (!isLocationEnabled()) {
-                return false; // লোকেশন সেটিং (GPS) বন্ধ
+                return false;
             }
         }
-        return true; // সব ঠিক আছে
+        return true;
     }
 
     private void updateSendButtonColor() {
         if (sendButton == null) return;
 
         if (hasAllPermissionsAndServicesReady()) {
-            // ✅ সব ঠিক আছে - নীল রঙ
             sendButton.setImageResource(R.drawable.sent);
             sendButton.clearColorFilter();
         } else {
-            // ❌ সমস্যা আছে - লাল রঙ
             sendButton.setImageResource(R.drawable.sent);
             sendButton.setColorFilter(Color.parseColor("#E92C2C"), android.graphics.PorterDuff.Mode.SRC_ATOP);
         }
     }
 
     private void handlePermissionIssueClick() {
-        // Check what's wrong and fix it
-
-        // 1. Check Bluetooth
         if (bluetoothAdapter == null) {
             Toast.makeText(this, "Bluetooth not available on this device", Toast.LENGTH_LONG).show();
             return;
@@ -2952,7 +2896,6 @@ public class MainActivity extends BaseActivity {
             // Permission missing, will be handled below
         }
 
-        // 2. Check Location
         if (!isLocationEnabled()) {
             new AlertDialog.Builder(this)
                     .setTitle("Location Required")
@@ -2965,24 +2908,17 @@ public class MainActivity extends BaseActivity {
                     .show();
             return;
         }
-
-        // 3. Check Permissions
         checkAndRequestPermissionsSequentially();
     }
 
     @Override
     protected void onPause() {
         super.onPause();
-        // We SAVE the active chat here so the service knows what's open,
-        // instead of clearing it.
         SharedPreferences activePrefs = getSharedPreferences(PREFS_ACTIVE_CHAT, MODE_PRIVATE);
         activePrefs.edit()
                 .putString(KEY_CHAT_TYPE, activeChatType)
                 .putString(KEY_CHAT_ID, activeChatId)
                 .apply();
-
-        // .remove(KEY_CHAT_TYPE) // <-- REMOVED
-        // .remove(KEY_CHAT_ID)   // <-- REMOVED
 
         Log.d(TAG, "App paused. Active chat info SAVED.");
     }
@@ -3025,7 +2961,7 @@ public class MainActivity extends BaseActivity {
             androidx.work.PeriodicWorkRequest watchdogWork =
                     new androidx.work.PeriodicWorkRequest.Builder(
                             ServiceWatchdogWorker.class,
-                            15, // Repeat every 15 minutes
+                            15,
                             java.util.concurrent.TimeUnit.MINUTES
                     )
                             .addTag("service_watchdog")
@@ -3044,4 +2980,9 @@ public class MainActivity extends BaseActivity {
             Log.e(TAG, "❌ Failed to schedule watchdog", e);
         }
     }
+
+    public String getCurrentUserId() {
+        return userId;
+    }
+
 }

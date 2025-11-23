@@ -33,6 +33,7 @@ import android.widget.FrameLayout;
 import android.widget.Toast;
 
 import com.antor.nearbychat.Database.AppDatabase;
+import com.antor.nearbychat.Message.MessageHelper;
 
 public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder> {
 
@@ -76,65 +77,139 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
     public void onBindViewHolder(@NonNull ChatViewHolder holder, int position) {
         MessageModel msg = messageList.get(position);
         MainActivity main = (MainActivity) context;
+        String myUserId = main.getCurrentUserId();
 
-        // ---------------------------------------------------------
-        // ✅ 1. SMART SENDER ID RECYCLING
-        // ---------------------------------------------------------
-        String currentSenderId = (String) holder.itemView.getTag(R.id.tag_sender_id);
+        String senderName = main.getDisplayName(msg.getSenderId());
+        holder.senderId.setTextColor(Color.parseColor("#555555"));
 
-        if (!msg.getSenderId().equals(currentSenderId)) {
-            String displayName = main.getDisplayName(msg.getSenderId());
-            holder.senderId.setText(displayName.isEmpty() ? msg.getSenderId() : displayName);
+        if (msg.isReply()) {
+            holder.senderId.setCompoundDrawablesWithIntrinsicBounds(R.drawable.reply, 0, 0, 0);
+            holder.senderId.setCompoundDrawablePadding(8);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                holder.senderId.setCompoundDrawableTintList(android.content.res.ColorStateList.valueOf(Color.parseColor("#888888")));
+            }
+
+            String replyToUserId = msg.getReplyToUserId();
+            String replyToName = main.getDisplayName(replyToUserId);
+
+            if (msg.isSelf()) {
+                if (replyToUserId.equals(myUserId)) {
+                    holder.senderId.setText("You replied to yourself");
+                } else {
+                    holder.senderId.setText("You replied to " + replyToName);
+                }
+            } else {
+                if (replyToUserId.equals(myUserId)) {
+                    holder.senderId.setText(senderName + " replied to you");
+                    holder.senderId.setTextColor(Color.parseColor("#0D80E0"));
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        holder.senderId.setCompoundDrawableTintList(android.content.res.ColorStateList.valueOf(Color.parseColor("#0D80E0")));
+                    }
+                } else if (replyToUserId.equals(msg.getSenderId())) {
+                    holder.senderId.setText(senderName + " replied to themself");
+                } else {
+                    holder.senderId.setText(senderName + " replied to " + replyToName);
+                }
+            }
+        } else {
+            holder.senderId.setCompoundDrawablesWithIntrinsicBounds(0, 0, 0, 0);
+            holder.senderId.setText(senderName.isEmpty() ? msg.getSenderId() : senderName);
+        }
+        if (!msg.getSenderId().equals(holder.itemView.getTag(R.id.tag_sender_id))) {
             holder.itemView.setTag(R.id.tag_sender_id, msg.getSenderId());
         }
 
         holder.timestamp.setText(msg.getTimestamp());
 
-        // ▼▼▼ প্রোফাইল পিকচার লোডিং (সবার আগে) ▼▼▼
         if (holder.profilePic != null) {
             main.loadProfilePictureForAdapter(msg.getSenderId(), holder.profilePic);
-
             holder.profilePic.setOnClickListener(v -> main.openFriendChat(msg.getSenderId()));
-
             holder.profilePic.setOnLongClickListener(v -> {
                 main.showEditFriendDialogForSender(msg.getSenderId());
                 return true;
             });
         }
-        // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+        if (msg.isReply() && holder.replyContainer != null) {
+            String existingPreview = msg.getReplyToMessagePreview();
+            boolean isLoading = existingPreview == null || existingPreview.isEmpty() || existingPreview.startsWith("Loading");
+
+            if (isLoading) {
+                holder.replyText.setText("Loading reply...");
+                holder.replyContainer.setVisibility(View.VISIBLE);
+
+                executor.execute(() -> {
+                    try {
+                        AppDatabase db = AppDatabase.getInstance(context);
+                        com.antor.nearbychat.Database.MessageEntity entity =
+                                db.messageDao().getMessageById(msg.getReplyToMessageId());
+
+                        String foundPreview = "Message unavailable";
+                        if (entity != null) {
+                            PayloadCompress.ParsedPayload parsed = PayloadCompress.parsePayload(entity.message);
+                            foundPreview = parsed.message;
+                            if (foundPreview.isEmpty() && (!parsed.imageUrls.isEmpty() || !parsed.videoUrls.isEmpty())) {
+                                foundPreview = "Media";
+                            }
+                            if (foundPreview.length() > 60) foundPreview = foundPreview.substring(0, 60) + "...";
+                        }
+                        String finalPreview = foundPreview;
+                        ((Activity) context).runOnUiThread(() -> {
+                            if (msg.getReplyToMessageId().equals(msg.getReplyToMessageId())) {
+                                holder.replyText.setText(finalPreview);
+                                msg.setReplyToMessagePreview(finalPreview);
+                            }
+                        });
+                    } catch (Exception e) {
+                        Log.e("ChatAdapter", "Reply load error", e);
+                    }
+                });
+            } else {
+                holder.replyText.setText(existingPreview);
+                holder.replyContainer.setVisibility(View.VISIBLE);
+            }
+
+            holder.replyContainer.setOnClickListener(v -> {
+                String targetMsgId = msg.getReplyToMessageId();
+                int targetPos = -1;
+
+                for (int i = 0; i < messageList.size(); i++) {
+                    if (messageList.get(i).getMessageId().equals(targetMsgId)) {
+                        targetPos = i;
+                        break;
+                    }
+                }
+
+                if (targetPos != -1) {
+                    if (context instanceof MainActivity) {
+                        ((MainActivity) context).scrollToAndHighlight(targetPos);
+                    }
+                } else {
+                    Toast.makeText(context, "Original message not found nearby", Toast.LENGTH_SHORT).show();
+                }
+            });
+
+        } else if (holder.replyContainer != null) {
+            holder.replyContainer.setVisibility(View.GONE);
+        }
 
         String rawMessage = msg.getMessage();
 
-        // NORMAL MESSAGE (not payload) - e.g., "Receiving...", "Failed..."
-        if ((!msg.isComplete() || msg.isFailed()) &&
-                !rawMessage.startsWith("[u>") &&
-                !rawMessage.startsWith("[m>") &&
-                !rawMessage.startsWith("[v>")) {
-
+        if ((!msg.isComplete() || msg.isFailed()) && !rawMessage.startsWith("[u>") && !rawMessage.startsWith("[m>") && !rawMessage.startsWith("[v>")) {
             bindText(holder, rawMessage);
             bindImages(holder, "", false);
             bindVideos(holder, "");
-
-            return; // ✅ প্রোফাইল পিক লোড হয়ে গেছে, তাই return করা নিরাপদ
+            holder.message.setOnLongClickListener(v -> {
+                longClickListener.onClick(msg);
+                return true;
+            });
+            return;
         }
 
-        // ---------------------------------------------------------
-        // Payload Parsed
-        // ---------------------------------------------------------
         PayloadCompress.ParsedPayload parsed = PayloadCompress.parsePayload(rawMessage);
 
-        // ▼▼▼ START: NEW JSON FETCHING LOGIC ▼▼▼
-
-        // Check if this is a JSON fetch request
-        if (JsonFetcher.isJsonUrl(parsed.message) &&
-                parsed.imageUrls.isEmpty() &&
-                parsed.videoUrls.isEmpty()) {
-
+        if (JsonFetcher.isJsonUrl(parsed.message) && parsed.imageUrls.isEmpty() && parsed.videoUrls.isEmpty()) {
             final String gUrl = parsed.message;
-            // ট্যাগ সেট করুন, যাতে রিসাইক্লিং চেক করা যায়
             holder.itemView.setTag(gUrl);
-
-            // লোডিং অবস্থা দেখান
             bindText(holder, "Loading JSON...");
             bindImages(holder, "", false);
             bindVideos(holder, "");
@@ -144,82 +219,63 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
                 public void onSuccess(JsonFetcher.ParsedJson fetchedData) {
                     if (context instanceof Activity) {
                         ((Activity) context).runOnUiThread(() -> {
-                            // হোল্ডারটি রিসাইকেল হয়েছে কিনা চেক করুন
-                            if (!gUrl.equals(holder.itemView.getTag())) {
-                                return; // রিসাইকেল হয়ে গেছে, আপডেট করবেন না
-                            }
-                            // ফেচ করা ডেটা বাইন্ড করুন
+                            if (!gUrl.equals(holder.itemView.getTag())) return;
                             bindText(holder, fetchedData.message);
                             bindImages(holder, fetchedData.images, msg.isSelf());
                             bindVideos(holder, fetchedData.videos);
                         });
                     }
                 }
-
                 @Override
-                public void onError(String error) { // <--- 'error' স্ট্রিংটি এখানে আসে
+                public void onError(String error) {
                     if (context instanceof Activity) {
                         ((Activity) context).runOnUiThread(() -> {
-                            // হোল্ডারটি রিসাইকেল হয়েছে কিনা চেক করুন
-                            if (!gUrl.equals(holder.itemView.getTag())) {
-                                return; // রিসাইকেল হয়ে গেছে, আপডেট করবেন না
-                            }
-
-                            String displayError = "Failed to load JSON: " + error;
-                            bindText(holder, displayError);
-
-                            bindImages(holder, "", false);
-                            bindVideos(holder, "");
+                            if (!gUrl.equals(holder.itemView.getTag())) return;
+                            bindText(holder, "Failed: " + error);
                         });
                     }
                 }
             });
-
         } else {
-            // এটি একটি সাধারণ মেসেজ, সরাসরি ডেটা বাইন্ড করুন
-            holder.itemView.setTag(null); // ট্যাগ ক্লিয়ার করুন
+            holder.itemView.setTag(null);
             bindText(holder, parsed.message);
             bindImages(holder, parsed.imageUrls, msg.isSelf());
             bindVideos(holder, parsed.videoUrls);
         }
-        // ▲▲▲ END: NEW JSON FETCHING LOGIC ▲▲▲
 
-
-        // ---------------------------------------------------------
-        // CLICK LISTENERS
-        // ---------------------------------------------------------
         holder.itemView.setOnClickListener(v -> clickListener.onClick(msg));
+
         holder.itemView.setOnLongClickListener(v -> {
             longClickListener.onClick(msg);
             return true;
         });
+
+        if (holder.message != null) {
+            holder.message.setOnLongClickListener(v -> {
+                longClickListener.onClick(msg);
+                return true;
+            });
+        }
     }
 
-    // ▼▼▼ START: NEW HELPER METHODS ▼▼▼
+    static class ChatViewHolder extends RecyclerView.ViewHolder {
+        TextView senderId, message, timestamp;
+        ImageView profilePic;
+        LinearLayout imageContainer;
+        LinearLayout videoContainer;
+        LinearLayout replyContainer;
+        TextView replyText;
 
-    /**
-     * Binds text content to the message TextView.
-     */
-    private void bindText(ChatViewHolder holder, String message) {
-        if (message != null && !message.isEmpty()) {
-            holder.message.setVisibility(View.VISIBLE);
-
-            // Clean excessive newlines
-            String cleanedMessage = removeExcessiveNewlines(message);
-            // Truncate if needed
-            String displayMessage = truncateMessage(cleanedMessage);
-            holder.message.setText(displayMessage);
-
-            // Click to view full message
-            if (cleanedMessage.length() > MAX_MESSAGE_LENGTH) {
-                final String fullMessage = cleanedMessage;
-                holder.message.setOnClickListener(v -> showFullMessageDialog(fullMessage));
-            } else {
-                holder.message.setOnClickListener(null); // Remove previous listener
-            }
-
-        } else {
-            holder.message.setVisibility(View.GONE);
+        public ChatViewHolder(@NonNull View itemView) {
+            super(itemView);
+            senderId = itemView.findViewById(R.id.textUserId);
+            message = itemView.findViewById(R.id.textMessage);
+            timestamp = itemView.findViewById(R.id.textTimestamp);
+            profilePic = itemView.findViewById(R.id.profilePicRound);
+            imageContainer = itemView.findViewById(R.id.imageContainer);
+            videoContainer = itemView.findViewById(R.id.videoContainer);
+            replyContainer = itemView.findViewById(R.id.replyContainer);
+            replyText = itemView.findViewById(R.id.replyText);
         }
     }
 
@@ -230,7 +286,6 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
         if (holder.imageContainer == null) return;
 
         if (imageUrls != null && !imageUrls.isEmpty()) {
-            // Check if view is already built for this set of URLs
             String currentImageTag = (String) holder.imageContainer.getTag(R.id.tag_image_urls);
             if (!imageUrls.equals(currentImageTag)) {
                 holder.imageContainer.removeAllViews();
@@ -245,20 +300,15 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
             }
             holder.imageContainer.setVisibility(View.VISIBLE);
         } else {
-            // No images, clean up
             holder.imageContainer.setTag(R.id.tag_image_urls, null);
             holder.imageContainer.setVisibility(View.GONE);
         }
     }
 
-    /**
-     * Binds video URLs to the video container.
-     */
     private void bindVideos(ChatViewHolder holder, String videoUrls) {
         if (holder.videoContainer == null) return;
 
         if (videoUrls != null && !videoUrls.isEmpty()) {
-            // Check if view is already built for this set of URLs
             String currentVideoTag = (String) holder.videoContainer.getTag(R.id.tag_video_urls);
             if (!videoUrls.equals(currentVideoTag)) {
                 holder.videoContainer.removeAllViews();
@@ -273,24 +323,16 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
             }
             holder.videoContainer.setVisibility(View.VISIBLE);
         } else {
-            // No videos, clean up
             holder.videoContainer.setTag(R.id.tag_video_urls, null);
             holder.videoContainer.setVisibility(View.GONE);
         }
     }
 
-    // ▲▲▲ END: NEW HELPER METHODS ▲▲▲
-
-
     private String removeExcessiveNewlines(String text) {
         if (text == null) return "";
-        // Replace 4 or more consecutive newlines with just 3
         return text.replaceAll("\n{4,}", "\n\n\n");
     }
 
-    /**
-     * Truncates text to MAX_MESSAGE_LENGTH and adds "...(Click to View Full)"
-     */
     private String truncateMessage(String text) {
         if (text == null || text.length() <= MAX_MESSAGE_LENGTH) {
             return text;
@@ -298,15 +340,10 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
         return text.substring(0, MAX_MESSAGE_LENGTH) + "\n........(Click to View Full)";
     }
 
-    /**
-     * Shows full message in a custom dialog
-     */
     private void showFullMessageDialog(String fullText) {
-        // Create dialog
         Dialog dialog = new Dialog(context);
         dialog.setContentView(R.layout.dialog_full_message);
 
-        // Make dialog background transparent with rounded corners
         if (dialog.getWindow() != null) {
             dialog.getWindow().setBackgroundDrawable(
                     new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT)
@@ -315,38 +352,31 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
                     android.view.WindowManager.LayoutParams.MATCH_PARENT,
                     android.view.WindowManager.LayoutParams.WRAP_CONTENT
             );
-
-            // Add margin
             android.view.WindowManager.LayoutParams params = dialog.getWindow().getAttributes();
             params.width = android.view.WindowManager.LayoutParams.MATCH_PARENT;
             params.height = android.view.WindowManager.LayoutParams.WRAP_CONTENT;
             dialog.getWindow().setAttributes(params);
         }
 
-        // Set full text
         TextView fullMessageText = dialog.findViewById(R.id.fullMessageText);
         if (fullMessageText != null) {
             fullMessageText.setText(fullText);
 
-            // Enable links
             fullMessageText.setAutoLinkMask(android.text.util.Linkify.ALL);
             fullMessageText.setLinksClickable(true);
             fullMessageText.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
         }
 
-        // Close button (TextView style) - with null check
         TextView btnClose = dialog.findViewById(R.id.btnClose);
         if (btnClose != null) {
             btnClose.setOnClickListener(v -> dialog.dismiss());
         }
 
-        // Close icon - with null check
         ImageView btnCloseIcon = dialog.findViewById(R.id.btnCloseIcon);
         if (btnCloseIcon != null) {
             btnCloseIcon.setOnClickListener(v -> dialog.dismiss());
         }
 
-        // If both are null, allow dismissing by touching outside
         if (btnClose == null && btnCloseIcon == null) {
             dialog.setCanceledOnTouchOutside(true);
         }
@@ -356,7 +386,7 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
 
     private void setupVideoViews(LinearLayout videoContainer, ArrayList<String> videoUrls) {
         videoContainer.setOrientation(LinearLayout.HORIZONTAL);
-        ImageCacheManager cacheManager = ImageCacheManager.getInstance(context); // Cache manager instance
+        ImageCacheManager cacheManager = ImageCacheManager.getInstance(context);
 
         int maxDisplayVideos = 3;
         int totalVideos = videoUrls.size();
@@ -367,7 +397,6 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
             String url = videoUrls.get(i);
 
             if (i == maxDisplayVideos - 1 && totalVideos > maxDisplayVideos) {
-                // LAST VIDEO WITH OVERLAY (+N)
                 FrameLayout overlayContainer = new FrameLayout(context);
                 LinearLayout.LayoutParams containerParams = new LinearLayout.LayoutParams(dpToPx(60), dpToPx(60));
                 overlayContainer.setLayoutParams(containerParams);
@@ -379,7 +408,7 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
                 );
                 imageView.setLayoutParams(imageParams);
                 imageView.setScaleType(ImageView.ScaleType.CENTER_CROP);
-                imageView.setBackgroundColor(0xFF000000); // Black background
+                imageView.setBackgroundColor(0xFF000000);
 
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                     overlayContainer.setClipToOutline(true);
@@ -415,16 +444,12 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
                 overlayContainer.addView(scrimView);
                 overlayContainer.addView(countText);
 
-                // ▼▼▼ ei line-ti add kora hoyeche (image grid-er moto) ▼▼▼
                 loadVideoThumbnail(imageView, url, false, null);
-                // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
-                // ei click-er target thik ache - openVideoViewer
                 overlayContainer.setOnClickListener(v -> openVideoViewer(videoUrls, currentIndex));
                 videoContainer.addView(overlayContainer);
 
             } else {
-                // NORMAL VIDEO THUMBNAIL (Item 1 or 2)
                 FrameLayout videoFrame = new FrameLayout(context);
                 LinearLayout.LayoutParams frameParams = new LinearLayout.LayoutParams(dpToPx(60), dpToPx(60));
                 if (i < displayCount - 1) {
@@ -472,7 +497,6 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
                 videoFrame.addView(playIcon);
                 videoFrame.addView(progressBar);
 
-                // --- Cache check logic (oporibortito) ---
                 Bitmap cachedBitmap = cacheManager.getBitmap(url + "_video_thumb", true);
 
                 if (cachedBitmap != null) {
@@ -516,7 +540,6 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
             return;
         }
 
-        // Not cached, load in background
         executor.execute(() -> {
             try {
                 String fullUrl = videoUrl;
@@ -526,7 +549,7 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
 
                 android.media.MediaMetadataRetriever retriever = new android.media.MediaMetadataRetriever();
                 retriever.setDataSource(fullUrl, new HashMap<>());
-                Bitmap frame = retriever.getFrameAtTime(1000000); // 1 second
+                Bitmap frame = retriever.getFrameAtTime(1000000);
                 retriever.release();
 
                 if (frame != null) {
@@ -540,7 +563,6 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
                         }
                     });
                 } else {
-                    // Load ব্যর্থ হলেও, andPlay true থাকলে চালানোর চেষ্টা করুন
                     if (andPlay) {
                         ((Activity) context).runOnUiThread(() -> {
                             openVideoPlayer(videoUrl);
@@ -549,7 +571,6 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
                 }
             } catch (Exception e) {
                 Log.e("ChatAdapter", "Error loading video thumbnail", e);
-                // Load ব্যর্থ হলেও, andPlay true থাকলে চালানোর চেষ্টা করুন
                 if (andPlay) {
                     ((Activity) context).runOnUiThread(() -> {
                         openVideoPlayer(videoUrl);
@@ -569,8 +590,6 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
         intent.putExtra("start_position", position);
         context.startActivity(intent);
     }
-
-    // Add this method to ChatAdapter.java
 
     private void openVideoPlayer(String videoUrl) {
         try {
@@ -597,7 +616,6 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
         imageContainer.setOrientation(LinearLayout.HORIZONTAL);
         ImageCacheManager cacheManager = ImageCacheManager.getInstance(context);
 
-        // ✅ CHECK SETTINGS
         SharedPreferences prefs = context.getSharedPreferences("NearbyChatSettings", Context.MODE_PRIVATE);
         boolean autoLoadThumbnails = prefs.getBoolean("AUTO_IMAGE_THUMBNAILS", true);
 
@@ -610,7 +628,6 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
             String url = imageUrls.get(i);
 
             if (i == maxDisplayImages - 1 && totalImages > maxDisplayImages) {
-                // ✅ LAST IMAGE WITH OVERLAY (+N)
                 FrameLayout overlayContainer = new FrameLayout(context);
                 LinearLayout.LayoutParams containerParams = new LinearLayout.LayoutParams(dpToPx(60), dpToPx(60));
                 overlayContainer.setLayoutParams(containerParams);
@@ -659,39 +676,29 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
                 overlayContainer.addView(scrimView);
                 overlayContainer.addView(countText);
 
-                // ✅ CONDITIONAL LOADING FOR +N IMAGE
                 if (autoLoadThumbnails) {
-                    // Auto-load ON: Load thumbnail immediately
                     loadImageThumbnail(imageView, url, url);
                     overlayContainer.setOnClickListener(v -> openImageViewer(imageUrls, currentIndex));
 
                 } else {
-                    // Auto-load OFF: Show placeholder
                     imageView.setBackgroundColor(0xFF2D3748);
 
-                    // ✅ Click: Load thumbnail + Open viewer
                     overlayContainer.setOnClickListener(v -> {
-                        // Check if already cached
                         Bitmap cachedBitmap = cacheManager.getBitmap(url, true);
 
                         if (cachedBitmap != null) {
-                            // Already cached, just open viewer
                             openImageViewer(imageUrls, currentIndex);
                         } else {
-                            // Not cached, load it in background
-                            imageView.setBackgroundColor(0xFF4A5568); // Loading state
+                            imageView.setBackgroundColor(0xFF4A5568);
                             loadImageThumbnail(imageView, url, url);
 
-                            // Open viewer immediately (viewer will load full image)
                             openImageViewer(imageUrls, currentIndex);
                         }
                     });
                 }
-
                 imageContainer.addView(overlayContainer);
 
             } else {
-                // NORMAL IMAGE THUMBNAIL (1st and 2nd images)
                 ImageView imageView = new ImageView(context);
                 LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dpToPx(60), dpToPx(60));
                 if (i < displayCount - 1) {
@@ -710,10 +717,7 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
                         }
                     });
                 }
-
-                // ✅ CHECK IF AUTO-LOAD IS ENABLED
                 if (autoLoadThumbnails) {
-                    // OLD BEHAVIOR: Load immediately
                     Bitmap cachedBitmap = cacheManager.getBitmap(url, true);
                     if (cachedBitmap != null) {
                         imageView.setImageBitmap(cachedBitmap);
@@ -724,7 +728,6 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
                     imageView.setOnClickListener(v -> openImageViewer(imageUrls, currentIndex));
 
                 } else {
-                    // ✅ NEW BEHAVIOR: Don't load, show placeholder with icon
                     imageView.setBackgroundColor(0xFF2D3748);
 
                     imageView.setImageResource(R.drawable.image);
@@ -795,6 +798,26 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
         });
     }
 
+    private void bindText(ChatViewHolder holder, String message) {
+        if (message != null && !message.isEmpty()) {
+            holder.message.setVisibility(View.VISIBLE);
+
+            String cleanedMessage = removeExcessiveNewlines(message);
+            String displayMessage = truncateMessage(cleanedMessage);
+            holder.message.setText(displayMessage);
+
+            if (cleanedMessage.length() > MAX_MESSAGE_LENGTH) {
+                final String fullMessage = cleanedMessage;
+                holder.message.setOnClickListener(v -> showFullMessageDialog(fullMessage));
+            } else {
+                holder.message.setOnClickListener(null);
+            }
+
+        } else {
+            holder.message.setVisibility(View.GONE);
+        }
+    }
+
     private int dpToPx(int dp) {
         return Math.round(dp * context.getResources().getDisplayMetrics().density);
     }
@@ -814,20 +837,4 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
         return messageList.get(position).isSelf() ? 1 : 0;
     }
 
-    static class ChatViewHolder extends RecyclerView.ViewHolder {
-        TextView senderId, message, timestamp;
-        ImageView profilePic;
-        LinearLayout imageContainer;
-        LinearLayout videoContainer;
-
-        public ChatViewHolder(@NonNull View itemView) {
-            super(itemView);
-            senderId = itemView.findViewById(R.id.textUserId);
-            message = itemView.findViewById(R.id.textMessage);
-            timestamp = itemView.findViewById(R.id.textTimestamp);
-            profilePic = itemView.findViewById(R.id.profilePicRound);
-            imageContainer = itemView.findViewById(R.id.imageContainer);
-            videoContainer = itemView.findViewById(R.id.videoContainer);
-        }
-    }
 }

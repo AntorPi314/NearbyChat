@@ -84,4 +84,7 @@ public interface MessageDao {
 
     @Query("SELECT * FROM messages WHERE senderId = :senderId AND messageId = :messageId AND timestamp = :timestamp LIMIT 1")
     MessageEntity getMessageEntity(String senderId, String messageId, String timestamp);
+
+    @Query("SELECT * FROM messages WHERE messageId = :messageId LIMIT 1")
+    MessageEntity getMessageById(String messageId);
 }

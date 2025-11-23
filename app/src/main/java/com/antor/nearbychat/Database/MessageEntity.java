@@ -35,6 +35,10 @@ public class MessageEntity {
 
     public MessageEntity() {}
 
+    public String replyToUserId = "";
+    public String replyToMessageId = "";
+    public String replyToMessagePreview = "";
+
     @androidx.room.Ignore
     public MessageEntity(String senderId, String message, boolean isSelf,
                          String timestamp, int chunkCount, String messageId,
@@ -70,6 +74,10 @@ public class MessageEntity {
         entity.isFailed = messageModel.isFailed();
         entity.isSaved = messageModel.isSaved();
         entity.isRead = messageModel.isRead();
+
+        entity.replyToUserId = messageModel.getReplyToUserId();
+        entity.replyToMessageId = messageModel.getReplyToMessageId();
+        entity.replyToMessagePreview = messageModel.getReplyToMessagePreview();
         return entity;
     }
 
@@ -92,6 +100,10 @@ public class MessageEntity {
         model.setFailed(isFailed);
         model.setSaved(isSaved);
         model.setRead(isRead);
+
+        model.setReplyToUserId(replyToUserId);
+        model.setReplyToMessageId(replyToMessageId);
+        model.setReplyToMessagePreview(replyToMessagePreview);
         return model;
     }
 }
