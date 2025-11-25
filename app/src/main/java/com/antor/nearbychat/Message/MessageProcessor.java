@@ -40,224 +40,178 @@ public class MessageProcessor {
 
     public MessageModel processIncomingData(byte[] data, String myDisplayId) {
         if (data == null || data.length < 13) {
-            Log.w(TAG, "Received data is too short.");
             return null;
         }
         int offset = 0;
-        String chatType = new String(data, offset, 1, ISO_8859_1);
-        offset += 1;
 
-        String senderAsciiId = new String(data, offset, 5, ISO_8859_1);
-        offset += 5;
+        String packetType = new String(data, offset, 1, ISO_8859_1); offset += 1;
+        String senderAsciiId = new String(data, offset, 5, ISO_8859_1); offset += 5;
+        String messageAsciiId = new String(data, offset, 5, ISO_8859_1); offset += 5;
+        int totalChunks = data[offset] & 0xFF; offset += 1;
+        int chunkIndex = data[offset] & 0xFF; offset += 1;
+
+        byte[] chunkData = new byte[data.length - offset];
+        System.arraycopy(data, offset, chunkData, 0, chunkData.length);
+
         long senderIdBits = MessageHelper.asciiIdToTimestamp(senderAsciiId);
         String senderDisplayId = MessageHelper.timestampToDisplayId(senderIdBits);
 
-        if (senderDisplayId.equals(myDisplayId)) {
-            Log.d(TAG, "Dropping my own message from " + senderDisplayId);
-            return null;
-        }
+        if (senderDisplayId.equals(myDisplayId)) return null;
 
-        String messageAsciiId = new String(data, offset, 5, ISO_8859_1);
-        offset += 5;
         long messageIdBits = MessageHelper.asciiIdToTimestamp(messageAsciiId);
         String messageDisplayId = MessageHelper.timestampToDisplayId(messageIdBits);
 
-        int totalChunks = data[offset] & 0xFF;
-        offset += 1;
-        int chunkIndex = data[offset] & 0xFF;
-        offset += 1;
+        String finalChatType = packetType;
+        if ("A".equals(packetType)) finalChatType = "N";
+        else if ("B".equals(packetType)) finalChatType = "G";
+        else if ("C".equals(packetType)) finalChatType = "F";
 
         String chatId = null;
-        byte[] chunkData;
+        if (chunkIndex == 0) {
+            if ("G".equals(finalChatType) || "F".equals(finalChatType)) {
 
-        if ("N".equals(chatType)) {
-            chatId = "";
-            chunkData = new byte[data.length - offset];
-            System.arraycopy(data, offset, chunkData, 0, chunkData.length);
-            Log.d(TAG, "Nearby message from " + senderDisplayId);
-
-        } else if ("G".equals(chatType) || "F".equals(chatType)) {
-
-            if (chunkIndex == 0) {
-                if (data.length < 18) {
-                    Log.w(TAG, "First chunk of G/F chat too short");
-                    return null;
-                }
-                chatId = new String(data, offset, 5, ISO_8859_1).trim();
-                offset += 5;
-                chunkData = new byte[data.length - offset];
-                System.arraycopy(data, offset, chunkData, 0, chunkData.length);
-
-                if ("F".equals(chatType)) {
-                    Log.d(TAG, "Friend first chunk: sender=" + senderDisplayId + " chatId(friendId)=" + chatId + " myAsciiId=" + myAsciiId);
-
-                    if (!chatId.equals(myAsciiId)) {
-                        Log.d(TAG, "✗ DROPPING Friend message - not for me! chatId=" + chatId + " != myAsciiId=" + myAsciiId);
-                        return null;
+                if (chunkData.length >= 5) {
+                    chatId = new String(chunkData, 0, 5, ISO_8859_1);
+                    if ("F".equals(finalChatType)) {
+                        if (!chatId.equals(myAsciiId)) return null;
+                        chatId = senderAsciiId;
                     }
-
-                    Log.d(TAG, "✓ Friend message IS for me! Converting chatId to senderAsciiId=" + senderAsciiId);
-                    chatId = senderAsciiId;
                 }
-            } else {
-                chunkData = new byte[data.length - offset];
-                System.arraycopy(data, offset, chunkData, 0, chunkData.length);
             }
-        } else {
-            Log.w(TAG, "Unknown chat type: " + chatType);
-            return null;
         }
-        if (totalChunks == 1) {
-            String payload = new String(chunkData, ISO_8859_1);
-            return buildMessageModelFromPayload(payload, senderDisplayId, messageDisplayId,
-                    senderIdBits, messageIdBits, 1, true, chatType, chatId);
-        }
+
         String reassemblerKey = senderDisplayId + "_" + messageDisplayId;
         MessageReassembler reassembler;
 
         synchronized (reassemblers) {
             reassembler = reassemblers.get(reassemblerKey);
-
             if (reassembler == null) {
-                reassembler = new MessageReassembler(senderDisplayId, messageDisplayId, chatType, chatId);
+                reassembler = new MessageReassembler(senderDisplayId, messageDisplayId, finalChatType, chatId);
                 reassemblers.put(reassemblerKey, reassembler);
+            }
+            if (chatId != null && reassembler.chatId == null) {
+                reassembler.chatId = chatId;
+            }
+        }
 
-                if ("F".equals(chatType) && chatId != null) {
-                    reassembler.isValidated = true;
-                    Log.d(TAG, "Friend chat reassembler created and validated");
-                }
-            } else {
-                if (chatId != null) {
-                    if (reassembler.chatId == null) {
-                        reassembler.chatId = chatId;
-                        Log.d(TAG, "Updated reassembler chatId: " + chatId);
-                    }
-                    if (reassembler.chatType == null) {
-                        reassembler.chatType = chatType;
-                    }
-                    if ("F".equals(chatType)) {
-                        reassembler.isValidated = true;
-                        Log.d(TAG, "Friend chat reassembler now validated");
-                    }
-                }
-            }
-            if ("F".equals(chatType) && !reassembler.isValidated) {
-                Log.d(TAG, "✗ DROPPING Friend subsequent chunk - not validated yet");
-                reassemblers.remove(reassemblerKey);
-                return null;
-            }
-        }
-        if (reassembler.hasChunk(chunkIndex)) {
-            Log.d(TAG, "Already have chunk " + chunkIndex + " for message " + messageDisplayId);
-            return null;
-        }
+        if (reassembler.hasChunk(chunkIndex)) return null;
         reassembler.addChunk(chunkIndex, totalChunks, chunkData);
-        Log.d(TAG, "Added chunk " + chunkIndex + "/" + totalChunks + " for message " + messageDisplayId);
+
         if (reassembler.isComplete()) {
-            String fullPayload;
+            String fullStreamPayload;
             synchronized (reassemblers) {
-                fullPayload = reassembler.reassemble();
-                reassemblers.remove(reassemblerKey);
+                fullStreamPayload = reassembler.reassemble();
             }
-            if (fullPayload != null) {
-                Log.d(TAG, "✓ Message reassembled successfully: " + messageDisplayId);
-                return buildMessageModelFromPayload(fullPayload, senderDisplayId, messageDisplayId,
-                        senderIdBits, messageIdBits, totalChunks, true,
-                        reassembler.chatType != null ? reassembler.chatType : chatType,
-                        reassembler.chatId != null ? reassembler.chatId : chatId);
-            }
-        } else {
-            String partialContent = String.format(Locale.US, "Receiving... (%d/%d)",
-                    reassembler.getReceivedCount(), totalChunks);
 
-            MessageModel partialMsg = new MessageModel(
-                    senderDisplayId,
-                    partialContent,
-                    false,
-                    createFormattedTimestamp(totalChunks, messageIdBits),
-                    senderIdBits,
-                    messageIdBits
-            );
-            partialMsg.setMessageId(messageDisplayId);
-            partialMsg.setIsComplete(false);
-
-            String msgChatType = reassembler.chatType != null ? reassembler.chatType : chatType;
-            String msgChatId = reassembler.chatId != null ? reassembler.chatId : (chatId != null ? chatId : "");
-
-            partialMsg.setChatType(msgChatType);
-            partialMsg.setChatId(msgChatId);
-            partialMsg.setMissingChunks(reassembler.getMissingChunkIndices());
-
-            Log.d(TAG, "Partial message created: " + partialContent +
-                    " | chatType=" + msgChatType + " | chatId=" + msgChatId +
-                    " | received=" + reassembler.getReceivedCount() + "/" + totalChunks);
-
-            return partialMsg;
-        }
-        return null;
-    }
-
-    private MessageModel buildMessageModelFromPayload(String payload, String senderDisplayId, String messageDisplayId,
-                                                      long senderIdBits, long messageIdBits, int totalChunks,
-                                                      boolean isComplete, String chatType, String chatId) {
-
-        String workingPayload = payload;
-
-        if (!"N".equals(chatType)) {
-            try {
-                String password = MessageHelper.getPasswordForChat(context, chatType, chatId, senderDisplayId);
-                String decrypted = CryptoUtils.decrypt(payload, password);
-                if (decrypted != null && !decrypted.isEmpty()) {
-                    workingPayload = decrypted;
+            if (fullStreamPayload != null) {
+                MessageModel completeMsg = buildMessageModelFromStream(
+                        fullStreamPayload, senderDisplayId, messageDisplayId,
+                        senderIdBits, messageIdBits, totalChunks,
+                        packetType, reassembler.chatId
+                );
+                synchronized (reassemblers) {
+                    reassemblers.remove(reassemblerKey);
                 }
-            } catch (Exception e) {
-                Log.e(TAG, "Decryption error", e);
+                return completeMsg;
             }
         }
-        String replyToUserId = "";
-        String replyToMessageId = "";
-        String finalContent = workingPayload;
 
-        //
-        if (workingPayload.startsWith("[r>") && workingPayload.length() >= 13) {
-            try {
-                String replyUserAscii = workingPayload.substring(3, 8);
-                String replyMsgAscii = workingPayload.substring(8, 13);
+        String progressMsg = "Receiving Chunk (" + reassembler.getReceivedCount() + "/" + totalChunks + ")";
 
-                long replyUserBits = MessageHelper.asciiIdToTimestamp(replyUserAscii);
-                replyToUserId = MessageHelper.timestampToDisplayId(replyUserBits);
-
-                long replyMsgBits = MessageHelper.asciiIdToTimestamp(replyMsgAscii);
-                replyToMessageId = MessageHelper.timestampToDisplayId(replyMsgBits);
-
-                finalContent = workingPayload.substring(13);
-
-                Log.d(TAG, "♻️ Reply Parsed! To: " + replyToUserId + " Msg: " + replyToMessageId);
-            } catch (Exception e) {
-                Log.e(TAG, "Error parsing reply header", e);
-                finalContent = workingPayload;
-            }
-        }
-        MessageModel newMsg = new MessageModel(
+        MessageModel partialMsg = new MessageModel(
                 senderDisplayId,
-                finalContent,
+                progressMsg,
                 false,
                 createFormattedTimestamp(totalChunks, messageIdBits),
                 senderIdBits,
                 messageIdBits
         );
+        partialMsg.setMessageId(messageDisplayId);
+        partialMsg.setChunkCount(totalChunks);
+        partialMsg.setIsComplete(false);
+        partialMsg.setChatType(finalChatType);
+        partialMsg.setChatId(reassembler.chatId != null ? reassembler.chatId : "");
+
+        return partialMsg;
+    }
+
+
+    private MessageModel buildMessageModelFromStream(String streamPayload, String senderDisplayId,
+                                                     String messageDisplayId, long senderIdBits,
+                                                     long messageIdBits, int totalChunks,
+                                                     String packetType, String knownChatId) {
+
+        byte[] fullData = streamPayload.getBytes(ISO_8859_1);
+        int offset = 0;
+
+        String finalChatType = packetType;
+        String chatId = knownChatId;
+
+        if ("A".equals(packetType)) finalChatType = "N";
+        else if ("B".equals(packetType)) finalChatType = "G";
+        else if ("C".equals(packetType)) finalChatType = "F";
+
+        if ("G".equals(finalChatType) || "F".equals(finalChatType)) {
+            if (fullData.length >= offset + 5) offset += 5;
+        }
+
+        String replyUserAscii = "";
+        String replyMsgAscii = "";
+        boolean isReply = false;
+
+        if ("A".equals(packetType) || "B".equals(packetType) || "C".equals(packetType)) {
+            if (fullData.length >= offset + 10) {
+                replyUserAscii = new String(fullData, offset, 5, ISO_8859_1);
+                offset += 5;
+                replyMsgAscii = new String(fullData, offset, 5, ISO_8859_1);
+                offset += 5;
+                isReply = true;
+            }
+        }
+
+        String actualPayload = "";
+        if (offset < fullData.length) {
+            actualPayload = new String(fullData, offset, fullData.length - offset, ISO_8859_1);
+        }
+
+        if (!"N".equals(finalChatType)) {
+            try {
+                String password = MessageHelper.getPasswordForChat(context, finalChatType, chatId, senderDisplayId);
+                String decrypted = CryptoUtils.decrypt(actualPayload, password);
+                if (decrypted != null) actualPayload = decrypted;
+            } catch (Exception e) {
+                Log.e(TAG, "Decrypt failed", e);
+            }
+        }
+
+        MessageModel newMsg = new MessageModel(
+                senderDisplayId, actualPayload, false,
+                createFormattedTimestamp(totalChunks, messageIdBits),
+                senderIdBits, messageIdBits
+        );
         newMsg.setMessageId(messageDisplayId);
-        newMsg.setIsComplete(isComplete);
-        newMsg.setChatType(chatType);
+        newMsg.setIsComplete(true);
+        newMsg.setChatType(finalChatType);
         newMsg.setChatId(chatId != null ? chatId : "");
 
-        if (!replyToUserId.isEmpty()) {
-            newMsg.setReplyToUserId(replyToUserId);
-            newMsg.setReplyToMessageId(replyToMessageId);
-            newMsg.setReplyToMessagePreview("Loading preview...");
+        if (isReply) {
+            try {
+                if (!replyUserAscii.isEmpty()) {
+                    long rUserBits = MessageHelper.asciiIdToTimestamp(replyUserAscii);
+                    newMsg.setReplyToUserId(MessageHelper.timestampToDisplayId(rUserBits));
+                }
+                if (!replyMsgAscii.isEmpty()) {
+                    long rMsgBits = MessageHelper.asciiIdToTimestamp(replyMsgAscii);
+                    newMsg.setReplyToMessageId(MessageHelper.timestampToDisplayId(rMsgBits));
+                }
+                newMsg.setReplyToMessagePreview("Loading preview...");
+            } catch (Exception e) {
+                Log.e(TAG, "Reply parse error", e);
+            }
         }
         return newMsg;
     }
+
 
     public interface TimeoutCallback {
         void onTimeout(MessageModel failedMessage);
@@ -330,6 +284,9 @@ public class MessageProcessor {
         String chatType = null;
         String chatId = null;
         boolean isValidated = false;
+
+        String replyUserAscii = "";
+        String replyMsgAscii = "";
 
         MessageReassembler(String senderId, String messageId, String chatType, String chatId) {
             this.senderId = senderId;

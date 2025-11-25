@@ -1819,58 +1819,49 @@ public class MainActivity extends BaseActivity {
         String imageUrlsRaw = inputImageURL.getText().toString().trim();
         String videoUrlsRaw = inputVideoURL.getText().toString().trim();
 
-        String compressedPayload = PayloadCompress.buildPayload(textMsg, imageUrlsRaw, videoUrlsRaw);
+        String basePayload = PayloadCompress.buildPayload(textMsg, imageUrlsRaw, videoUrlsRaw);
 
-        if (replyingToMessage != null) {
-            compressedPayload = "1234567890123" + compressedPayload;
-        }
-        String messagePayload;
-        if ("N".equals(activeChatType)) {
-            messagePayload = compressedPayload;
-        } else {
+        if (!"N".equals(activeChatType)) {
             String password = MessageHelper.getPasswordForChat(this, activeChatType, activeChatId, userId);
-            messagePayload = CryptoUtils.encrypt(compressedPayload, password);
+            basePayload = CryptoUtils.encrypt(basePayload, password);
         }
 
-        if (messagePayload == null || messagePayload.isEmpty()) {
+        if (basePayload == null || basePayload.isEmpty()) {
             return 0;
         }
 
-        byte[] messageBytes = messagePayload.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1);
+        int payloadSize = basePayload.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1).length;
 
-        final int BASE_HEADER_SIZE = 13;
-        final int FIRST_CHUNK_GF_HEADER_SIZE = 18;
+        int streamOverhead = 0;
 
-        int firstChunkDataSize;
-        int nextChunkDataSize;
-
-        if ("N".equals(activeChatType)) {
-            firstChunkDataSize = currentMaxPayloadSize - BASE_HEADER_SIZE;
-            nextChunkDataSize = currentMaxPayloadSize - BASE_HEADER_SIZE;
-        } else {
-            firstChunkDataSize = currentMaxPayloadSize - FIRST_CHUNK_GF_HEADER_SIZE;
-            nextChunkDataSize = currentMaxPayloadSize - BASE_HEADER_SIZE;
+        if ("G".equals(activeChatType) || "F".equals(activeChatType)) {
+            streamOverhead += 5;
         }
 
-        if (firstChunkDataSize <= 0 || nextChunkDataSize <= 0) {
+        if (replyingToMessage != null) {
+            if ("F".equals(activeChatType)) {
+                streamOverhead += 5;
+            } else {
+                streamOverhead += 10;
+            }
+        }
+
+        int totalStreamSize = payloadSize + streamOverhead;
+        int capacityPerChunk = currentMaxPayloadSize - 13;
+
+        if (capacityPerChunk <= 0) {
             return 999;
         }
-        if (messageBytes.length == 0) {
-            return 1;
+
+        if (totalStreamSize == 0) return 1;
+
+        int count = (int) Math.ceil((double) totalStreamSize / capacityPerChunk);
+
+        if (count > MAX_CHUNKS_LIMIT) {
+            return count;
         }
 
-        int totalChunks = 0;
-        int offset = 0;
-        boolean isFirst = true;
-
-        while (offset < messageBytes.length) {
-            int chunkSize = (isFirst) ? firstChunkDataSize : nextChunkDataSize;
-            offset += chunkSize;
-            totalChunks++;
-            isFirst = false;
-        }
-
-        return totalChunks;
+        return count;
     }
 
     private void updateChunkCountUI() {

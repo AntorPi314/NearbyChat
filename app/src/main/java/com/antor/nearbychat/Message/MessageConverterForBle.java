@@ -72,75 +72,104 @@ public class MessageConverterForBle {
         String messageAsciiId = MessageHelper.timestampToAsciiId(messageIdBits);
         String senderAsciiId = MessageHelper.timestampToAsciiId(senderIdBits);
 
+        String rUserId = "";
+        String rMsgId = "";
+        boolean isReplyDetected = false;
+        String contentToEncrypt = payloadToSend;
+
+        if (payloadToSend.startsWith("[r>") && payloadToSend.length() >= 13) {
+            try {
+                String replyUserAscii = payloadToSend.substring(3, 8);
+                String replyMsgAscii = payloadToSend.substring(8, 13);
+
+                rUserId = MessageHelper.timestampToDisplayId(MessageHelper.asciiIdToTimestamp(replyUserAscii));
+                rMsgId = MessageHelper.timestampToDisplayId(MessageHelper.asciiIdToTimestamp(replyMsgAscii));
+
+                contentToEncrypt = payloadToSend.substring(13);
+                isReplyDetected = true;
+            } catch (Exception e) {
+                Log.e("MsgConverter", "Error parsing reply", e);
+            }
+        }
+
         String messagePayload;
         if ("N".equals(chatType)) {
-            messagePayload = payloadToSend;
+            messagePayload = contentToEncrypt;
         } else {
             try {
                 String password = MessageHelper.getPasswordForChat(context, chatType, chatId, senderDisplayId);
-                messagePayload = CryptoUtils.encrypt(payloadToSend, password);
-
-                if (messagePayload == null || messagePayload.isEmpty()) {
-                    Log.e("MessageConverter", "Encryption failed, using original payload");
-                    messagePayload = payloadToSend;
-                }
+                messagePayload = CryptoUtils.encrypt(contentToEncrypt, password);
+                if (messagePayload == null) messagePayload = "";
             } catch (Exception e) {
-                Log.e("MessageConverter", "Error encrypting message", e);
-                messagePayload = payloadToSend;
+                messagePayload = "";
             }
         }
-        if (messagePayload == null) {
-            messagePayload = "";
+
+        java.io.ByteArrayOutputStream stream = new java.io.ByteArrayOutputStream();
+        try {
+            String packetType = chatType;
+            if (isReplyDetected) {
+                if ("N".equals(chatType)) packetType = "A";
+                else if ("G".equals(chatType)) packetType = "B";
+                else if ("F".equals(chatType)) packetType = "C";
+            }
+
+            if ("G".equals(chatType) || "B".equals(packetType) ||
+                    "F".equals(chatType) || "C".equals(packetType)) {
+
+                String paddedId = (chatId == null) ? "     " : String.format("%-5s", chatId).substring(0, 5);
+                stream.write(paddedId.getBytes(ISO_8859_1));
+            }
+
+            if (isReplyDetected) {
+                String replyUserAscii = MessageHelper.timestampToAsciiId(MessageHelper.displayIdToTimestamp(rUserId));
+                String replyMsgAscii = MessageHelper.timestampToAsciiId(MessageHelper.displayIdToTimestamp(rMsgId));
+
+                stream.write(replyUserAscii.getBytes(ISO_8859_1));
+                stream.write(replyMsgAscii.getBytes(ISO_8859_1));
+            }
+
+            stream.write(messagePayload.getBytes(ISO_8859_1));
+
+        } catch (Exception e) {
+            Log.e("MsgConverter", "Stream build error", e);
         }
 
-        byte[] messageBytes = messagePayload.getBytes(ISO_8859_1);
+        byte[] fullStreamData = stream.toByteArray();
 
-        int firstChunkDataSize;
-        int nextChunkDataSize;
+        int dataPerChunk = MAX_PAYLOAD_SIZE - BASE_HEADER_SIZE;
+        if (dataPerChunk <= 0) dataPerChunk = 1;
 
-        if ("N".equals(chatType)) {
-            firstChunkDataSize = MAX_PAYLOAD_SIZE - BASE_HEADER_SIZE;
-            nextChunkDataSize = MAX_PAYLOAD_SIZE - BASE_HEADER_SIZE;
-        } else {
-            firstChunkDataSize = MAX_PAYLOAD_SIZE - FIRST_CHUNK_GF_HEADER_SIZE;
-            nextChunkDataSize = MAX_PAYLOAD_SIZE - BASE_HEADER_SIZE;
+        int totalChunks = (int) Math.ceil((double) fullStreamData.length / dataPerChunk);
+        if (totalChunks == 0) totalChunks = 1;
+        if (totalChunks > 255) totalChunks = 255;
+
+        this.blePacketsToSend = new ArrayList<>();
+
+        String packetTypeChar = chatType;
+        if (isReplyDetected) {
+            if ("N".equals(chatType)) packetTypeChar = "A";
+            else if ("G".equals(chatType)) packetTypeChar = "B";
+            else if ("F".equals(chatType)) packetTypeChar = "C";
         }
 
-        List<byte[]> dataChunks = createVariableSizeChunks(messageBytes, firstChunkDataSize, nextChunkDataSize);
-        int totalChunks = dataChunks.size();
+        for (int i = 0; i < totalChunks; i++) {
+            int start = i * dataPerChunk;
+            int length = Math.min(dataPerChunk, fullStreamData.length - start);
+
+            byte[] chunkData = new byte[length];
+            System.arraycopy(fullStreamData, start, chunkData, 0, length);
+
+            byte[] packet = createGenericPacket(packetTypeChar, senderAsciiId, messageAsciiId,
+                    i, totalChunks, chunkData);
+            this.blePacketsToSend.add(packet);
+        }
 
         if (existingMessageIdBits == -1) {
-            String contentToSave = payloadToSend;
-            String rUserId = "";
-            String rMsgId = "";
-            boolean isReplyDetected = false;
-
-            if (payloadToSend.startsWith("[r>") && payloadToSend.length() >= 13) {
-                try {
-                    String replyUserAscii = payloadToSend.substring(3, 8);
-                    String replyMsgAscii = payloadToSend.substring(8, 13);
-
-                    long replyUserBits = MessageHelper.asciiIdToTimestamp(replyUserAscii);
-                    rUserId = MessageHelper.timestampToDisplayId(replyUserBits);
-
-                    long replyMsgBits = MessageHelper.asciiIdToTimestamp(replyMsgAscii);
-                    rMsgId = MessageHelper.timestampToDisplayId(replyMsgBits);
-
-                    contentToSave = payloadToSend.substring(13);
-                    isReplyDetected = true;
-
-                } catch (Exception e) {
-                    Log.e("MsgConverter", "Error parsing reply tag", e);
-                }
-            }
-
             this.messageToSave = new MessageModel(
-                    senderDisplayId,
-                    contentToSave,
-                    true,
+                    senderDisplayId, contentToEncrypt, true,
                     createFormattedTimestamp(totalChunks, messageIdBits),
-                    senderIdBits,
-                    messageIdBits
+                    senderIdBits, messageIdBits
             );
             this.messageToSave.setMessageId(MessageHelper.timestampToDisplayId(messageIdBits));
             this.messageToSave.setChatType(chatType);
@@ -152,29 +181,78 @@ public class MessageConverterForBle {
                 this.messageToSave.setReplyToMessagePreview("Loading reply...");
             }
         }
-        this.blePacketsToSend = new ArrayList<>();
+    }
 
-        String paddedChatId;
-        if (chatId == null || chatId.isEmpty()) {
-            paddedChatId = "     ";
-        } else {
-            paddedChatId = String.format("%-5s", chatId).substring(0, 5);
-        }
+    private byte[] createGenericPacket(String type, String senderAscii, String msgAscii,
+                                       int chunkIndex, int totalChunks, byte[] data) {
 
-        for (int i = 0; i < totalChunks; i++) {
-            byte[] chunkData = dataChunks.get(i);
-            boolean isFirstChunk = (i == 0);
+        byte[] packet = new byte[BASE_HEADER_SIZE + data.length];
+        int offset = 0;
 
-            byte[] blePacket;
-            if ("N".equals(chatType)) {
-                blePacket = createNearbyChatPacket(chatType, senderAsciiId, messageAsciiId, i, totalChunks, chunkData);
-            } else if (isFirstChunk) {
-                blePacket = createFirstChunkGFPacket(chatType, senderAsciiId, messageAsciiId, i, totalChunks, paddedChatId, chunkData);
-            } else {
-                blePacket = createNextChunkGFPacket(chatType, senderAsciiId, messageAsciiId, i, totalChunks, chunkData);
-            }
-            this.blePacketsToSend.add(blePacket);
-        }
+        packet[offset++] = (byte) type.charAt(0);
+        System.arraycopy(senderAscii.getBytes(ISO_8859_1), 0, packet, offset, USER_ID_LENGTH);
+        offset += USER_ID_LENGTH;
+        System.arraycopy(msgAscii.getBytes(ISO_8859_1), 0, packet, offset, MESSAGE_ID_LENGTH);
+        offset += MESSAGE_ID_LENGTH;
+        packet[offset++] = (byte) totalChunks;
+        packet[offset++] = (byte) chunkIndex;
+
+        System.arraycopy(data, 0, packet, offset, data.length);
+        return packet;
+    }
+
+
+    private byte[] createNearbyChatReplyPacket(String chatType, String senderAsciiId,
+                                               String messageAsciiId, int chunkIndex, int totalChunks,
+                                               String replyUserAscii, String replyMsgAscii, byte[] chunkData) {
+
+        byte[] packet = new byte[BASE_HEADER_SIZE + 10 + chunkData.length];
+        int offset = 0;
+
+        packet[offset++] = (byte) chatType.charAt(0);
+        System.arraycopy(senderAsciiId.getBytes(ISO_8859_1), 0, packet, offset, USER_ID_LENGTH);
+        offset += USER_ID_LENGTH;
+        System.arraycopy(messageAsciiId.getBytes(ISO_8859_1), 0, packet, offset, MESSAGE_ID_LENGTH);
+        offset += MESSAGE_ID_LENGTH;
+        packet[offset++] = (byte) totalChunks;
+        packet[offset++] = (byte) chunkIndex;
+
+        System.arraycopy(replyUserAscii.getBytes(ISO_8859_1), 0, packet, offset, 5);
+        offset += 5;
+        System.arraycopy(replyMsgAscii.getBytes(ISO_8859_1), 0, packet, offset, 5);
+        offset += 5;
+
+        System.arraycopy(chunkData, 0, packet, offset, chunkData.length);
+
+        return packet;
+    }
+
+    private byte[] createFirstChunkGFReplyPacket(String chatType, String senderAsciiId,
+                                                 String messageAsciiId, int chunkIndex, int totalChunks,
+                                                 String paddedChatId, String replyUserAscii,
+                                                 String replyMsgAscii, byte[] chunkData) {
+
+        byte[] packet = new byte[FIRST_CHUNK_GF_HEADER_SIZE + 10 + chunkData.length];
+        int offset = 0;
+
+        packet[offset++] = (byte) chatType.charAt(0);
+        System.arraycopy(senderAsciiId.getBytes(ISO_8859_1), 0, packet, offset, USER_ID_LENGTH);
+        offset += USER_ID_LENGTH;
+        System.arraycopy(messageAsciiId.getBytes(ISO_8859_1), 0, packet, offset, MESSAGE_ID_LENGTH);
+        offset += MESSAGE_ID_LENGTH;
+        packet[offset++] = (byte) totalChunks;
+        packet[offset++] = (byte) chunkIndex;
+        System.arraycopy(paddedChatId.getBytes(ISO_8859_1), 0, packet, offset, CHAT_ID_LENGTH);
+        offset += CHAT_ID_LENGTH;
+
+        System.arraycopy(replyUserAscii.getBytes(ISO_8859_1), 0, packet, offset, 5);
+        offset += 5;
+        System.arraycopy(replyMsgAscii.getBytes(ISO_8859_1), 0, packet, offset, 5);
+        offset += 5;
+
+        System.arraycopy(chunkData, 0, packet, offset, chunkData.length);
+
+        return packet;
     }
 
     public MessageModel getMessageToSave() {
