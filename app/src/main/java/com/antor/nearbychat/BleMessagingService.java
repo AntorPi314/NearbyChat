@@ -686,6 +686,14 @@ public class BleMessagingService extends Service {
                             Log.d(TAG, "⛔ Dropping message from blocked user: " + msg.getSenderId());
                             return;
                         }
+
+                        if ("G".equals(msg.getChatType())) {
+                            if (!isUserInGroup(msg.getChatId())) {
+                                Log.d(TAG, "⛔ Dropping message from unjoined group: " + msg.getChatId());
+                                return;
+                            }
+                        }
+
                         addMessage(msg);
                     }
                 })
@@ -693,6 +701,34 @@ public class BleMessagingService extends Service {
                     Log.e(TAG, "Error processing message", e);
                     return null;
                 });
+    }
+
+    private boolean isUserInGroup(String groupId) {
+        try {
+            SharedPreferences prefs = getSharedPreferences("NearbyChatPrefs", MODE_PRIVATE);
+            String groupsJson = prefs.getString("groupsList", null);
+
+            if (groupsJson == null) {
+                return false;
+            }
+
+            Gson gson = new Gson();
+            Type type = new TypeToken<List<GroupModel>>(){}.getType();
+            List<GroupModel> groups = gson.fromJson(groupsJson, type);
+
+            if (groups != null) {
+                for (GroupModel g : groups) {
+                    if (g.getId().equals(groupId)) {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        } catch (Exception e) {
+            Log.e(TAG, "Error checking if user is in group", e);
+            return false;
+        }
     }
 
     private boolean isUserBlocked(String senderId) {
@@ -896,6 +932,13 @@ public class BleMessagingService extends Service {
     }
 
     private void addMessage(MessageModel msg) {
+        if ("G".equals(msg.getChatType())) {
+            if (!isUserInGroup(msg.getChatId())) {
+                Log.d(TAG, "⛔ Dropping message in addMessage from unjoined group: " + msg.getChatId());
+                return;
+            }
+        }
+
         if (!msg.isSelf()) {
             msg.setRead(false);
             if ("F".equals(msg.getChatType())) {

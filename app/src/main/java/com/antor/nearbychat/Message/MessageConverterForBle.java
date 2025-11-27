@@ -75,22 +75,41 @@ public class MessageConverterForBle {
         String rUserId = "";
         String rMsgId = "";
         boolean isReplyDetected = false;
-        String contentToEncrypt = payloadToSend;
+        String tempPayload = payloadToSend;
 
-        if (payloadToSend.startsWith("[r>") && payloadToSend.length() >= 13) {
+        if (tempPayload.startsWith("[r>") && tempPayload.length() >= 13) {
             try {
-                String replyUserAscii = payloadToSend.substring(3, 8);
-                String replyMsgAscii = payloadToSend.substring(8, 13);
+                String replyUserAscii = tempPayload.substring(3, 8);
+                String replyMsgAscii = tempPayload.substring(8, 13);
 
                 rUserId = MessageHelper.timestampToDisplayId(MessageHelper.asciiIdToTimestamp(replyUserAscii));
                 rMsgId = MessageHelper.timestampToDisplayId(MessageHelper.asciiIdToTimestamp(replyMsgAscii));
 
-                contentToEncrypt = payloadToSend.substring(13);
+                tempPayload = tempPayload.substring(13);
                 isReplyDetected = true;
             } catch (Exception e) {
                 Log.e("MsgConverter", "Error parsing reply", e);
             }
         }
+
+        int msgTypeId = 0; // Default 0000 (Normal)
+        String contentToEncrypt = tempPayload;
+
+        if (contentToEncrypt.startsWith("g//")) {
+            msgTypeId = 2; // 0010 (JSON)
+            contentToEncrypt = contentToEncrypt.substring(3); // Strip "g//"
+        } else if (contentToEncrypt.startsWith("[u>")) {
+            msgTypeId = 1; // 0001 (Unicode)
+            contentToEncrypt = contentToEncrypt.substring(3); // Strip "[u>"
+        }
+        int chatTypeId = 0;
+        if ("N".equals(chatType)) chatTypeId = 1; // 001
+        else if ("G".equals(chatType)) chatTypeId = 2; // 010
+        else if ("F".equals(chatType)) chatTypeId = 3; // 011
+
+        int replyBit = isReplyDetected ? 1 : 0;
+
+        byte headerByte = (byte) ((chatTypeId << 5) | (replyBit << 4) | msgTypeId);
 
         String messagePayload;
         if ("N".equals(chatType)) {
@@ -104,23 +123,12 @@ public class MessageConverterForBle {
                 messagePayload = "";
             }
         }
-
         java.io.ByteArrayOutputStream stream = new java.io.ByteArrayOutputStream();
         try {
-            String packetType = chatType;
-            if (isReplyDetected) {
-                if ("N".equals(chatType)) packetType = "A";
-                else if ("G".equals(chatType)) packetType = "B";
-                else if ("F".equals(chatType)) packetType = "C";
-            }
-
-            if ("G".equals(chatType) || "B".equals(packetType) ||
-                    "F".equals(chatType) || "C".equals(packetType)) {
-
+            if ("G".equals(chatType) || "F".equals(chatType)) {
                 String paddedId = (chatId == null) ? "     " : String.format("%-5s", chatId).substring(0, 5);
                 stream.write(paddedId.getBytes(ISO_8859_1));
             }
-
             if (isReplyDetected) {
                 String replyUserAscii = MessageHelper.timestampToAsciiId(MessageHelper.displayIdToTimestamp(rUserId));
                 String replyMsgAscii = MessageHelper.timestampToAsciiId(MessageHelper.displayIdToTimestamp(rMsgId));
@@ -146,13 +154,6 @@ public class MessageConverterForBle {
 
         this.blePacketsToSend = new ArrayList<>();
 
-        String packetTypeChar = chatType;
-        if (isReplyDetected) {
-            if ("N".equals(chatType)) packetTypeChar = "A";
-            else if ("G".equals(chatType)) packetTypeChar = "B";
-            else if ("F".equals(chatType)) packetTypeChar = "C";
-        }
-
         for (int i = 0; i < totalChunks; i++) {
             int start = i * dataPerChunk;
             int length = Math.min(dataPerChunk, fullStreamData.length - start);
@@ -160,14 +161,21 @@ public class MessageConverterForBle {
             byte[] chunkData = new byte[length];
             System.arraycopy(fullStreamData, start, chunkData, 0, length);
 
-            byte[] packet = createGenericPacket(packetTypeChar, senderAsciiId, messageAsciiId,
+            byte[] packet = createByteHeaderPacket(headerByte, senderAsciiId, messageAsciiId,
                     i, totalChunks, chunkData);
             this.blePacketsToSend.add(packet);
         }
-
         if (existingMessageIdBits == -1) {
+            String finalLocalMessage = contentToEncrypt;
+
+            if (msgTypeId == 2) {
+                finalLocalMessage = "g//" + finalLocalMessage;
+            } else if (msgTypeId == 1) {
+                finalLocalMessage = "[u>" + finalLocalMessage;
+            }
+
             this.messageToSave = new MessageModel(
-                    senderDisplayId, contentToEncrypt, true,
+                    senderDisplayId, finalLocalMessage, true,
                     createFormattedTimestamp(totalChunks, messageIdBits),
                     senderIdBits, messageIdBits
             );
@@ -182,6 +190,26 @@ public class MessageConverterForBle {
             }
         }
     }
+
+
+    private byte[] createByteHeaderPacket(byte headerByte, String senderAscii, String msgAscii,
+                                          int chunkIndex, int totalChunks, byte[] data) {
+
+        byte[] packet = new byte[BASE_HEADER_SIZE + data.length];
+        int offset = 0;
+
+        packet[offset++] = headerByte;
+        System.arraycopy(senderAscii.getBytes(ISO_8859_1), 0, packet, offset, USER_ID_LENGTH);
+        offset += USER_ID_LENGTH;
+        System.arraycopy(msgAscii.getBytes(ISO_8859_1), 0, packet, offset, MESSAGE_ID_LENGTH);
+        offset += MESSAGE_ID_LENGTH;
+        packet[offset++] = (byte) totalChunks;
+        packet[offset++] = (byte) chunkIndex;
+
+        System.arraycopy(data, 0, packet, offset, data.length);
+        return packet;
+    }
+
 
     private byte[] createGenericPacket(String type, String senderAscii, String msgAscii,
                                        int chunkIndex, int totalChunks, byte[] data) {

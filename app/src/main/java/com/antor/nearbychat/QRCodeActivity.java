@@ -1,6 +1,7 @@
 package com.antor.nearbychat;
 
 import android.app.Activity;
+import android.content.Intent;
 import android.graphics.Bitmap;
 import android.os.Bundle;
 import android.widget.ImageView;
@@ -14,19 +15,22 @@ import com.google.zxing.qrcode.QRCodeWriter;
 
 public class QRCodeActivity extends Activity {
 
-    private static final int CAMERA_PERMISSION_REQUEST = 300;
     private ImageView qrCodeImage;
     private TextView qrInfoText;
+    private ImageView btnBack;
+    private ImageView btnShare;
     private String qrData;
     private String qrType;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_qr_code);
+        setContentView(R.layout.activity_qr_code_new);
 
-        qrCodeImage = findViewById(R.id.qrCodeImage);
-        qrInfoText = findViewById(R.id.qrInfoText);
+        qrCodeImage = findViewById(R.id.qrCodeImageNew);
+        qrInfoText = findViewById(R.id.qrInfoTextNew);
+        btnBack = findViewById(R.id.btnBackQR);
+        btnShare = findViewById(R.id.btnShareQR);
 
         qrData = getIntent().getStringExtra("qr_data");
         qrType = getIntent().getStringExtra("qr_type");
@@ -41,7 +45,13 @@ public class QRCodeActivity extends Activity {
             finish();
         }
 
-        findViewById(R.id.btnClose).setOnClickListener(v -> finish());
+        btnBack.setOnClickListener(v -> finish());
+
+        btnShare.setOnClickListener(v -> {
+            Toast.makeText(this, "Share feature coming soon", Toast.LENGTH_SHORT).show();
+        });
+
+        findViewById(R.id.btnCloseNew).setOnClickListener(v -> finish());
     }
 
     private void generateQRCode(String data) {

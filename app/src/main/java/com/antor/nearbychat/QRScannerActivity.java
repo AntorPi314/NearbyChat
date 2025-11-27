@@ -6,6 +6,9 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
+import android.view.View;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
@@ -14,8 +17,11 @@ import androidx.core.content.ContextCompat;
 
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
-import com.google.zxing.integration.android.IntentIntegrator;
-import com.google.zxing.integration.android.IntentResult;
+import com.google.zxing.ResultPoint;
+import com.journeyapps.barcodescanner.BarcodeCallback;
+import com.journeyapps.barcodescanner.BarcodeResult;
+import com.journeyapps.barcodescanner.DecoratedBarcodeView;
+import com.journeyapps.barcodescanner.DefaultDecoderFactory;
 
 import java.lang.reflect.Type;
 import java.util.ArrayList;
@@ -28,9 +34,32 @@ public class QRScannerActivity extends Activity {
     private static final String KEY_GROUPS_LIST = "groupsList";
     private static final String KEY_FRIENDS_LIST = "friendsList";
 
+    private DecoratedBarcodeView barcodeView;
+    private ImageView btnBack;
+    private ImageView btnFlash;
+    private boolean isFlashOn = false;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_qr_scanner);
+
+        btnBack = findViewById(R.id.btnBackScanner);
+        btnFlash = findViewById(R.id.btnFlashToggle);
+        FrameLayout scannerFrame = findViewById(R.id.scannerFrame);
+
+        barcodeView = new DecoratedBarcodeView(this);
+        barcodeView.setLayoutParams(new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+        ));
+        barcodeView.getBarcodeView().setDecoderFactory(new DefaultDecoderFactory());
+        barcodeView.initializeFromIntent(getIntent());
+
+        scannerFrame.addView(barcodeView);
+
+        btnBack.setOnClickListener(v -> finish());
+        btnFlash.setOnClickListener(v -> toggleFlash());
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
                 != PackageManager.PERMISSION_GRANTED) {
@@ -41,30 +70,32 @@ public class QRScannerActivity extends Activity {
         }
     }
 
-    private void startScanner() {
-        IntentIntegrator integrator = new IntentIntegrator(this);
-        integrator.setDesiredBarcodeFormats(IntentIntegrator.QR_CODE);
-        integrator.setPrompt("Scan QR Code");
-        integrator.setCameraId(0);
-        integrator.setBeepEnabled(true);
-        integrator.setBarcodeImageEnabled(false);
-        integrator.setOrientationLocked(false);
-        integrator.initiateScan();
+    private void toggleFlash() {
+        isFlashOn = !isFlashOn;
+        if (isFlashOn) {
+            barcodeView.setTorchOn();
+            btnFlash.setImageResource(R.drawable.ic_flash_on);
+        } else {
+            barcodeView.setTorchOff();
+            btnFlash.setImageResource(R.drawable.ic_flash_off);
+        }
     }
 
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        IntentResult result = IntentIntegrator.parseActivityResult(requestCode, resultCode, data);
-        if (result != null) {
-            if (result.getContents() == null) {
-                Toast.makeText(this, "Scan cancelled", Toast.LENGTH_SHORT).show();
-                finish();
-            } else {
-                processQRCode(result.getContents());
+    private void startScanner() {
+        barcodeView.decodeContinuous(new BarcodeCallback() {
+            @Override
+            public void barcodeResult(BarcodeResult result) {
+                if (result.getText() != null) {
+                    barcodeView.pause();
+                    processQRCode(result.getText());
+                }
             }
-        } else {
-            super.onActivityResult(requestCode, resultCode, data);
-        }
+
+            @Override
+            public void possibleResultPoints(List<ResultPoint> resultPoints) {
+                // Optional: handle possible result points
+            }
+        });
     }
 
     private void processQRCode(String qrContent) {
@@ -78,6 +109,7 @@ public class QRScannerActivity extends Activity {
                 finish();
                 return;
             }
+
             encryptedData = isFriend ? qrContent.substring(7) : qrContent.substring(6);
             String decryptedData = QREncryption.decrypt(encryptedData);
 
@@ -86,6 +118,7 @@ public class QRScannerActivity extends Activity {
                 finish();
                 return;
             }
+
             String[] parts = decryptedData.split("\\|", -1);
 
             if (isFriend) {
@@ -116,8 +149,7 @@ public class QRScannerActivity extends Activity {
         Gson gson = new Gson();
 
         String friendsJson = prefs.getString(KEY_FRIENDS_LIST, null);
-        Type type = new TypeToken<ArrayList<FriendModel>>() {
-        }.getType();
+        Type type = new TypeToken<ArrayList<FriendModel>>() {}.getType();
         List<FriendModel> friends = friendsJson != null ? gson.fromJson(friendsJson, type) : new ArrayList<>();
 
         if (friends == null) friends = new ArrayList<>();
@@ -148,8 +180,7 @@ public class QRScannerActivity extends Activity {
         String groupId = com.antor.nearbychat.Message.MessageHelper.timestampToAsciiId(bits);
 
         String groupsJson = prefs.getString(KEY_GROUPS_LIST, null);
-        Type type = new TypeToken<ArrayList<GroupModel>>() {
-        }.getType();
+        Type type = new TypeToken<ArrayList<GroupModel>>() {}.getType();
         List<GroupModel> groups = groupsJson != null ? gson.fromJson(groupsJson, type) : new ArrayList<>();
 
         if (groups == null) groups = new ArrayList<>();
@@ -161,6 +192,7 @@ public class QRScannerActivity extends Activity {
                 break;
             }
         }
+
         if (!exists) {
             groups.add(new GroupModel(groupId, name, encryptionKey));
             prefs.edit().putString(KEY_GROUPS_LIST, gson.toJson(groups)).apply();
@@ -182,6 +214,29 @@ public class QRScannerActivity extends Activity {
                 finish();
             }
         }
+    }
 
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (barcodeView != null) {
+            barcodeView.resume();
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        if (barcodeView != null) {
+            barcodeView.pause();
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (barcodeView != null) {
+            barcodeView.pause();
+        }
     }
 }

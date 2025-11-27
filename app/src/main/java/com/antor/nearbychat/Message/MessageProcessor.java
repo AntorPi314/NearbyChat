@@ -44,7 +44,18 @@ public class MessageProcessor {
         }
         int offset = 0;
 
-        String packetType = new String(data, offset, 1, ISO_8859_1); offset += 1;
+        int headerByte = data[offset] & 0xFF; offset += 1;
+
+        int chatTypeId = (headerByte >> 5) & 0b111; // Bits 7-5
+        int isReplyVal = (headerByte >> 4) & 0b1;   // Bit 4
+        int msgTypeId = headerByte & 0b1111;        // Bits 3-0
+
+        boolean isReply = (isReplyVal == 1);
+
+        String currentChatType = "N";
+        if (chatTypeId == 2) currentChatType = "G";
+        else if (chatTypeId == 3) currentChatType = "F";
+
         String senderAsciiId = new String(data, offset, 5, ISO_8859_1); offset += 5;
         String messageAsciiId = new String(data, offset, 5, ISO_8859_1); offset += 5;
         int totalChunks = data[offset] & 0xFF; offset += 1;
@@ -61,18 +72,12 @@ public class MessageProcessor {
         long messageIdBits = MessageHelper.asciiIdToTimestamp(messageAsciiId);
         String messageDisplayId = MessageHelper.timestampToDisplayId(messageIdBits);
 
-        String finalChatType = packetType;
-        if ("A".equals(packetType)) finalChatType = "N";
-        else if ("B".equals(packetType)) finalChatType = "G";
-        else if ("C".equals(packetType)) finalChatType = "F";
-
         String chatId = null;
         if (chunkIndex == 0) {
-            if ("G".equals(finalChatType) || "F".equals(finalChatType)) {
-
+            if ("G".equals(currentChatType) || "F".equals(currentChatType)) {
                 if (chunkData.length >= 5) {
                     chatId = new String(chunkData, 0, 5, ISO_8859_1);
-                    if ("F".equals(finalChatType)) {
+                    if ("F".equals(currentChatType)) {
                         if (!chatId.equals(myAsciiId)) return null;
                         chatId = senderAsciiId;
                     }
@@ -86,7 +91,8 @@ public class MessageProcessor {
         synchronized (reassemblers) {
             reassembler = reassemblers.get(reassemblerKey);
             if (reassembler == null) {
-                reassembler = new MessageReassembler(senderDisplayId, messageDisplayId, finalChatType, chatId);
+                reassembler = new MessageReassembler(senderDisplayId, messageDisplayId, currentChatType, chatId);
+                reassembler.msgTypeId = msgTypeId;
                 reassemblers.put(reassemblerKey, reassembler);
             }
             if (chatId != null && reassembler.chatId == null) {
@@ -107,7 +113,7 @@ public class MessageProcessor {
                 MessageModel completeMsg = buildMessageModelFromStream(
                         fullStreamPayload, senderDisplayId, messageDisplayId,
                         senderIdBits, messageIdBits, totalChunks,
-                        packetType, reassembler.chatId
+                        currentChatType, reassembler.chatId, isReply, reassembler.msgTypeId
                 );
                 synchronized (reassemblers) {
                     reassemblers.remove(reassemblerKey);
@@ -129,7 +135,7 @@ public class MessageProcessor {
         partialMsg.setMessageId(messageDisplayId);
         partialMsg.setChunkCount(totalChunks);
         partialMsg.setIsComplete(false);
-        partialMsg.setChatType(finalChatType);
+        partialMsg.setChatType(currentChatType);
         partialMsg.setChatId(reassembler.chatId != null ? reassembler.chatId : "");
 
         return partialMsg;
@@ -139,33 +145,26 @@ public class MessageProcessor {
     private MessageModel buildMessageModelFromStream(String streamPayload, String senderDisplayId,
                                                      String messageDisplayId, long senderIdBits,
                                                      long messageIdBits, int totalChunks,
-                                                     String packetType, String knownChatId) {
+                                                     String chatType, String knownChatId,
+                                                     boolean isReply, int msgTypeId) {
 
         byte[] fullData = streamPayload.getBytes(ISO_8859_1);
         int offset = 0;
-
-        String finalChatType = packetType;
         String chatId = knownChatId;
 
-        if ("A".equals(packetType)) finalChatType = "N";
-        else if ("B".equals(packetType)) finalChatType = "G";
-        else if ("C".equals(packetType)) finalChatType = "F";
-
-        if ("G".equals(finalChatType) || "F".equals(finalChatType)) {
+        if ("G".equals(chatType) || "F".equals(chatType)) {
             if (fullData.length >= offset + 5) offset += 5;
         }
 
         String replyUserAscii = "";
         String replyMsgAscii = "";
-        boolean isReply = false;
 
-        if ("A".equals(packetType) || "B".equals(packetType) || "C".equals(packetType)) {
+        if (isReply) {
             if (fullData.length >= offset + 10) {
                 replyUserAscii = new String(fullData, offset, 5, ISO_8859_1);
                 offset += 5;
                 replyMsgAscii = new String(fullData, offset, 5, ISO_8859_1);
                 offset += 5;
-                isReply = true;
             }
         }
 
@@ -174,14 +173,19 @@ public class MessageProcessor {
             actualPayload = new String(fullData, offset, fullData.length - offset, ISO_8859_1);
         }
 
-        if (!"N".equals(finalChatType)) {
+        if (!"N".equals(chatType)) {
             try {
-                String password = MessageHelper.getPasswordForChat(context, finalChatType, chatId, senderDisplayId);
+                String password = MessageHelper.getPasswordForChat(context, chatType, chatId, senderDisplayId);
                 String decrypted = CryptoUtils.decrypt(actualPayload, password);
                 if (decrypted != null) actualPayload = decrypted;
             } catch (Exception e) {
                 Log.e(TAG, "Decrypt failed", e);
             }
+        }
+        if (msgTypeId == 1) {
+            actualPayload = "[u>" + actualPayload;
+        } else if (msgTypeId == 2) {
+            actualPayload = "g//" + actualPayload;
         }
 
         MessageModel newMsg = new MessageModel(
@@ -191,7 +195,7 @@ public class MessageProcessor {
         );
         newMsg.setMessageId(messageDisplayId);
         newMsg.setIsComplete(true);
-        newMsg.setChatType(finalChatType);
+        newMsg.setChatType(chatType);
         newMsg.setChatId(chatId != null ? chatId : "");
 
         if (isReply) {
@@ -283,10 +287,8 @@ public class MessageProcessor {
 
         String chatType = null;
         String chatId = null;
+        int msgTypeId = 0;
         boolean isValidated = false;
-
-        String replyUserAscii = "";
-        String replyMsgAscii = "";
 
         MessageReassembler(String senderId, String messageId, String chatType, String chatId) {
             this.senderId = senderId;

@@ -4,6 +4,7 @@ import android.app.AlertDialog;
 import android.app.Dialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.os.Bundle;
@@ -640,11 +641,16 @@ public class GroupsFriendsActivity extends Activity {
             final boolean isBlocked = isUserBlocked(friend.getDisplayId());
             if (isBlocked) {
                 btnBlockUnblock.setText("Unblock");
-                btnBlockUnblock.setBackgroundColor(Color.parseColor("#007BFF"));
+                btnBlockUnblock.setBackgroundTintList(
+                        ColorStateList.valueOf(Color.parseColor("#007BFF"))
+                );
             } else {
                 btnBlockUnblock.setText("Block");
-                btnBlockUnblock.setBackgroundColor(Color.parseColor("#DC3545"));
+                btnBlockUnblock.setBackgroundTintList(
+                        ColorStateList.valueOf(Color.parseColor("#C30E0E"))
+                );
             }
+
 
             btnBlockUnblock.setOnClickListener(v -> {
                 String currentName = editName.getText().toString().trim();

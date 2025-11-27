@@ -79,7 +79,7 @@ public interface MessageDao {
     @Query("UPDATE messages SET isRead = 1 WHERE chatType = :chatType AND chatId = :chatId AND isRead = 0")
     void markMessagesAsRead(String chatType, String chatId);
 
-    @Query("SELECT COUNT(DISTINCT (chatType || chatId)) FROM messages WHERE isRead = 0 AND isSelf = 0")
+    @Query("SELECT COUNT(DISTINCT (chatType || chatId)) FROM messages WHERE isRead = 0 AND isSelf = 0 AND chatType IN ('F', 'G')")
     LiveData<Integer> getTotalUnreadMessageCount();
 
     @Query("SELECT * FROM messages WHERE senderId = :senderId AND messageId = :messageId AND timestamp = :timestamp LIMIT 1")

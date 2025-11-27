@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#1F2937"
+    tools:context=".QRScannerActivity">
+
+    <!-- Top Bar -->
+    <LinearLayout
+        android:id="@+id/topBarScanner"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:background="#27272A"
+        android:elevation="4dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp">
+
+        <!-- Back Button -->
+        <ImageView
+            android:id="@+id/btnBackScanner"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:src="@drawable/ic_arrow_back"
+            android:tint="#A8A29E"
+            android:contentDescription="Back"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?android:attr/selectableItemBackgroundBorderless"/>
+
+        <!-- Flash Toggle -->
+        <ImageView
+            android:id="@+id/btnFlashToggle"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:layout_marginStart="15dp"
+            android:src="@drawable/ic_flash_off"
+            android:tint="#E7E5E4"
+            android:contentDescription="Toggle Flash"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?android:attr/selectableItemBackgroundBorderless"/>
+
+        <!-- Title -->
+        <TextView
+            android:id="@+id/scannerTitle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="20dp"
+            android:text="Scan QR Code"
+            android:textColor="#E7E5E4"
+            android:textSize="16sp"
+            android:fontFamily="sans-serif-medium"/>
+    </LinearLayout>
+
+    <!-- Camera Preview Container -->
+    <androidx.cardview.widget.CardView
+        android:id="@+id/scannerContainer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_below="@id/topBarScanner"
+        android:layout_margin="20dp"
+        app:cardCornerRadius="20dp"
+        app:cardElevation="0dp"
+        app:cardBackgroundColor="#0A0A0A">
+
+        <!-- Scanner Frame -->
+        <FrameLayout
+            android:id="@+id/scannerFrame"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"/>
+
+    </androidx.cardview.widget.CardView>
+
+</RelativeLayout>

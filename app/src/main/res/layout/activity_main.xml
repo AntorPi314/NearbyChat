@@ -183,7 +183,7 @@
             android:layout_height="0dp"
             android:layout_weight="1"
             android:clipToPadding="false"
-            android:padding="8dp" />
+            android:padding="0dp" />
 
         <TextView
             android:id="@+id/textStatus"

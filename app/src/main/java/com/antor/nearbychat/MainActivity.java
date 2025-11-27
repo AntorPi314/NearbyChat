@@ -8,6 +8,7 @@ import android.content.ClipboardManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.res.ColorStateList;
 import android.util.Base64;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -1017,11 +1018,16 @@ public class MainActivity extends BaseActivity {
         final boolean isBlocked = isUserBlocked(displayId);
         if (isBlocked) {
             btnBlockUnblock.setText("Unblock");
-            btnBlockUnblock.setBackgroundColor(Color.parseColor("#007BFF"));
+            btnBlockUnblock.setBackgroundTintList(
+                    ColorStateList.valueOf(Color.parseColor("#007BFF"))
+            );
         } else {
             btnBlockUnblock.setText("Block");
-            btnBlockUnblock.setBackgroundColor(Color.parseColor("#DC3545"));
+            btnBlockUnblock.setBackgroundTintList(
+                    ColorStateList.valueOf(Color.parseColor("#C30E0E"))
+            );
         }
+
 
         btnBlockUnblock.setOnClickListener(v -> {
             String currentName = editName.getText().toString().trim();
@@ -1176,11 +1182,16 @@ public class MainActivity extends BaseActivity {
         final boolean isBlocked = isUserBlocked(displayId);
         if (isBlocked) {
             btnBlockUnblock.setText("Unblock");
-            btnBlockUnblock.setBackgroundColor(Color.parseColor("#007BFF"));
+            btnBlockUnblock.setBackgroundTintList(
+                    ColorStateList.valueOf(Color.parseColor("#007BFF"))
+            );
         } else {
             btnBlockUnblock.setText("Block");
-            btnBlockUnblock.setBackgroundColor(Color.parseColor("#DC3545"));
+            btnBlockUnblock.setBackgroundTintList(
+                    ColorStateList.valueOf(Color.parseColor("#C30E0E"))
+            );
         }
+
 
         btnBlockUnblock.setOnClickListener(v -> {
             String currentName = editName.getText().toString().trim();
