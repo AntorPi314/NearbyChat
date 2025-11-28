@@ -1312,6 +1312,15 @@ public class MainActivity extends BaseActivity {
     }
 
     private void updateChatUIForSelection() {
+        if (isShowingSavedMessages) {
+            isShowingSavedMessages = false;
+            if (savedMessagesLiveData != null) {
+                savedMessagesLiveData.removeObservers(this);
+                savedMessagesLiveData = null;
+            }
+            Log.d(TAG, "updateChatUIForSelection: Exited Saved Messages");
+        }
+
         boolean inputEnabled = true;
         String hint = "Type your message...";
 
@@ -2039,16 +2048,8 @@ public class MainActivity extends BaseActivity {
                 activeChatType = data.getStringExtra("chatType");
                 activeChatId = data.getStringExtra("chatId");
                 saveActiveChat();
-                Log.d(TAG, "onActivityResult: New chat selected (" + activeChatType + "/" + activeChatId + "). onResume will handle reload.");
+                Log.d(TAG, "onActivityResult: New chat selected (" + activeChatType + "/" + activeChatId + ")");
 
-                if (isShowingSavedMessages) {
-                    isShowingSavedMessages = false;
-                    enableInputContainer();
-                    if (savedMessagesLiveData != null) {
-                        savedMessagesLiveData.removeObservers(this);
-                        savedMessagesLiveData = null;
-                    }
-                }
             } else {
                 Log.d(TAG, "onActivityResult: Chat selection canceled (Back pressed). No reload.");
             }
@@ -2815,17 +2816,20 @@ public class MainActivity extends BaseActivity {
         if (bluetoothAdapter != null && bluetoothAdapter.isEnabled() && hasAllRequiredPermissions()) {
             startBleService();
         }
-        if (activeChatType.equals(lastRefreshedChatType) && activeChatId.equals(lastRefreshedChatId)) {
 
-            Log.d(TAG, "onResume: Same chat (" + activeChatType + "/" + activeChatId + "), skipping full reload.");
+        // NEW LOGIC: Check if we're in Saved Messages OR chat changed
+        boolean chatChanged = !activeChatType.equals(lastRefreshedChatType) || !activeChatId.equals(lastRefreshedChatId);
 
-            markCurrentChatAsRead();
-        } else {
-            Log.d(TAG, "onResume: New chat (" + activeChatType + "/" + activeChatId + "), performing full reload.");
+        if (isShowingSavedMessages || chatChanged) {
+            // Either exiting Saved OR switching chat - do full reload
+            Log.d(TAG, "onResume: Reloading - isShowingSavedMessages=" + isShowingSavedMessages + ", chatChanged=" + chatChanged);
             updateChatUIForSelection();
-
             lastRefreshedChatType = activeChatType;
             lastRefreshedChatId = activeChatId;
+        } else {
+            // Same chat, just mark as read
+            Log.d(TAG, "onResume: Same chat (" + activeChatType + "/" + activeChatId + "), skipping full reload.");
+            markCurrentChatAsRead();
         }
         updateSendButtonColor();
     }
@@ -2842,7 +2846,6 @@ public class MainActivity extends BaseActivity {
             Log.e(TAG, "Security exception checking Bluetooth", e);
             return false;
         }
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 return false;
@@ -2931,10 +2934,12 @@ public class MainActivity extends BaseActivity {
             hideSearchMode();
             return;
         }
+
         if (isShowingSavedMessages) {
             exitSavedMessages();
             return;
         }
+
         if (!"N".equals(activeChatType)) {
             activeChatType = "N";
             activeChatId = "";

@@ -95,13 +95,25 @@ public class MessageConverterForBle {
         int msgTypeId = 0; // Default 0000 (Normal)
         String contentToEncrypt = tempPayload;
 
+        // ========== NEW LOGIC START ==========
         if (contentToEncrypt.startsWith("g//")) {
             msgTypeId = 2; // 0010 (JSON)
             contentToEncrypt = contentToEncrypt.substring(3); // Strip "g//"
+
         } else if (contentToEncrypt.startsWith("[u>")) {
             msgTypeId = 1; // 0001 (Unicode)
             contentToEncrypt = contentToEncrypt.substring(3); // Strip "[u>"
+
+        } else if (contentToEncrypt.startsWith("[m>")) {
+            msgTypeId = 14; // 1110 (Media - Images first)
+            contentToEncrypt = contentToEncrypt.substring(3); // Strip "[m>"
+
+        } else if (contentToEncrypt.startsWith("[v>")) {
+            msgTypeId = 15; // 1111 (Media - Videos first)
+            contentToEncrypt = contentToEncrypt.substring(3); // Strip "[v>"
         }
+        // ========== NEW LOGIC END ==========
+
         int chatTypeId = 0;
         if ("N".equals(chatType)) chatTypeId = 1; // 001
         else if ("G".equals(chatType)) chatTypeId = 2; // 010
@@ -123,6 +135,7 @@ public class MessageConverterForBle {
                 messagePayload = "";
             }
         }
+
         java.io.ByteArrayOutputStream stream = new java.io.ByteArrayOutputStream();
         try {
             if ("G".equals(chatType) || "F".equals(chatType)) {
@@ -165,14 +178,21 @@ public class MessageConverterForBle {
                     i, totalChunks, chunkData);
             this.blePacketsToSend.add(packet);
         }
+
         if (existingMessageIdBits == -1) {
             String finalLocalMessage = contentToEncrypt;
 
-            if (msgTypeId == 2) {
+            // ========== NEW LOGIC START ==========
+            if (msgTypeId == 14) {
+                finalLocalMessage = "[m>" + finalLocalMessage;
+            } else if (msgTypeId == 15) {
+                finalLocalMessage = "[v>" + finalLocalMessage;
+            } else if (msgTypeId == 2) {
                 finalLocalMessage = "g//" + finalLocalMessage;
             } else if (msgTypeId == 1) {
                 finalLocalMessage = "[u>" + finalLocalMessage;
             }
+            // ========== NEW LOGIC END ==========
 
             this.messageToSave = new MessageModel(
                     senderDisplayId, finalLocalMessage, true,

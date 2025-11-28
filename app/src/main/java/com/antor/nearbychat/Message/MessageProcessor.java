@@ -137,7 +137,6 @@ public class MessageProcessor {
         partialMsg.setIsComplete(false);
         partialMsg.setChatType(currentChatType);
         partialMsg.setChatId(reassembler.chatId != null ? reassembler.chatId : "");
-
         return partialMsg;
     }
 
@@ -182,11 +181,18 @@ public class MessageProcessor {
                 Log.e(TAG, "Decrypt failed", e);
             }
         }
+
+        // ========== NEW LOGIC START ==========
         if (msgTypeId == 1) {
             actualPayload = "[u>" + actualPayload;
         } else if (msgTypeId == 2) {
             actualPayload = "g//" + actualPayload;
+        } else if (msgTypeId == 14) {
+            actualPayload = "[m>" + actualPayload;
+        } else if (msgTypeId == 15) {
+            actualPayload = "[v>" + actualPayload;
         }
+        // ========== NEW LOGIC END ==========
 
         MessageModel newMsg = new MessageModel(
                 senderDisplayId, actualPayload, false,
