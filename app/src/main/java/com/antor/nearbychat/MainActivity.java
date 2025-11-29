@@ -1831,55 +1831,82 @@ public class MainActivity extends BaseActivity {
     }
 
     private int calculateCurrentChunkCount() {
-        if (inputMessage == null || inputImageURL == null || inputVideoURL == null) {
-            return 0;
-        }
-
         String textMsg = inputMessage.getText().toString().trim();
         String imageUrlsRaw = inputImageURL.getText().toString().trim();
         String videoUrlsRaw = inputVideoURL.getText().toString().trim();
 
         String basePayload = PayloadCompress.buildPayload(textMsg, imageUrlsRaw, videoUrlsRaw);
 
-        if (!"N".equals(activeChatType)) {
-            String password = MessageHelper.getPasswordForChat(this, activeChatType, activeChatId, userId);
-            basePayload = CryptoUtils.encrypt(basePayload, password);
-        }
-
         if (basePayload == null || basePayload.isEmpty()) {
             return 0;
         }
 
-        int payloadSize = basePayload.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1).length;
+        String contentToProcess = basePayload;
 
-        int streamOverhead = 0;
+        if (contentToProcess.startsWith("g//")) {
+            String urlPart = contentToProcess.substring(3);
+
+            String compressed5Bit = PayloadCompress.compressJsonUrl5Bit(urlPart);
+            int size5Bit = compressed5Bit != null ? compressed5Bit.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1).length : Integer.MAX_VALUE;
+
+            String simplified = PayloadCompress.simplifyLinks(urlPart);
+            String compressed6Bit = null;
+            int size6Bit = Integer.MAX_VALUE;
+            try {
+                compressed6Bit = PayloadCompress.compressLink(simplified);
+                size6Bit = compressed6Bit.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1).length;
+            } catch (Exception e) {
+                // Ignore
+            }
+
+            if (compressed5Bit != null && size5Bit <= size6Bit) {
+                contentToProcess = compressed5Bit; // msgTypeId = 2
+            } else if (compressed6Bit != null) {
+                contentToProcess = compressed6Bit; // msgTypeId = 3
+            } else {
+                contentToProcess = urlPart;
+            }
+
+        } else if (contentToProcess.startsWith("[u>")) {
+            contentToProcess = contentToProcess.substring(3);
+        } else if (contentToProcess.startsWith("[m>")) {
+            contentToProcess = contentToProcess.substring(3);
+        } else if (contentToProcess.startsWith("[v>")) {
+            contentToProcess = contentToProcess.substring(3);
+        }
+        byte[] payloadBytes;
+        if (!"N".equals(activeChatType)) {
+            try {
+                String password = MessageHelper.getPasswordForChat(this, activeChatType, activeChatId, userId);
+                String encrypted = CryptoUtils.encrypt(contentToProcess, password);
+                if (encrypted == null) encrypted = "";
+                payloadBytes = encrypted.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1);
+            } catch (Exception e) {
+                payloadBytes = new byte[0];
+            }
+        } else {
+            payloadBytes = contentToProcess.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1);
+        }
+
+        int streamSize = payloadBytes.length;
 
         if ("G".equals(activeChatType) || "F".equals(activeChatType)) {
-            streamOverhead += 5;
+            streamSize += 5;
         }
 
         if (replyingToMessage != null) {
-            if ("F".equals(activeChatType)) {
-                streamOverhead += 5;
-            } else {
-                streamOverhead += 10;
-            }
+            streamSize += 10;
         }
 
-        int totalStreamSize = payloadSize + streamOverhead;
         int capacityPerChunk = currentMaxPayloadSize - 13;
 
         if (capacityPerChunk <= 0) {
             return 999;
         }
 
-        if (totalStreamSize == 0) return 1;
+        if (streamSize == 0) return 1;
 
-        int count = (int) Math.ceil((double) totalStreamSize / capacityPerChunk);
-
-        if (count > MAX_CHUNKS_LIMIT) {
-            return count;
-        }
+        int count = (int) Math.ceil((double) streamSize / capacityPerChunk);
 
         return count;
     }
@@ -2153,7 +2180,10 @@ public class MainActivity extends BaseActivity {
             options.add("Unsave");
             options.add("Retransmit");
         } else if (msg.isFailed()) {
+            options.add("Copy");
+            options.add("Edit");
             options.add("Remove");
+            options.add("Retransmit");
         } else {
             options.add("Copy");
             options.add("Edit");
@@ -2192,6 +2222,13 @@ public class MainActivity extends BaseActivity {
                     break;
                 case "Retransmit":
                     if (validateBluetoothAndService()) {
+
+                        msg.setFailed(false);
+                        new Thread(() -> {
+                            database.messageDao().deleteMessage(msg.getSenderId(), msg.getMessageId(), msg.getTimestamp());
+                            database.messageDao().insertMessage(com.antor.nearbychat.Database.MessageEntity.fromMessageModel(msg));
+                        }).start();
+
                         Toast.makeText(this, "Retransmitting...", Toast.LENGTH_SHORT).show();
                         if (isServiceBound && bleService != null) {
                             bleService.retransmitMessage(msg);
@@ -2200,22 +2237,30 @@ public class MainActivity extends BaseActivity {
                     break;
             }
         });
+
         AlertDialog dialog = builder.create();
         ListView listView = dialog.getListView();
         if (listView != null) {
             listView.setOnItemLongClickListener((parent, view, position, id) -> {
                 String selectedOption = options.get(position);
-
                 if (selectedOption.equals("Copy")) {
                     copyMessageAsJson(msg);
                     dialog.dismiss();
                     return true;
                 }
-
                 if (selectedOption.equals("Edit")) {
                     PayloadCompress.ParsedPayload parsed = PayloadCompress.parsePayload(msg.getMessage());
-                    if (JsonFetcher.isJsonUrl(parsed.message) && parsed.imageUrls.isEmpty() && parsed.videoUrls.isEmpty()) {
-                        loadJsonForEditing(parsed.message);
+                    String checkMsg = parsed.message;
+                    if(msg.isFailed() && !"N".equals(msg.getChatType())){
+                        try {
+                            String password = MessageHelper.getPasswordForChat(this, msg.getChatType(), msg.getChatId(), userId);
+                            String decrypted = CryptoUtils.decrypt(checkMsg, password);
+                            if(decrypted != null) checkMsg = decrypted;
+                        } catch(Exception e){}
+                    }
+
+                    if (JsonFetcher.isJsonUrl(checkMsg) && parsed.imageUrls.isEmpty() && parsed.videoUrls.isEmpty()) {
+                        loadJsonForEditing(checkMsg);
                         dialog.dismiss();
                         return true;
                     }
@@ -2816,18 +2861,14 @@ public class MainActivity extends BaseActivity {
         if (bluetoothAdapter != null && bluetoothAdapter.isEnabled() && hasAllRequiredPermissions()) {
             startBleService();
         }
-
-        // NEW LOGIC: Check if we're in Saved Messages OR chat changed
         boolean chatChanged = !activeChatType.equals(lastRefreshedChatType) || !activeChatId.equals(lastRefreshedChatId);
 
         if (isShowingSavedMessages || chatChanged) {
-            // Either exiting Saved OR switching chat - do full reload
             Log.d(TAG, "onResume: Reloading - isShowingSavedMessages=" + isShowingSavedMessages + ", chatChanged=" + chatChanged);
             updateChatUIForSelection();
             lastRefreshedChatType = activeChatType;
             lastRefreshedChatId = activeChatId;
         } else {
-            // Same chat, just mark as read
             Log.d(TAG, "onResume: Same chat (" + activeChatType + "/" + activeChatId + "), skipping full reload.");
             markCurrentChatAsRead();
         }

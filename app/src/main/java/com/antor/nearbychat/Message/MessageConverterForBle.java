@@ -5,6 +5,7 @@ import android.util.Log;
 
 import com.antor.nearbychat.CryptoUtils;
 import com.antor.nearbychat.MessageModel;
+import com.antor.nearbychat.PayloadCompress;
 
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -92,32 +93,55 @@ public class MessageConverterForBle {
             }
         }
 
-        int msgTypeId = 0; // Default 0000 (Normal)
+        int msgTypeId = 0;
         String contentToEncrypt = tempPayload;
 
-        // ========== NEW LOGIC START ==========
         if (contentToEncrypt.startsWith("g//")) {
-            msgTypeId = 2; // 0010 (JSON)
-            contentToEncrypt = contentToEncrypt.substring(3); // Strip "g//"
+            String urlPart = contentToEncrypt.substring(3);
+
+            String compressed5Bit = PayloadCompress.compressJsonUrl5Bit(urlPart);
+            int size5Bit = compressed5Bit != null ? compressed5Bit.getBytes(ISO_8859_1).length : Integer.MAX_VALUE;
+
+            String simplified = PayloadCompress.simplifyLinks(urlPart);
+            String compressed6Bit = null;
+            int size6Bit = Integer.MAX_VALUE;
+
+            try {
+                compressed6Bit = PayloadCompress.compressLink(simplified);
+                size6Bit = compressed6Bit.getBytes(ISO_8859_1).length;
+            } catch (Exception e) {
+                Log.w("MsgConverter", "6-bit compression failed", e);
+            }
+
+            if (compressed5Bit != null && size5Bit <= size6Bit) {
+                msgTypeId = 2; // 0010 - 5-bit model
+                contentToEncrypt = compressed5Bit;
+                Log.d("MsgConverter", "Using msgTypeId=2 (5-bit) for JSON URL: " + size5Bit + " bytes");
+            } else if (compressed6Bit != null) {
+                msgTypeId = 3; // 0011 - 6-bit model
+                contentToEncrypt = compressed6Bit;
+                Log.d("MsgConverter", "Using msgTypeId=3 (6-bit) for JSON URL: " + size6Bit + " bytes");
+            } else {
+                msgTypeId = 1;
+                contentToEncrypt = urlPart;
+                Log.w("MsgConverter", "Both compressions failed, using Unicode fallback");
+            }
 
         } else if (contentToEncrypt.startsWith("[u>")) {
-            msgTypeId = 1; // 0001 (Unicode)
-            contentToEncrypt = contentToEncrypt.substring(3); // Strip "[u>"
-
+            msgTypeId = 1; // 0001 - Unicode
+            contentToEncrypt = contentToEncrypt.substring(3);
         } else if (contentToEncrypt.startsWith("[m>")) {
-            msgTypeId = 14; // 1110 (Media - Images first)
-            contentToEncrypt = contentToEncrypt.substring(3); // Strip "[m>"
-
+            msgTypeId = 14; // 1110 - Media (Images)
+            contentToEncrypt = contentToEncrypt.substring(3);
         } else if (contentToEncrypt.startsWith("[v>")) {
-            msgTypeId = 15; // 1111 (Media - Videos first)
-            contentToEncrypt = contentToEncrypt.substring(3); // Strip "[v>"
+            msgTypeId = 15; // 1111 - Media (Videos)
+            contentToEncrypt = contentToEncrypt.substring(3);
         }
-        // ========== NEW LOGIC END ==========
 
         int chatTypeId = 0;
-        if ("N".equals(chatType)) chatTypeId = 1; // 001
-        else if ("G".equals(chatType)) chatTypeId = 2; // 010
-        else if ("F".equals(chatType)) chatTypeId = 3; // 011
+        if ("N".equals(chatType)) chatTypeId = 1;
+        else if ("G".equals(chatType)) chatTypeId = 2;
+        else if ("F".equals(chatType)) chatTypeId = 3;
 
         int replyBit = isReplyDetected ? 1 : 0;
 
@@ -180,19 +204,7 @@ public class MessageConverterForBle {
         }
 
         if (existingMessageIdBits == -1) {
-            String finalLocalMessage = contentToEncrypt;
-
-            // ========== NEW LOGIC START ==========
-            if (msgTypeId == 14) {
-                finalLocalMessage = "[m>" + finalLocalMessage;
-            } else if (msgTypeId == 15) {
-                finalLocalMessage = "[v>" + finalLocalMessage;
-            } else if (msgTypeId == 2) {
-                finalLocalMessage = "g//" + finalLocalMessage;
-            } else if (msgTypeId == 1) {
-                finalLocalMessage = "[u>" + finalLocalMessage;
-            }
-            // ========== NEW LOGIC END ==========
+            String finalLocalMessage = tempPayload;
 
             this.messageToSave = new MessageModel(
                     senderDisplayId, finalLocalMessage, true,

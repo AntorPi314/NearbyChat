@@ -18,12 +18,23 @@ public class PayloadCompress {
     private static final String MSG_MODEL_2 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ.?!@#*";
     private static final String MSG_MODEL_3 = "0123456789-_=&%+;'()[]{}\"|:\\<^~>";
 
+    private static final String MSG_MODEL_1b = "abcdefghijklmnopqrstuvwxyz./:-#*";
+    private static final String MSG_MODEL_2b = "ABCDEFGHIJKLMNOPQRSTUVWXYZ&?%@#+";
+    private static final String MSG_MODEL_3b = "0123456789_=" + ".com/" + ".io/" + ".net/" + ".ai/" + ".tech/" + ".co/" + ".me/" + ".app/" + ".dev/" + ".nu/" + ".cloud/" + ".xyz/" + ".ly/" + ".at/" + ".site/" + ".org/" + "192.168." + ":8080/" + ":8000" + "127.0.0.1";
+
     private static final Map<Character, String> msg_map1 = new HashMap<>();
     private static final Map<String, Character> msg_rev1 = new HashMap<>();
     private static final Map<Character, String> msg_map2 = new HashMap<>();
     private static final Map<String, Character> msg_rev2 = new HashMap<>();
     private static final Map<Character, String> msg_map3 = new HashMap<>();
     private static final Map<String, Character> msg_rev3 = new HashMap<>();
+
+    private static final Map<Character, String> msg_map1b = new HashMap<>();
+    private static final Map<String, Character> msg_rev1b = new HashMap<>();
+    private static final Map<Character, String> msg_map2b = new HashMap<>();
+    private static final Map<String, Character> msg_rev2b = new HashMap<>();
+    private static final Map<Character, String> msg_map3b = new HashMap<>();
+    private static final Map<String, String> msg_rev3b = new HashMap<>();
 
     private static final String LINK_MODEL_1 = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ012345<>|./*";
     private static final String LINK_MODEL_2 = "6789:-_$&+,;=%~?";
@@ -68,6 +79,165 @@ public class PayloadCompress {
             map4.put(c, bits);
             rev_map4.put(bits, c);
         }
+
+        for (int i = 0; i < MSG_MODEL_1b.length(); i++) {
+            char c = MSG_MODEL_1b.charAt(i);
+            String bits = String.format("%5s", Integer.toBinaryString(i)).replace(' ', '0');
+            msg_map1b.put(c, bits);
+            msg_rev1b.put(bits, c);
+        }
+
+        for (int i = 0; i < MSG_MODEL_2b.length(); i++) {
+            char c = MSG_MODEL_2b.charAt(i);
+            String bits = String.format("%5s", Integer.toBinaryString(i)).replace(' ', '0');
+            msg_map2b.put(c, bits);
+            msg_rev2b.put(bits, c);
+        }
+
+        List<String> multiTokens = Arrays.asList(
+                ".com/", ".io/", ".net/", ".ai/", ".tech/",
+                ".co/", ".me/", ".app/", ".dev/", ".nu/",
+                ".cloud/", ".xyz/", ".ly/", ".at/", ".site/",
+                ".org/", "192.168.", ":8080/", ":8000", "127.0.0.1"
+        );
+
+        int tokenIndex = 0;
+        for (String token : multiTokens) {
+            String bits = String.format("%5s", Integer.toBinaryString(tokenIndex)).replace(' ', '0');
+            msg_rev3b.put(bits, token);
+            tokenIndex++;
+        }
+
+        String singleChars = "0123456789_=";
+        for (int i = 0; i < singleChars.length() && tokenIndex < 32; i++) {
+            char c = singleChars.charAt(i);
+            String bits = String.format("%5s", Integer.toBinaryString(tokenIndex)).replace(' ', '0');
+            msg_map3b.put(c, bits);
+            msg_rev3b.put(bits, String.valueOf(c));
+            tokenIndex++;
+        }
+
+
+        String[] tokens = MSG_MODEL_3b.split("");
+        List<String> tokenList = new ArrayList<>();
+
+        tokenList.addAll(Arrays.asList(".com/", ".io/", ".net/", ".ai/", ".tech/",
+                ".co/", ".me/", ".app/", ".dev/", ".nu/",
+                ".cloud/", ".xyz/", ".ly/", ".at/", ".site/",
+                ".org/", "192.168.", ":8080/", ":8000", "127.0.0.1"));
+
+        for (String t : tokens) {
+            if (t.length() == 1) tokenList.add(t);
+        }
+
+        for (int i = 0; i < tokenList.size() && i < 32; i++) {
+            String token = tokenList.get(i);
+            String bits = String.format("%5s", Integer.toBinaryString(i)).replace(' ', '0');
+
+            if (token.length() == 1) {
+                msg_map3b.put(token.charAt(0), bits);
+            }
+            msg_rev3b.put(bits, token);
+        }
+    }
+
+    public static String compressJsonUrl5Bit(String url) {
+        if (url == null || url.isEmpty()) return "";
+
+        StringBuilder bits = new StringBuilder();
+        String escapeHash = msg_map1b.get('#');
+        String escapeStar = msg_map1b.get('*');
+
+        if (escapeHash == null || escapeStar == null) {
+            return null;
+        }
+
+        int i = 0;
+        while (i < url.length()) {
+            String matched = null;
+
+            List<String> multiTokens = Arrays.asList(
+                    ".com/", ".io/", ".net/", ".ai/", ".tech/",
+                    ".co/", ".me/", ".app/", ".dev/", ".nu/",
+                    ".cloud/", ".xyz/", ".ly/", ".at/", ".site/",
+                    ".org/", "192.168.", ":8080/", ":8000", "127.0.0.1"
+            );
+
+            for (String token : multiTokens) {
+                if (url.startsWith(token, i)) {
+                    matched = token;
+                    break;
+                }
+            }
+
+            if (matched != null) {
+                bits.append(escapeStar);
+
+                for (Map.Entry<String, String> entry : msg_rev3b.entrySet()) {
+                    if (entry.getValue().equals(matched)) {
+                        bits.append(entry.getKey());
+                        break;
+                    }
+                }
+                i += matched.length();
+            } else {
+                char c = url.charAt(i);
+
+                if (msg_map1b.containsKey(c)) {
+                    bits.append(msg_map1b.get(c));
+                } else if (msg_map2b.containsKey(c)) {
+                    bits.append(escapeHash);
+                    bits.append(msg_map2b.get(c));
+                } else if (msg_map3b.containsKey(c)) {
+                    bits.append(escapeStar);
+                    bits.append(msg_map3b.get(c));
+                } else {
+                    return null;
+                }
+                i++;
+            }
+        }
+
+        return bitsToAsciiMsg(bits.toString());
+    }
+
+    public static String decompressJsonUrl5Bit(String asciiData) {
+        if (asciiData == null || asciiData.isEmpty()) return "";
+
+        String bits = asciiToBitsMsg(asciiData);
+        StringBuilder result = new StringBuilder();
+        int i = 0;
+        int bitsLen = bits.length();
+
+        while (i < bitsLen) {
+            if (i + 5 > bitsLen) break;
+
+            String block = bits.substring(i, i + 5);
+            Character ch = msg_rev1b.get(block);
+
+            if (ch != null && ch == '#') {
+                if (i + 10 <= bitsLen) {
+                    Character nextCh = msg_rev2b.get(bits.substring(i + 5, i + 10));
+                    if (nextCh != null) result.append(nextCh);
+                    i += 10;
+                } else {
+                    break;
+                }
+            } else if (ch != null && ch == '*') {
+                if (i + 10 <= bitsLen) {
+                    String token = msg_rev3b.get(bits.substring(i + 5, i + 10));
+                    if (token != null) result.append(token);
+                    i += 10;
+                } else {
+                    break;
+                }
+            } else {
+                if (ch != null) result.append(ch);
+                i += 5;
+            }
+        }
+
+        return result.toString();
     }
 
     public static String compressMessage(String msg) {
@@ -370,16 +540,19 @@ public class PayloadCompress {
                 }
             }
         }
+
         if (imageUrls != null && !imageUrls.isEmpty()) {
             String simplified = simplifyLinks(imageUrls);
             String compressed = compressLink(simplified);
             payload.append(MARKER_IMAGE).append(compressed);
         }
+
         if (videoUrls != null && !videoUrls.isEmpty()) {
             String simplified = simplifyLinks(videoUrls);
             String compressed = compressLink(simplified);
             payload.append(MARKER_VIDEO).append(compressed);
         }
+
         return payload.toString();
     }
 

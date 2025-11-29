@@ -79,6 +79,14 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
         MainActivity main = (MainActivity) context;
         String myUserId = main.getCurrentUserId();
 
+        if (msg.isSelf()) {
+            if (msg.isFailed()) {
+                holder.message.setBackgroundResource(R.drawable.bubble_right_red);
+            } else {
+                holder.message.setBackgroundResource(R.drawable.bubble_right);
+            }
+        }
+
         String senderName = main.getDisplayName(msg.getSenderId());
         holder.senderId.setTextColor(Color.parseColor("#555555"));
 
@@ -115,6 +123,7 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
             holder.senderId.setCompoundDrawablesWithIntrinsicBounds(0, 0, 0, 0);
             holder.senderId.setText(senderName.isEmpty() ? msg.getSenderId() : senderName);
         }
+
         if (!msg.getSenderId().equals(holder.itemView.getTag(R.id.tag_sender_id))) {
             holder.itemView.setTag(R.id.tag_sender_id, msg.getSenderId());
         }
@@ -129,6 +138,7 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
                 return true;
             });
         }
+
         if (msg.isReply() && holder.replyContainer != null) {
             String existingPreview = msg.getReplyToMessagePreview();
             boolean isLoading = existingPreview == null || existingPreview.isEmpty() || existingPreview.startsWith("Loading");
@@ -136,13 +146,11 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
             if (isLoading) {
                 holder.replyText.setText("Loading reply...");
                 holder.replyContainer.setVisibility(View.VISIBLE);
-
                 executor.execute(() -> {
                     try {
                         AppDatabase db = AppDatabase.getInstance(context);
                         com.antor.nearbychat.Database.MessageEntity entity =
                                 db.messageDao().getMessageById(msg.getReplyToMessageId());
-
                         String foundPreview = "Message unavailable";
                         if (entity != null) {
                             PayloadCompress.ParsedPayload parsed = PayloadCompress.parsePayload(entity.message);
@@ -167,18 +175,15 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
                 holder.replyText.setText(existingPreview);
                 holder.replyContainer.setVisibility(View.VISIBLE);
             }
-
             holder.replyContainer.setOnClickListener(v -> {
                 String targetMsgId = msg.getReplyToMessageId();
                 int targetPos = -1;
-
                 for (int i = 0; i < messageList.size(); i++) {
                     if (messageList.get(i).getMessageId().equals(targetMsgId)) {
                         targetPos = i;
                         break;
                     }
                 }
-
                 if (targetPos != -1) {
                     if (context instanceof MainActivity) {
                         ((MainActivity) context).scrollToAndHighlight(targetPos);
@@ -187,14 +192,24 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
                     Toast.makeText(context, "Original message not found nearby", Toast.LENGTH_SHORT).show();
                 }
             });
-
         } else if (holder.replyContainer != null) {
             holder.replyContainer.setVisibility(View.GONE);
         }
 
         String rawMessage = msg.getMessage();
+        if (msg.isFailed() && !"N".equals(msg.getChatType())) {
+            try {
+                String password = MessageHelper.getPasswordForChat(context, msg.getChatType(), msg.getChatId(), myUserId);
+                String decrypted = CryptoUtils.decrypt(rawMessage, password);
+                if (decrypted != null && !decrypted.isEmpty()) {
+                    rawMessage = decrypted;
+                }
+            } catch (Exception e) {
+                // Decryption failed, show raw
+            }
+        }
 
-        if ((!msg.isComplete() || msg.isFailed()) && !rawMessage.startsWith("[u>") && !rawMessage.startsWith("[m>") && !rawMessage.startsWith("[v>")) {
+        if (!msg.isComplete() && !rawMessage.startsWith("[u>") && !rawMessage.startsWith("[m>") && !rawMessage.startsWith("[v>")) {
             bindText(holder, rawMessage);
             bindImages(holder, "", false);
             bindVideos(holder, "");
@@ -244,12 +259,10 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
         }
 
         holder.itemView.setOnClickListener(v -> clickListener.onClick(msg));
-
         holder.itemView.setOnLongClickListener(v -> {
             longClickListener.onClick(msg);
             return true;
         });
-
         if (holder.message != null) {
             holder.message.setOnLongClickListener(v -> {
                 longClickListener.onClick(msg);

@@ -182,17 +182,26 @@ public class MessageProcessor {
             }
         }
 
-        // ========== NEW LOGIC START ==========
         if (msgTypeId == 1) {
             actualPayload = "[u>" + actualPayload;
+
         } else if (msgTypeId == 2) {
-            actualPayload = "g//" + actualPayload;
+            String decompressed = PayloadCompress.decompressJsonUrl5Bit(actualPayload);
+            actualPayload = "g//" + decompressed;
+            Log.d(TAG, "Decompressed JSON URL using 5-bit model");
+
+        } else if (msgTypeId == 3) {
+            String decompressed = PayloadCompress.decompressLink(actualPayload);
+            String desimplified = PayloadCompress.desimplifyLinks(decompressed);
+            actualPayload = "g//" + desimplified;
+            Log.d(TAG, "Decompressed JSON URL using 6-bit model");
+
         } else if (msgTypeId == 14) {
             actualPayload = "[m>" + actualPayload;
+
         } else if (msgTypeId == 15) {
             actualPayload = "[v>" + actualPayload;
         }
-        // ========== NEW LOGIC END ==========
 
         MessageModel newMsg = new MessageModel(
                 senderDisplayId, actualPayload, false,
