@@ -662,46 +662,7 @@ public class BleMessagingService extends Service {
         }
     }
 
-    private void handleScanResult(ScanResult result) {
-        ScanRecord record = result.getScanRecord();
-        if (record == null) return;
-        byte[] data = record.getServiceData(new ParcelUuid(SERVICE_UUID));
-        if (data == null) return;
 
-        String chunkKey = generateChunkKey(data);
-        if (!chunkKey.isEmpty() && receivedChunks.get(chunkKey) != null) {
-            return;
-        }
-        if (!chunkKey.isEmpty()) {
-            receivedChunks.put(chunkKey, true);
-        }
-        String messageId = Arrays.toString(data);
-        if (receivedMessages.get(messageId) != null) return;
-        receivedMessages.put(messageId, true);
-
-        messageProcessor.processIncomingDataAsync(data, userId)
-                .thenAccept(msg -> {
-                    if (msg != null) {
-                        if (isUserBlocked(msg.getSenderId())) {
-                            Log.d(TAG, "⛔ Dropping message from blocked user: " + msg.getSenderId());
-                            return;
-                        }
-
-                        if ("G".equals(msg.getChatType())) {
-                            if (!isUserInGroup(msg.getChatId())) {
-                                Log.d(TAG, "⛔ Dropping message from unjoined group: " + msg.getChatId());
-                                return;
-                            }
-                        }
-
-                        addMessage(msg);
-                    }
-                })
-                .exceptionally(e -> {
-                    Log.e(TAG, "Error processing message", e);
-                    return null;
-                });
-    }
 
     private boolean isUserInGroup(String groupId) {
         try {
@@ -980,6 +941,138 @@ public class BleMessagingService extends Service {
                 " | isComplete=" + msg.isComplete() +
                 " | isFailed=" + msg.isFailed() +
                 " | content=" + msg.getMessage().substring(0, Math.min(50, msg.getMessage().length())));
+    }
+
+    private void handleScanResult(ScanResult result) {
+        ScanRecord record = result.getScanRecord();
+        if (record == null) return;
+        byte[] data = record.getServiceData(new ParcelUuid(SERVICE_UUID));
+        if (data == null) return;
+
+        if (MessageConverterForBle.isAckPacket(data)) {
+            handleAckPacket(data);
+            return;
+        }
+
+        String chunkKey = generateChunkKey(data);
+        if (!chunkKey.isEmpty() && receivedChunks.get(chunkKey) != null) {
+            return;
+        }
+        if (!chunkKey.isEmpty()) {
+            receivedChunks.put(chunkKey, true);
+        }
+        String messageId = Arrays.toString(data);
+        if (receivedMessages.get(messageId) != null) return;
+        receivedMessages.put(messageId, true);
+
+        messageProcessor.processIncomingDataAsync(data, userId)
+                .thenAccept(msg -> {
+                    if (msg != null) {
+                        if (isUserBlocked(msg.getSenderId())) {
+                            Log.d(TAG, "⛔ Dropping message from blocked user: " + msg.getSenderId());
+                            return;
+                        }
+
+                        if ("G".equals(msg.getChatType())) {
+                            if (!isUserInGroup(msg.getChatId())) {
+                                Log.d(TAG, "⛔ Dropping message from unjoined group: " + msg.getChatId());
+                                return;
+                            }
+                        }
+
+                        addMessage(msg);
+
+                        if ("F".equals(msg.getChatType()) && msg.isComplete() && !msg.isSelf()) {
+                            sendAckIfEnabled(msg);
+                        }
+                    }
+                })
+                .exceptionally(e -> {
+                    Log.e(TAG, "Error processing message", e);
+                    return null;
+                });
+    }
+
+    private void handleAckPacket(byte[] data) {
+        try {
+            MessageConverterForBle.AckInfo ackInfo = MessageConverterForBle.parseAckPacket(data);
+            if (ackInfo == null) return;
+
+            long senderBits = MessageHelper.asciiIdToTimestamp(ackInfo.senderAsciiId);
+            String senderDisplayId = MessageHelper.timestampToDisplayId(senderBits);
+
+            long msgBits = MessageHelper.asciiIdToTimestamp(ackInfo.messageAsciiId);
+            String msgDisplayId = MessageHelper.timestampToDisplayId(msgBits);
+
+            long friendBits = MessageHelper.asciiIdToTimestamp(ackInfo.friendAsciiId);
+            String friendDisplayId = MessageHelper.timestampToDisplayId(friendBits);
+
+            if (!senderDisplayId.equals(userId)) {
+                Log.d(TAG, "❌ ACK not for me. Expected: " + userId + ", Got: " + senderDisplayId);
+                return;
+            }
+
+            Log.d(TAG, "✅ Received ACK for message: " + msgDisplayId + " from: " + friendDisplayId);
+
+            processingExecutor.submit(() -> {
+                try {
+                    messageDao.markMessageAsAcknowledged(userId, msgDisplayId);
+                    Log.d(TAG, "✅ Marked message as acknowledged in database");
+                } catch (Exception e) {
+                    Log.e(TAG, "Error marking message as acknowledged", e);
+                }
+            });
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error handling ACK packet", e);
+        }
+    }
+
+    private void sendAckIfEnabled(MessageModel msg) {
+        try {
+            String senderAsciiId = MessageHelper.timestampToAsciiId(
+                    MessageHelper.displayIdToTimestamp(msg.getSenderId())
+            );
+
+            SharedPreferences prefs = getSharedPreferences("NearbyChatPrefs", MODE_PRIVATE);
+            String key = "F:" + senderAsciiId;
+            boolean isAckEnabled = prefs.getBoolean("send_confirmation_" + key, false);
+
+            if (!isAckEnabled) {
+                return;
+            }
+
+            long msgBits = msg.getMessageTimestampBits();
+            if (msgBits == 0) {
+                msgBits = MessageHelper.displayIdToTimestamp(msg.getMessageId());
+            }
+            String messageAsciiId = MessageHelper.timestampToAsciiId(msgBits);
+
+            String myAsciiId = MessageHelper.timestampToAsciiId(
+                    MessageHelper.displayIdToTimestamp(userId)
+            );
+
+            byte[] ackPacket = MessageConverterForBle.createAckPacket(
+                    senderAsciiId,
+                    messageAsciiId,
+                    msg.getChunkCount(),
+                    0,
+                    myAsciiId
+            );
+
+            for (int i = 0; i < 3; i++) {
+                final int index = i;
+                mainHandler.postDelayed(() -> {
+                    startAdvertising(ackPacket);
+                    Log.d(TAG, "📤 Sent ACK packet " + (index + 1) + "/3");
+                }, i * 1000L);
+            }
+
+            Log.d(TAG, "📤 Sending ACK for message: " + msg.getMessageId());
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error sending ACK", e);
+        }
     }
 
     private void showNewMessageNotification(MessageModel msg) {

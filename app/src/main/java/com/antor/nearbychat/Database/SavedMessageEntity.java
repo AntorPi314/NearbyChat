@@ -25,6 +25,7 @@ public class SavedMessageEntity {
     public String replyToUserId = "";
     public String replyToMessageId = "";
     public String replyToMessagePreview = "";
+    public boolean isAcknowledged = false;
 
     public static SavedMessageEntity fromMessageEntity(MessageEntity entity) {
         SavedMessageEntity saved = new SavedMessageEntity();
@@ -44,6 +45,8 @@ public class SavedMessageEntity {
         saved.replyToUserId = entity.replyToUserId;
         saved.replyToMessageId = entity.replyToMessageId;
         saved.replyToMessagePreview = entity.replyToMessagePreview;
+
+        saved.isAcknowledged = entity.isAcknowledged;
         return saved;
     }
 
@@ -64,6 +67,9 @@ public class SavedMessageEntity {
         model.setReplyToUserId(replyToUserId);
         model.setReplyToMessageId(replyToMessageId);
         model.setReplyToMessagePreview(replyToMessagePreview);
+
+        model.setAcknowledged(isAcknowledged);
+
         return model;
     }
 }

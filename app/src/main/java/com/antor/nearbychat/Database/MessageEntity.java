@@ -38,6 +38,7 @@ public class MessageEntity {
     public String replyToUserId = "";
     public String replyToMessageId = "";
     public String replyToMessagePreview = "";
+    public boolean isAcknowledged = false;
 
     @androidx.room.Ignore
     public MessageEntity(String senderId, String message, boolean isSelf,
@@ -78,6 +79,9 @@ public class MessageEntity {
         entity.replyToUserId = messageModel.getReplyToUserId();
         entity.replyToMessageId = messageModel.getReplyToMessageId();
         entity.replyToMessagePreview = messageModel.getReplyToMessagePreview();
+
+        entity.isAcknowledged = messageModel.isAcknowledged();
+
         return entity;
     }
 
@@ -104,6 +108,9 @@ public class MessageEntity {
         model.setReplyToUserId(replyToUserId);
         model.setReplyToMessageId(replyToMessageId);
         model.setReplyToMessagePreview(replyToMessagePreview);
+
+        model.setAcknowledged(isAcknowledged);
+
         return model;
     }
 }

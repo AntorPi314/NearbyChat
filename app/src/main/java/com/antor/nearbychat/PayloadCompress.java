@@ -20,7 +20,7 @@ public class PayloadCompress {
 
     private static final String MSG_MODEL_1b = "abcdefghijklmnopqrstuvwxyz./:-#*";
     private static final String MSG_MODEL_2b = "ABCDEFGHIJKLMNOPQRSTUVWXYZ&?%@#+";
-    private static final String MSG_MODEL_3b = "0123456789_=" + ".com/" + ".io/" + ".net/" + ".ai/" + ".tech/" + ".co/" + ".me/" + ".app/" + ".dev/" + ".nu/" + ".cloud/" + ".xyz/" + ".ly/" + ".at/" + ".site/" + ".org/" + "192.168." + ":8080/" + ":8000" + "127.0.0.1";
+    private static final String MSG_MODEL_3b = "0123456789_=" + ".com/" + ".io/" + ".net/" + ".ai/" + ".tech/" + ".co/" + ".me/" + ".app/" + ".dev/" + ".nu/" + ".cloud/" + ".xyz/" + ".ly/" + ".at/" + ".site/" + ".org/" + "192.168." + ":8080/" + ":8000/" + "127.0.0.1";
 
     private static final Map<Character, String> msg_map1 = new HashMap<>();
     private static final Map<String, Character> msg_rev1 = new HashMap<>();
@@ -98,7 +98,7 @@ public class PayloadCompress {
                 ".com/", ".io/", ".net/", ".ai/", ".tech/",
                 ".co/", ".me/", ".app/", ".dev/", ".nu/",
                 ".cloud/", ".xyz/", ".ly/", ".at/", ".site/",
-                ".org/", "192.168.", ":8080/", ":8000", "127.0.0.1"
+                ".org/", "192.168.", ":8080/", ":8000/", "127.0.0.1"
         );
 
         int tokenIndex = 0;
@@ -124,7 +124,7 @@ public class PayloadCompress {
         tokenList.addAll(Arrays.asList(".com/", ".io/", ".net/", ".ai/", ".tech/",
                 ".co/", ".me/", ".app/", ".dev/", ".nu/",
                 ".cloud/", ".xyz/", ".ly/", ".at/", ".site/",
-                ".org/", "192.168.", ":8080/", ":8000", "127.0.0.1"));
+                ".org/", "192.168.", ":8080/", ":8000/", "127.0.0.1"));
 
         for (String t : tokens) {
             if (t.length() == 1) tokenList.add(t);
@@ -160,7 +160,7 @@ public class PayloadCompress {
                     ".com/", ".io/", ".net/", ".ai/", ".tech/",
                     ".co/", ".me/", ".app/", ".dev/", ".nu/",
                     ".cloud/", ".xyz/", ".ly/", ".at/", ".site/",
-                    ".org/", "192.168.", ":8080/", ":8000", "127.0.0.1"
+                    ".org/", "192.168.", ":8080/", ":8000/", "127.0.0.1"
             );
 
             for (String token : multiTokens) {

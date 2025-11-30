@@ -935,12 +935,12 @@ public class MainActivity extends BaseActivity {
 
         TextView title = dialog.findViewById(R.id.dia_title);
         ImageView switchNotification = dialog.findViewById(R.id.switchNotification);
+        ImageView switchSendConfirmation = dialog.findViewById(R.id.switchSendConfirmation);
         EditText editName = dialog.findViewById(R.id.editName);
         EditText editId = dialog.findViewById(R.id.editFriendId);
         EditText editKey = dialog.findViewById(R.id.editEncryptionKey);
 
         Button btnBlockUnblock = dialog.findViewById(R.id.btnDelete);
-
         Button btnCancel = dialog.findViewById(R.id.btnCancel);
         Button btnSave = dialog.findViewById(R.id.btnAdd);
         ImageView qrCodeShow = dialog.findViewById(R.id.qrCodeShow);
@@ -1013,6 +1013,21 @@ public class MainActivity extends BaseActivity {
                     Toast.LENGTH_SHORT).show();
         });
 
+        boolean isSendConfirmationEnabled = getSendConfirmationState("F", friendChatId);
+        switchSendConfirmation.setImageResource(
+                isSendConfirmationEnabled ? R.drawable.ic_send_confirmation_on : R.drawable.ic_send_confirmation_off
+        );
+
+        switchSendConfirmation.setOnClickListener(v -> {
+            boolean newState = !getSendConfirmationState("F", friendChatId);
+            saveSendConfirmationState("F", friendChatId, newState);
+            switchSendConfirmation.setImageResource(
+                    newState ? R.drawable.ic_send_confirmation_on : R.drawable.ic_send_confirmation_off
+            );
+            Toast.makeText(this, newState ? "Send confirmation enabled" : "Send confirmation disabled",
+                    Toast.LENGTH_SHORT).show();
+        });
+
         btnCancel.setOnClickListener(v -> dialog.dismiss());
 
         final boolean isBlocked = isUserBlocked(displayId);
@@ -1027,7 +1042,6 @@ public class MainActivity extends BaseActivity {
                     ColorStateList.valueOf(Color.parseColor("#C30E0E"))
             );
         }
-
 
         btnBlockUnblock.setOnClickListener(v -> {
             String currentName = editName.getText().toString().trim();
@@ -1071,6 +1085,18 @@ public class MainActivity extends BaseActivity {
         });
 
         dialog.show();
+    }
+
+    private boolean getSendConfirmationState(String chatType, String chatId) {
+        SharedPreferences prefs = getSharedPreferences("NearbyChatPrefs", MODE_PRIVATE);
+        String key = chatType + ":" + chatId;
+        return prefs.getBoolean("send_confirmation_" + key, false);
+    }
+
+    private void saveSendConfirmationState(String chatType, String chatId, boolean enabled) {
+        SharedPreferences prefs = getSharedPreferences("NearbyChatPrefs", MODE_PRIVATE);
+        String key = chatType + ":" + chatId;
+        prefs.edit().putBoolean("send_confirmation_" + key, enabled).apply();
     }
 
     public void showEditFriendDialogForSender(String senderDisplayId) {

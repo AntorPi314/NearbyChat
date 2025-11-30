@@ -10,7 +10,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase;
 
 @Database(
         entities = {MessageEntity.class, SavedMessageEntity.class},
-        version = 13,
+        version = 14,
         exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -18,6 +18,14 @@ public abstract class AppDatabase extends RoomDatabase {
     public abstract MessageDao messageDao();
     public abstract SavedMessageDao savedMessageDao();
     private static volatile AppDatabase INSTANCE;
+
+    static final Migration MIGRATION_13_14 = new Migration(13, 14) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase database) {
+            database.execSQL("ALTER TABLE messages ADD COLUMN isAcknowledged INTEGER NOT NULL DEFAULT 0");
+            database.execSQL("ALTER TABLE saved_messages ADD COLUMN isAcknowledged INTEGER NOT NULL DEFAULT 0");
+        }
+    };
 
     static final Migration MIGRATION_10_11 = new Migration(10, 11) {
         @Override
@@ -135,7 +143,8 @@ public abstract class AppDatabase extends RoomDatabase {
                                     MIGRATION_9_10,
                                     MIGRATION_10_11,
                                     MIGRATION_11_12,
-                                    MIGRATION_12_13
+                                    MIGRATION_12_13,
+                                    MIGRATION_13_14
                             )
                             .fallbackToDestructiveMigration()
                             .build();

@@ -87,4 +87,7 @@ public interface MessageDao {
 
     @Query("SELECT * FROM messages WHERE messageId = :messageId LIMIT 1")
     MessageEntity getMessageById(String messageId);
+
+    @Query("UPDATE messages SET isAcknowledged = 1 WHERE senderId = :senderId AND messageId = :messageId")
+    void markMessageAsAcknowledged(String senderId, String messageId);
 }

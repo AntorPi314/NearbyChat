@@ -34,6 +34,9 @@ public class MessageConverterForBle {
     private final long senderIdBits;
     private long existingMessageIdBits = -1;
 
+    private static final int ACK_MSG_TYPE_ID = 12; // 1100 in binary
+    private static final int ACK_PACKET_SIZE = 18; // 13 base + 5 friendId
+
     private final String payloadToSend;
 
     private MessageModel messageToSave;
@@ -222,6 +225,83 @@ public class MessageConverterForBle {
             }
         }
     }
+
+
+    public static byte[] createAckPacket(String senderAsciiId, String messageAsciiId,
+                                         int totalChunks, int chunkIndex, String friendAsciiId) {
+        byte[] packet = new byte[ACK_PACKET_SIZE];
+        int offset = 0;
+
+        // Header byte: chatType=3 (Friend), replyBit=0, msgTypeId=12 (1100)
+        int chatTypeId = 3; // Friend
+        int replyBit = 0;
+        int msgTypeId = ACK_MSG_TYPE_ID;
+        byte headerByte = (byte) ((chatTypeId << 5) | (replyBit << 4) | msgTypeId);
+
+        packet[offset++] = headerByte;
+
+        System.arraycopy(senderAsciiId.getBytes(ISO_8859_1), 0, packet, offset, 5);
+        offset += 5;
+
+        System.arraycopy(messageAsciiId.getBytes(ISO_8859_1), 0, packet, offset, 5);
+        offset += 5;
+
+        packet[offset++] = (byte) totalChunks;
+
+        packet[offset++] = (byte) chunkIndex;
+
+        System.arraycopy(friendAsciiId.getBytes(ISO_8859_1), 0, packet, offset, 5);
+
+        return packet;
+    }
+
+    public static boolean isAckPacket(byte[] data) {
+        if (data == null || data.length < 13) return false;
+
+        int headerByte = data[0] & 0xFF;
+        int msgTypeId = headerByte & 0b1111;
+
+        return msgTypeId == ACK_MSG_TYPE_ID;
+    }
+
+    public static AckInfo parseAckPacket(byte[] data) {
+        if (!isAckPacket(data) || data.length < ACK_PACKET_SIZE) {
+            return null;
+        }
+
+        int offset = 1;
+
+        String senderAsciiId = new String(data, offset, 5, ISO_8859_1);
+        offset += 5;
+
+        String messageAsciiId = new String(data, offset, 5, ISO_8859_1);
+        offset += 5;
+
+        int totalChunks = data[offset++] & 0xFF;
+        int chunkIndex = data[offset++] & 0xFF;
+
+        String friendAsciiId = new String(data, offset, 5, ISO_8859_1);
+
+        return new AckInfo(senderAsciiId, messageAsciiId, totalChunks, chunkIndex, friendAsciiId);
+    }
+
+    public static class AckInfo {
+        public final String senderAsciiId;
+        public final String messageAsciiId;
+        public final int totalChunks;
+        public final int chunkIndex;
+        public final String friendAsciiId;
+
+        public AckInfo(String senderAsciiId, String messageAsciiId, int totalChunks,
+                       int chunkIndex, String friendAsciiId) {
+            this.senderAsciiId = senderAsciiId;
+            this.messageAsciiId = messageAsciiId;
+            this.totalChunks = totalChunks;
+            this.chunkIndex = chunkIndex;
+            this.friendAsciiId = friendAsciiId;
+        }
+    }
+
 
 
     private byte[] createByteHeaderPacket(byte headerByte, String senderAscii, String msgAscii,

@@ -88,13 +88,24 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
         }
 
         String senderName = main.getDisplayName(msg.getSenderId());
+
         holder.senderId.setTextColor(Color.parseColor("#555555"));
+
+        if (msg.isSelf() && msg.isAcknowledged()) {
+            holder.senderId.setTextColor(Color.parseColor("#0D80E0"));
+        }
 
         if (msg.isReply()) {
             holder.senderId.setCompoundDrawablesWithIntrinsicBounds(R.drawable.reply, 0, 0, 0);
             holder.senderId.setCompoundDrawablePadding(8);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                holder.senderId.setCompoundDrawableTintList(android.content.res.ColorStateList.valueOf(Color.parseColor("#888888")));
+                holder.senderId.setCompoundDrawableTintList(
+                        android.content.res.ColorStateList.valueOf(
+                                msg.isSelf() && msg.isAcknowledged()
+                                        ? Color.parseColor("#0D80E0")
+                                        : Color.parseColor("#888888")
+                        )
+                );
             }
 
             String replyToUserId = msg.getReplyToUserId();
@@ -111,7 +122,9 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ChatViewHolder
                     holder.senderId.setText(senderName + " replied to you");
                     holder.senderId.setTextColor(Color.parseColor("#0D80E0"));
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        holder.senderId.setCompoundDrawableTintList(android.content.res.ColorStateList.valueOf(Color.parseColor("#0D80E0")));
+                        holder.senderId.setCompoundDrawableTintList(
+                                android.content.res.ColorStateList.valueOf(Color.parseColor("#0D80E0"))
+                        );
                     }
                 } else if (replyToUserId.equals(msg.getSenderId())) {
                     holder.senderId.setText(senderName + " replied to themself");
